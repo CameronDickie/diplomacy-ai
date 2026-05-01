@@ -1,0 +1,19 @@
+{
+  "name": "@diplomacy/client",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@diplomacy/shared": "*",
+    "socket.io-client": "^4.7.5"
+  },
+  "devDependencies": {
+    "typescript": "*",
+    "vite": "^5.2.0"
+  }
+}
