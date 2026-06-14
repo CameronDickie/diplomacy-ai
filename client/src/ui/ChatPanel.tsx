@@ -22,6 +22,11 @@ export function ChatPanel({ game }: { game: GameSocket }) {
       : [],
     [game.diplomaticMessages, game.myPower, recipient]
   );
+  const selectedPlayer = recipients.find(player => player.power === recipient);
+  const isWaitingForLlm =
+    selectedPlayer?.kind === 'LLM' &&
+    recipient !== null &&
+    ['THINKING', 'RETRYING'].includes(game.llmStatuses[recipient] ?? '');
 
   useEffect(() => {
     if (!recipient || !recipients.some(player => player.power === recipient)) {
@@ -98,6 +103,15 @@ export function ChatPanel({ game }: { game: GameSocket }) {
               </article>
             );
           })}
+          {isWaitingForLlm && recipient && (
+            <article className="chat-message incoming typing-message" aria-live="polite">
+              <div>
+                <strong>{recipient}</strong>
+                <span>thinking</span>
+              </div>
+              <p><span className="typing-dot">.</span><span className="typing-dot">.</span><span className="typing-dot">.</span></p>
+            </article>
+          )}
         </div>
 
         <div className="message-composer">

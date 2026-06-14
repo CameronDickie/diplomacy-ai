@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import type { GameState, TerritoryId, Unit } from '@diplomacy/shared';
+import type { Coast, GameState, Order, TerritoryId, Unit } from '@diplomacy/shared';
 import { POWER_COLORS, TERRITORY_BY_ID, territoryName } from '../lib/game.js';
 
 interface Props {
   gameState: GameState | null;
   selectedTerritory: TerritoryId | null;
   validTargets: TerritoryId[];
+  pendingOrders: Order[];
   onSelectTerritory: (territory: TerritoryId) => void;
 }
 
@@ -25,11 +26,13 @@ const INTERNAL_TO_SVG: Record<TerritoryId, string> = {
 const MIN_ZOOM = 0.75;
 const MAX_ZOOM = 2.5;
 const ZOOM_STEP = 0.25;
+const WHEEL_ZOOM_STEP = 0.1;
 
 export function MapGraph({
   gameState,
   selectedTerritory,
   validTargets,
+  pendingOrders,
   onSelectTerritory,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -72,6 +75,7 @@ export function MapGraph({
     svg.setAttribute('role', 'img');
     svg.setAttribute('aria-label', 'Interactive Diplomacy board');
     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svg.querySelectorAll('title').forEach(title => title.remove());
 
     const provinces = svg.querySelector<SVGGElement>('#provinces');
     if (provinces) {
@@ -124,6 +128,7 @@ export function MapGraph({
     }
 
     renderUnits(svg, gameState?.units ?? []);
+    renderOrders(svg, pendingOrders);
 
     const handleClick = (event: Event) => {
       if (suppressClickRef.current) {
@@ -140,7 +145,14 @@ export function MapGraph({
     };
     svg.addEventListener('click', handleClick);
     return () => svg.removeEventListener('click', handleClick);
-  }, [gameState, markup, onSelectTerritory, selectedTerritory, validTargets]);
+  }, [
+    gameState,
+    markup,
+    onSelectTerritory,
+    pendingOrders,
+    selectedTerritory,
+    validTargets,
+  ]);
 
   if (loadError) {
     return <div className="map-message">Map unavailable: {loadError}</div>;
@@ -151,6 +163,30 @@ export function MapGraph({
 
   function changeZoom(delta: number) {
     setZoom(current => clampZoom(current + delta));
+  }
+
+  function handleWheel(event: React.WheelEvent<HTMLDivElement>) {
+    const container = containerRef.current;
+    if (!container || event.deltaY === 0) return;
+    event.preventDefault();
+
+    const nextZoom = clampZoom(
+      zoom + (event.deltaY < 0 ? WHEEL_ZOOM_STEP : -WHEEL_ZOOM_STEP)
+    );
+    if (nextZoom === zoom) return;
+
+    const bounds = container.getBoundingClientRect();
+    const pointerX = event.clientX - bounds.left;
+    const pointerY = event.clientY - bounds.top;
+    const contentX = container.scrollLeft + pointerX;
+    const contentY = container.scrollTop + pointerY;
+    const ratio = nextZoom / zoom;
+
+    setZoom(nextZoom);
+    requestAnimationFrame(() => {
+      container.scrollLeft = contentX * ratio - pointerX;
+      container.scrollTop = contentY * ratio - pointerY;
+    });
   }
 
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
@@ -218,6 +254,14 @@ export function MapGraph({
           +
         </button>
       </div>
+      {pendingOrders.length > 0 && (
+        <div className="order-legend" aria-label="Order symbols">
+          <span><i className="legend-hold" /> Hold</span>
+          <span><i className="legend-move" /> Move</span>
+          <span><i className="legend-support" /> Support</span>
+          <span><i className="legend-convoy" /> Convoy</span>
+        </div>
+      )}
       <div
         className="map-viewport"
         ref={containerRef}
@@ -225,6 +269,7 @@ export function MapGraph({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerEnd}
         onPointerCancel={handlePointerEnd}
+        onWheel={handleWheel}
       >
         <div
           className="map-canvas"
@@ -274,6 +319,207 @@ function renderUnits(svg: SVGSVGElement, units: Unit[]): void {
     marker.append(body, label);
     layer.append(marker);
   }
+}
+
+function renderOrders(svg: SVGSVGElement, orders: Order[]): void {
+  const layer = svg.querySelector<SVGGElement>('#orders');
+  if (!layer) return;
+  layer.replaceChildren();
+
+  for (const order of orders) {
+    const source = territoryCenter(svg, order.unitTerritory, order.unitCoast);
+    if (!source) continue;
+    const color = POWER_COLORS[order.power];
+
+    if (order.type === 'HOLD') {
+      drawOrderRing(layer, source, color, 'H');
+      continue;
+    }
+
+    if (order.type === 'MOVE' && order.targetTerritory) {
+      const target = territoryCenter(svg, order.targetTerritory, order.targetCoast);
+      if (target) drawOrderArrow(layer, source, target, color, 'move');
+      continue;
+    }
+
+    if (order.type === 'SUPPORT_HOLD' && order.supportedUnit) {
+      const supported = territoryCenter(svg, order.supportedUnit, null);
+      if (supported) {
+        drawOrderArrow(layer, source, supported, color, 'support-hold', false);
+        drawOrderRing(layer, supported, color, 'S', 24);
+      }
+      continue;
+    }
+
+    if (order.type === 'SUPPORT_MOVE' && order.supportedDestination) {
+      const destination = territoryCenter(svg, order.supportedDestination, null);
+      if (destination) {
+        drawOrderArrow(layer, source, destination, color, 'support-move');
+        drawOrderBadge(layer, source, 'S');
+      }
+      continue;
+    }
+
+    if (order.type === 'CONVOY' && order.supportedUnit && order.targetTerritory) {
+      const army = territoryCenter(svg, order.supportedUnit, null);
+      const destination = territoryCenter(svg, order.targetTerritory, null);
+      if (army && destination) {
+        drawOrderArrow(layer, army, source, color, 'convoy', false);
+        drawOrderArrow(layer, source, destination, color, 'convoy');
+        drawOrderBadge(layer, source, 'C');
+      }
+    }
+  }
+}
+
+function drawOrderArrow(
+  layer: SVGGElement,
+  source: Point,
+  target: Point,
+  color: string,
+  kind: 'move' | 'support-hold' | 'support-move' | 'convoy',
+  arrow = true
+): void {
+  const shortened = shortenLine(source, target, 22, arrow ? 20 : 22);
+  let lineEnd = shortened.end;
+  if (arrow) {
+    const dx = shortened.end.x - shortened.start.x;
+    const dy = shortened.end.y - shortened.start.y;
+    const distance = Math.hypot(dx, dy) || 1;
+    const arrowLength = 18;
+    lineEnd = {
+      x: shortened.end.x - dx / distance * (arrowLength - 1),
+      y: shortened.end.y - dy / distance * (arrowLength - 1),
+    };
+  }
+  drawOrderLine(layer, shortened.start, lineEnd, color, kind, true);
+  drawOrderLine(layer, shortened.start, lineEnd, color, kind, false);
+  if (arrow) drawArrowHead(layer, shortened.start, shortened.end, color, kind);
+}
+
+function drawOrderLine(
+  layer: SVGGElement,
+  source: Point,
+  target: Point,
+  color: string,
+  kind: 'move' | 'support-hold' | 'support-move' | 'convoy',
+  outline: boolean
+): void {
+  const line = document.createElementNS(SVG_NAMESPACE, 'line');
+  line.classList.add(outline ? 'order-path-outline' : 'order-path', `order-${kind}`);
+  line.setAttribute('x1', String(source.x));
+  line.setAttribute('y1', String(source.y));
+  line.setAttribute('x2', String(target.x));
+  line.setAttribute('y2', String(target.y));
+  line.style.setProperty('--order-color', color);
+  layer.append(line);
+}
+
+function drawArrowHead(
+  layer: SVGGElement,
+  source: Point,
+  target: Point,
+  color: string,
+  kind: string
+): void {
+  const angle = Math.atan2(target.y - source.y, target.x - source.x);
+  const length = 18;
+  const width = 10;
+  const back = {
+    x: target.x - Math.cos(angle) * length,
+    y: target.y - Math.sin(angle) * length,
+  };
+  const points = [
+    target,
+    {
+      x: back.x + Math.cos(angle + Math.PI / 2) * width,
+      y: back.y + Math.sin(angle + Math.PI / 2) * width,
+    },
+    {
+      x: back.x + Math.cos(angle - Math.PI / 2) * width,
+      y: back.y + Math.sin(angle - Math.PI / 2) * width,
+    },
+  ];
+  const head = document.createElementNS(SVG_NAMESPACE, 'polygon');
+  head.classList.add('order-arrowhead', `order-${kind}`);
+  head.setAttribute('points', points.map(point => `${point.x},${point.y}`).join(' '));
+  head.style.setProperty('--order-color', color);
+  layer.append(head);
+}
+
+function drawOrderRing(
+  layer: SVGGElement,
+  center: Point,
+  color: string,
+  label: string,
+  radius = 27
+): void {
+  const ring = document.createElementNS(SVG_NAMESPACE, 'circle');
+  ring.classList.add('order-ring');
+  ring.setAttribute('cx', String(center.x));
+  ring.setAttribute('cy', String(center.y));
+  ring.setAttribute('r', String(radius));
+  ring.style.setProperty('--order-color', color);
+  layer.append(ring);
+  drawOrderBadge(layer, center, label);
+}
+
+function drawOrderBadge(layer: SVGGElement, center: Point, label: string): void {
+  const badge = document.createElementNS(SVG_NAMESPACE, 'text');
+  badge.classList.add('order-badge');
+  badge.setAttribute('x', String(center.x));
+  badge.setAttribute('y', String(center.y - 24));
+  badge.textContent = label;
+  layer.append(badge);
+}
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+function territoryCenter(
+  svg: SVGSVGElement,
+  territory: TerritoryId,
+  coast: Coast | null
+): Point | null {
+  const province = INTERNAL_TO_SVG[territory] ?? territory.toLowerCase();
+  const coastSuffix = coast ? `/${{
+    NORTH: 'nc',
+    SOUTH: 'sc',
+    EAST: 'ec',
+    WEST: 'wc',
+  }[coast]}` : '';
+  const anchor =
+    svg.getElementById(`${province}${coastSuffix}Center`) ??
+    svg.getElementById(`${province}Center`);
+  if (!(anchor instanceof SVGGraphicsElement)) return null;
+  const box = anchor.getBBox();
+  return {
+    x: box.x + box.width / 2,
+    y: box.y + box.height / 2,
+  };
+}
+
+function shortenLine(
+  source: Point,
+  target: Point,
+  sourcePadding: number,
+  targetPadding: number
+): { start: Point; end: Point } {
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const distance = Math.hypot(dx, dy) || 1;
+  return {
+    start: {
+      x: source.x + dx / distance * sourcePadding,
+      y: source.y + dy / distance * sourcePadding,
+    },
+    end: {
+      x: target.x - dx / distance * targetPadding,
+      y: target.y - dy / distance * targetPadding,
+    },
+  };
 }
 
 function unitAnchor(unit: Unit): string {

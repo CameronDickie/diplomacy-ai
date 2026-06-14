@@ -47,6 +47,7 @@ export function OrderPanel(props: Props) {
   const [supportedUnit, setSupportedUnit] = useState<TerritoryId>('');
   const [supportedDestination, setSupportedDestination] = useState<TerritoryId>('');
   const [viaConvoy, setViaConvoy] = useState(false);
+  const [draftDirty, setDraftDirty] = useState(false);
 
   useEffect(() => {
     setOrderType('HOLD');
@@ -55,6 +56,7 @@ export function OrderPanel(props: Props) {
     setSupportedUnit('');
     setSupportedDestination('');
     setViaConvoy(false);
+    setDraftDirty(false);
   }, [selectedUnit?.id]);
 
   const supportHoldUnits = useMemo(() => {
@@ -106,6 +108,19 @@ export function OrderPanel(props: Props) {
     gameState.status === 'IN_PROGRESS' &&
     gameState.phase === 'ORDERS' &&
     !gameState.submittedPowers.includes(myPower);
+  const hasSubmittedOrders = gameState.submittedPowers.includes(myPower);
+  const activePowers = new Set(
+    gameState.units.filter(unit => !unit.mustRetreat).map(unit => unit.power)
+  );
+  const waitingHumans = gameState.players.filter(
+    player =>
+      player.kind === 'HUMAN' &&
+      activePowers.has(player.power) &&
+      !gameState.submittedPowers.includes(player.power)
+  );
+  const hasActiveLlm = gameState.players.some(
+    player => player.kind === 'LLM' && activePowers.has(player.power)
+  );
 
   function addOrder() {
     if (!selectedUnit || !canAddOrder()) return;
@@ -136,6 +151,7 @@ export function OrderPanel(props: Props) {
       ...pendingOrders.filter(order => order.unitTerritory !== selectedUnit.territory),
       nextOrder,
     ]);
+    setDraftDirty(false);
   }
 
   function canAddOrder(): boolean {
@@ -154,6 +170,16 @@ export function OrderPanel(props: Props) {
   return (
     <section className="card order-card">
       <h2>{myPower} Orders</h2>
+      {gameState.phase === 'ORDERS' && hasSubmittedOrders && (
+        <div className="turn-waiting" role="status">
+          <strong>Orders submitted.</strong>{' '}
+          {waitingHumans.length > 0
+            ? `Waiting for ${waitingHumans.map(player => player.power).join(', ')}.`
+            : hasActiveLlm
+              ? 'All human orders are in. Waiting for automated powers to finish.'
+              : 'All orders are in. Resolving the turn.'}
+        </div>
+      )}
       <div className="unit-list">
         {myUnits.map(unit => (
           <button
@@ -166,10 +192,16 @@ export function OrderPanel(props: Props) {
         ))}
       </div>
 
-      {gameState.phase === 'ORDERS' && selectedUnit && selectedUnit.power === myPower && (
+      {canSubmitOrders && selectedUnit && selectedUnit.power === myPower && (
         <div className="order-builder">
           <h3>{unitLabel(selectedUnit)}</h3>
-          <select value={orderType} onChange={event => setOrderType(event.target.value as OrderType)}>
+          <p className="field-help">
+            Changing these controls edits a draft. Click Set Order to add it to Pending.
+          </p>
+          <select value={orderType} onChange={event => {
+            setOrderType(event.target.value as OrderType);
+            setDraftDirty(true);
+          }}>
             <option value="HOLD">Hold</option>
             <option value="MOVE">Move</option>
             <option value="SUPPORT_HOLD">Support hold</option>
@@ -182,6 +214,7 @@ export function OrderPanel(props: Props) {
               <select value={target} onChange={event => {
                 setTarget(event.target.value);
                 setTargetCoast('');
+                setDraftDirty(true);
               }}>
                 <option value="">Target territory</option>
                 {moveDestinations.map(destination => (
@@ -189,7 +222,10 @@ export function OrderPanel(props: Props) {
                 ))}
               </select>
               {targetCoasts.length > 0 && (
-                <select value={targetCoast} onChange={event => setTargetCoast(event.target.value as Coast)}>
+                <select value={targetCoast} onChange={event => {
+                  setTargetCoast(event.target.value as Coast);
+                  setDraftDirty(true);
+                }}>
                   <option value="">Target coast</option>
                   {targetCoasts.map(coast => <option value={coast} key={coast}>{coast}</option>)}
                 </select>
@@ -199,10 +235,19 @@ export function OrderPanel(props: Props) {
                   <input
                     type="checkbox"
                     checked={viaConvoy}
-                    onChange={event => setViaConvoy(event.target.checked)}
+                    onChange={event => {
+                      setViaConvoy(event.target.checked);
+                      setDraftDirty(true);
+                    }}
                   />
                   Move via convoy
                 </label>
+              )}
+              {selectedUnit.type === 'FLEET' && (
+                <p className="movement-note">
+                  Fleet destinations only include adjacent seas and coastal provinces. Inland
+                  provinces, including Budapest, are army-only.
+                </p>
               )}
             </>
           )}
@@ -211,6 +256,7 @@ export function OrderPanel(props: Props) {
             <select value={supportedUnit} onChange={event => {
               setSupportedUnit(event.target.value);
               setSupportedDestination('');
+              setDraftDirty(true);
             }}>
               <option value="">Unit to support</option>
               {(orderType === 'SUPPORT_HOLD' ? supportHoldUnits : supportMoveUnits).map(unit => (
@@ -220,7 +266,10 @@ export function OrderPanel(props: Props) {
           )}
 
           {orderType === 'SUPPORT_MOVE' && (
-            <select value={supportedDestination} onChange={event => setSupportedDestination(event.target.value)}>
+            <select value={supportedDestination} onChange={event => {
+              setSupportedDestination(event.target.value);
+              setDraftDirty(true);
+            }}>
               <option value="">Supported destination</option>
               {supportMoveDestinations.map(destination => (
                 <option value={destination} key={destination}>{territoryLabel(destination)}</option>
@@ -230,13 +279,19 @@ export function OrderPanel(props: Props) {
 
           {orderType === 'CONVOY' && (
             <>
-              <select value={supportedUnit} onChange={event => setSupportedUnit(event.target.value)}>
+              <select value={supportedUnit} onChange={event => {
+                setSupportedUnit(event.target.value);
+                setDraftDirty(true);
+              }}>
                 <option value="">Army to convoy</option>
                 {convoyArmies.map(unit => (
                   <option value={unit.territory} key={unit.id}>{unitLabel(unit)}</option>
                 ))}
               </select>
-              <select value={supportedDestination} onChange={event => setSupportedDestination(event.target.value)}>
+              <select value={supportedDestination} onChange={event => {
+                setSupportedDestination(event.target.value);
+                setDraftDirty(true);
+              }}>
                 <option value="">Convoy destination</option>
                 {convoyDestinations.map(territory => (
                   <option value={territory.id} key={territory.id}>{territoryLabel(territory.id)}</option>
@@ -245,7 +300,18 @@ export function OrderPanel(props: Props) {
             </>
           )}
 
-          <button onClick={addOrder} disabled={!canAddOrder()}>Set Order</button>
+          {draftDirty && (
+            <p className="order-draft-warning" role="status">
+              This draft is not queued yet.
+            </p>
+          )}
+          <button
+            className={draftDirty ? 'primary' : undefined}
+            onClick={addOrder}
+            disabled={!canAddOrder()}
+          >
+            Set Order
+          </button>
         </div>
       )}
 
@@ -260,6 +326,7 @@ export function OrderPanel(props: Props) {
             <button
               className="inline-remove"
               aria-label={`Remove order for ${order.unitTerritory}`}
+              disabled={!canSubmitOrders}
               onClick={() => onPendingOrdersChange(
                 pendingOrders.filter(candidate => candidate.id !== order.id)
               )}
@@ -269,7 +336,7 @@ export function OrderPanel(props: Props) {
           </p>
         ))}
         <button className="primary" onClick={onSubmitOrders} disabled={!canSubmitOrders}>
-          Submit Orders
+          {hasSubmittedOrders ? 'Orders Submitted' : 'Submit Orders'}
         </button>
       </div>
     </section>

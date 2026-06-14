@@ -1,11 +1,85 @@
-import type { GameState, Order, Power, SubmitBuildsPayload, TerritoryId } from '@diplomacy/shared';
+import type {
+  DiplomaticAgreement,
+  DiplomaticMessage,
+  GameState,
+  LlmDiplomacyMemory,
+  Order,
+  Power,
+  RetreatDestination,
+  SubmitBuildsPayload,
+} from '@diplomacy/shared';
+
+export interface ControllerContext {
+  state: GameState;
+  power: Power;
+  persona: string | null;
+  messages: DiplomaticMessage[];
+  memory: LlmDiplomacyMemory;
+}
+
+export interface ControllerDecision<T> {
+  actions: T;
+  strategicSummary: string;
+  agreements: DiplomaticAgreement[];
+  usage?: {
+    inputTokens: number | null;
+    outputTokens: number | null;
+  };
+}
+
+export interface DiplomaticReplyDecision {
+  reply: string;
+  strategicSummary: string;
+  agreements: DiplomaticAgreement[];
+  usage?: {
+    inputTokens: number | null;
+    outputTokens: number | null;
+  };
+}
+
+export interface DiplomaticInitiativeDecision {
+  toPower: Power | null;
+  message: string;
+  strategicSummary: string;
+  agreements: DiplomaticAgreement[];
+  usage?: {
+    inputTokens: number | null;
+    outputTokens: number | null;
+  };
+}
 
 export interface PowerController {
   readonly power: Power;
-  readonly kind: 'HUMAN' | 'LLM';
-  requestOrders(state: GameState): Promise<Order[]>;
-  requestRetreats(state: GameState): Promise<Record<string, TerritoryId | null>>;
-  requestBuilds(state: GameState): Promise<Omit<SubmitBuildsPayload, 'gameId'>>;
+  requestDiplomaticInitiative(
+    context: ControllerContext,
+    eligiblePowers: Power[],
+    validationErrors?: string[]
+  ): Promise<DiplomaticInitiativeDecision>;
+  requestDiplomaticReply(
+    context: ControllerContext,
+    incomingMessage: DiplomaticMessage,
+    validationErrors?: string[]
+  ): Promise<DiplomaticReplyDecision>;
+  requestOrders(
+    context: ControllerContext,
+    validationErrors?: string[]
+  ): Promise<ControllerDecision<Order[]>>;
+  requestRetreats(
+    context: ControllerContext,
+    validationErrors?: string[]
+  ): Promise<ControllerDecision<Record<string, RetreatDestination | null>>>;
+  requestBuilds(
+    context: ControllerContext,
+    validationErrors?: string[]
+  ): Promise<ControllerDecision<Omit<SubmitBuildsPayload, 'gameId'>>>;
+}
+
+export interface LlmProviderResult<T> {
+  value: T;
+  usage: {
+    inputTokens: number | null;
+    outputTokens: number | null;
+  };
 }
 
 export interface LlmProvider {
@@ -15,5 +89,12 @@ export interface LlmProvider {
     system: string;
     prompt: string;
     schemaName: string;
-  }): Promise<T>;
+    schema: Record<string, unknown>;
+  }): Promise<LlmProviderResult<T>>;
 }
+
+export type PowerControllerFactory = (options: {
+  power: Power;
+  provider: string;
+  model: string;
+}) => PowerController;

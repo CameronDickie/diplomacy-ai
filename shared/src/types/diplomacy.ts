@@ -1,4 +1,5 @@
 import type { Phase, Power, Season } from './game.js';
+import type { DiplomaticAgreement } from './llm.js';
 
 export interface DiplomaticMessage {
   id: string;
@@ -19,4 +20,6 @@ export interface LlmDiplomacyMemory {
   updatedAt: string | null;
   messageIdsByPower: Partial<Record<Power, string[]>>;
   diplomaticContext: string;
+  strategicSummary: string;
+  agreements: DiplomaticAgreement[];
 }

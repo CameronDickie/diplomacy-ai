@@ -51,3 +51,20 @@ LLM powers use the same order, retreat, and build commands as humans. Providers
 must return structured intent, which is validated by the server and adjudicated
 by the rules engine. Provider prompts and responses should be stored as private
 turn artifacts, separate from public game state.
+
+Automated phase decisions run after all active human powers submit, ensuring the
+latest private negotiations are included. Invalid provider output is retried
+once with validation feedback and then replaced by a deterministic fallback so
+a provider outage cannot stall the game.
+
+Before final order generation, two rotating provider-backed LLM powers may each
+choose one other LLM for a single opening-and-reply exchange. This bounded round
+gives automated powers initiative without creating an unbounded conversation
+loop or allowing autonomous messages to delay the phase indefinitely.
+
+Each LLM has one power-scoped memory containing its private transcript, concise
+strategic summary, and structured agreement ledger. Incoming messages are
+serialized per power before replies and memory updates are generated. The
+current provider implementations are the deterministic stub and OpenAI
+structured output; other provider identifiers remain reserved for later
+adapters.

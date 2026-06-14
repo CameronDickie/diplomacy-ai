@@ -4,16 +4,19 @@ import type { Unit, UnitType } from './unit.js';
 import type { Order, AdjudicationResult } from './order.js';
 import type { GameState, Player } from './state.js';
 import type { DiplomaticMessage } from './diplomacy.js';
+import type { LlmProviderId, LlmRunStatus } from './llm.js';
 
 // ── Client → Server ──────────────────────────────────────────────────────────
 
 export interface CreateGamePayload {
   playerName: string;
+  preferredPower: Power | 'RANDOM';
 }
 
 export interface JoinGamePayload {
   gameId: string;
   playerName: string;
+  preferredPower: Power | 'RANDOM';
 }
 
 export interface ResumeGamePayload {
@@ -23,14 +26,20 @@ export interface ResumeGamePayload {
 
 export interface AddLlmPlayerPayload {
   gameId: string;
+  power?: Power | 'RANDOM';
   name?: string;
-  provider?: 'STUB' | 'OPENAI' | 'ANTHROPIC' | 'OPENROUTER' | 'OLLAMA';
+  provider?: LlmProviderId;
   model?: string;
   persona?: string | null;
 }
 
 export interface StartGamePayload {
   gameId: string;
+}
+
+export interface UpdateGameSettingsPayload {
+  gameId: string;
+  llmNegotiationInitiators: number;
 }
 
 export interface SubmitOrdersPayload {
@@ -57,6 +66,7 @@ export interface SubmitBuildsPayload {
 
 export interface SendDiplomaticMessagePayload {
   gameId: string;
+  clientMessageId: string;
   toPower: Power;
   body: string;
 }
@@ -66,6 +76,7 @@ export interface ClientToServerEvents {
   join_game: (payload: JoinGamePayload) => void;
   resume_game: (payload: ResumeGamePayload) => void;
   add_llm_player: (payload: AddLlmPlayerPayload) => void;
+  update_game_settings: (payload: UpdateGameSettingsPayload) => void;
   start_game: (payload: StartGamePayload) => void;
   submit_orders: (payload: SubmitOrdersPayload) => void;
   submit_retreats: (payload: SubmitRetreatsPayload) => void;
@@ -161,6 +172,12 @@ export interface DiplomacyMessagePayload {
   message: DiplomaticMessage;
 }
 
+export interface LlmStatusPayload {
+  power: Power;
+  status: LlmRunStatus;
+  purpose: 'DIPLOMACY' | 'ORDERS' | 'RETREATS' | 'BUILDS';
+}
+
 export interface ServerToClientEvents {
   game_created: (payload: GameCreatedPayload) => void;
   game_joined: (payload: GameJoinedPayload) => void;
@@ -179,5 +196,6 @@ export interface ServerToClientEvents {
   game_over: (payload: GameOverPayload) => void;
   diplomacy_history: (payload: DiplomacyHistoryPayload) => void;
   diplomacy_message: (payload: DiplomacyMessagePayload) => void;
+  llm_status: (payload: LlmStatusPayload) => void;
   error: (payload: ErrorPayload) => void;
 }

@@ -9,7 +9,7 @@ export function attachOrderHandlers(
 ): void {
   void io; // io available for future use
 
-  socket.on('submit_orders', ({ gameId, orders }) => {
+  socket.on('submit_orders', async ({ gameId, orders }) => {
     const room = gameManager.getRoom(gameId);
     if (!room) {
       socket.emit('error', { message: 'Game not found', code: 'GAME_NOT_FOUND' });
@@ -39,7 +39,7 @@ export function attachOrderHandlers(
     }
 
     try {
-      room.submitOrders(player.power, orders);
+      await room.submitOrders(player.power, orders);
       socket.emit('orders_acknowledged', { orders });
     } catch (error) {
       console.error(`Failed to adjudicate game ${room.gameId}:`, error);
@@ -50,7 +50,7 @@ export function attachOrderHandlers(
     }
   });
 
-  socket.on('submit_retreats', ({ gameId, retreats }) => {
+  socket.on('submit_retreats', async ({ gameId, retreats }) => {
     const room = gameManager.getRoom(gameId);
     if (!room) return;
 
@@ -73,10 +73,18 @@ export function attachOrderHandlers(
       return;
     }
 
-    room.submitRetreats(player.power, retreats);
+    try {
+      await room.submitRetreats(player.power, retreats);
+    } catch (error) {
+      console.error(`Failed to resolve retreats in ${room.gameId}:`, error);
+      socket.emit('error', {
+        message: 'Retreat resolution failed. Please retry.',
+        code: 'ADJUDICATION_FAILED',
+      });
+    }
   });
 
-  socket.on('submit_builds', ({ gameId, builds, disbands }) => {
+  socket.on('submit_builds', async ({ gameId, builds, disbands }) => {
     const room = gameManager.getRoom(gameId);
     if (!room) return;
 
@@ -100,6 +108,14 @@ export function attachOrderHandlers(
       return;
     }
 
-    room.submitBuilds(player.power, payload);
+    try {
+      await room.submitBuilds(player.power, payload);
+    } catch (error) {
+      console.error(`Failed to resolve builds in ${room.gameId}:`, error);
+      socket.emit('error', {
+        message: 'Build resolution failed. Please retry.',
+        code: 'ADJUDICATION_FAILED',
+      });
+    }
   });
 }

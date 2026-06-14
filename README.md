@@ -5,17 +5,22 @@ server architecture designed to support human and LLM-controlled powers.
 
 ## Current MVP
 
-- Create a game, share its code, and fill any empty powers with stub controllers.
+- Create a game, choose or randomize a power, share its code, and fill empty
+  powers with independently configured LLM seats.
 - Resume a human seat after a browser or network reconnect.
 - Render and click the actual province geometry instead of an adjacency diagram.
+- Pan the map and zoom with buttons or the mouse wheel.
 - Select a unit and click an adjacent province to prepare a move order.
 - Enter holds, moves, supports, convoys, retreats, builds, and disbands.
 - Preserve split-coast movement, retreat, and build choices.
 - Adjudicate movement and convoy rules with the pinned Godip engine.
+- Exchange private messages with humans or LLM powers.
+- Run structured OpenAI-backed diplomacy and phase decisions with validation,
+  retry, and deterministic fallback.
 - Run the built client and Socket.IO server from one Node process.
 
-Negotiation, deadlines, persistence, replay, map pan/zoom, and real LLM provider
-calls remain active work.
+Deadlines, persistence, replay, complete engine-generated legal action menus,
+additional model providers, and voice integration remain active work.
 
 ## Requirements
 
@@ -31,6 +36,10 @@ npm run dev
 ```
 
 Open `http://localhost:5173`. Vite proxies Socket.IO to port `3001`.
+
+LLM seats use the local stub controller unless the host selects `OPENAI`.
+OpenAI-backed seats require `OPENAI_API_KEY` in the server environment. Model
+identifiers are entered per seat and are not hard-coded by the controller.
 
 The client adjacency hints are generated from Godip's graph:
 

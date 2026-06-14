@@ -9,7 +9,12 @@ export function attachDiplomacyHandlers(
 ): void {
   void io;
 
-  socket.on('send_diplomatic_message', ({ gameId, toPower, body }) => {
+  socket.on('send_diplomatic_message', async ({
+    gameId,
+    clientMessageId,
+    toPower,
+    body,
+  }) => {
     const room = gameManager.getRoom(gameId.trim().toUpperCase());
     if (!room) {
       socket.emit('error', { message: 'Game not found', code: 'GAME_NOT_FOUND' });
@@ -27,9 +32,27 @@ export function attachDiplomacyHandlers(
       socket.emit('error', { message: validationError, code: 'INVALID_MESSAGE' });
       return;
     }
+    if (!/^[0-9a-f-]{36}$/i.test(clientMessageId)) {
+      socket.emit('error', {
+        message: 'Invalid message identifier',
+        code: 'INVALID_MESSAGE',
+      });
+      return;
+    }
 
-    for (const message of room.sendDiplomaticMessage(sender.power, toPower, body)) {
-      room.deliverDiplomaticMessage(message);
+    try {
+      await room.sendDiplomaticMessage(
+        sender.power,
+        toPower,
+        body,
+        clientMessageId
+      );
+    } catch (error) {
+      console.error(`Failed to generate diplomatic reply in ${room.gameId}:`, error);
+      socket.emit('error', {
+        message: 'The message was stored, but the automated reply failed.',
+        code: 'LLM_REPLY_FAILED',
+      });
     }
   });
 

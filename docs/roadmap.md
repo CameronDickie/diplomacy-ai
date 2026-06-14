@@ -16,26 +16,62 @@
 - Add host-configured phase deadlines and missing-order defaults.
 - Add named games and a host transfer/recovery mechanism.
 
-## 3. Usable Board
+## 3. Lobby Power Selection
 
-- Add wheel/pinch zoom and drag-to-pan.
+- Let human players request an available power or choose random assignment.
+- Reject stale power selections without assigning a different country silently.
+- Let hosts configure provider, model, and persona independently for each LLM
+  seat.
+
+## 4. Usable Board
+
+- Add pointer-centered wheel zoom while retaining button controls.
+- Add touch pinch zoom after the mobile board interaction is stabilized.
 - Draw pending and resolved order arrows in the SVG `orders` layer.
 - Add click workflows for support and convoy orders.
 - Improve mobile layout and accessibility.
 
-## 4. Negotiation
+## 5. Negotiation
 
-- Add global and private press channels with phase timestamps.
+- Private power-to-power channels, phase timestamps, and reconnect history are
+  implemented in memory.
+- Add optional global press channels.
 - Lock messages and orders at phase deadlines.
 - Store a replayable event log separate from transient Socket.IO events.
 
-## 5. LLM Powers
+## 6. LLM Powers
 
-- Put all automated seats behind a `PowerController` interface.
-- Add provider adapters, structured-output schemas, budgets, retries, and
-  redaction.
-- Give each model a power-scoped state view and private message history.
-- Record model inputs, outputs, cost, and latency for replay and evaluation.
+- Route every automated order, retreat, build, and diplomatic reply through the
+  `PowerController` interface; retain the deterministic stub controller for
+  development and provider failure fallback.
+- Provide each controller with a power-scoped prompt snapshot containing public
+  game state, legal action context, persona, private messages, strategic memory,
+  and structured agreements.
+- Require schema-constrained phase decisions and diplomatic replies. Validate
+  ownership, completeness, action shape, and known rule constraints before
+  accepting output.
+- Trigger final LLM decisions only after all active human powers submit, so the
+  latest negotiations are considered.
+- Run a bounded autonomous negotiation round after human submission: two
+  rotating LLM initiators may each select one other provider-backed LLM, send
+  one opening message, and receive one reply before final orders are generated.
+- Retry invalid structured output once with validation feedback, then fall back
+  to holds, disbands, or waived builds so provider failure cannot stall a game.
+- Serialize message handling per LLM power and update its shared memory after
+  every inbound and outbound message.
+- Add provider adapters incrementally. Keep model identifiers configurable per
+  seat so quality and cost tiers can be changed without orchestration changes.
+- Record private model artifacts including prompt version, structured response,
+  validation failures, retry count, fallback reason, latency, and token usage.
+- Add evaluation fixtures for action legality, agreement recall, cross-channel
+  consistency, fallback rate, latency, and cost.
+
+## 7. Voice and Discord
+
+- Add Discord identity and channel mapping after durable game persistence.
+- Add speech-to-text input before realtime model voice.
+- Add realtime human voice rooms only after moderation, consent, and recording
+  policies are defined.
 
 ## Deployment Gate
 

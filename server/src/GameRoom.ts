@@ -16,10 +16,25 @@ import type {
   DiplomaticMessage,
   LlmDiplomacyMemory,
   LlmPlayer,
+  LlmRunArtifact,
+  LlmProviderId,
 } from '@diplomacy/shared';
-import { ALL_POWERS, TERRITORY_MAP } from '@diplomacy/shared';
+import {
+  ALL_POWERS,
+  TERRITORY_MAP,
+  getArmyAdjacency,
+  getFleetAdjacency,
+} from '@diplomacy/shared';
 import { buildInitialTerritories, STARTING_UNITS } from '@diplomacy/shared';
 import { adjudicateWithGodip } from './adjudication/GodipAdjudicator.js';
+import type {
+  ControllerContext,
+  ControllerDecision,
+  PowerController,
+  PowerControllerFactory,
+} from './llm/PowerController.js';
+import { createPowerController } from './llm/createPowerController.js';
+import { PROMPT_VERSION } from './llm/PromptBuilder.js';
 
 export class GameRoom {
   readonly gameId: string;
@@ -30,10 +45,22 @@ export class GameRoom {
   private pendingBuilds = new Map<Power, SubmitBuildsPayload>();
   private diplomaticMessages: DiplomaticMessage[] = [];
   private llmMemories = new Map<Power, LlmDiplomacyMemory>();
+  private llmRunArtifacts: LlmRunArtifact[] = [];
+  private llmQueues = new Map<Power, Promise<unknown>>();
+  private ordersCompletion: Promise<void> | null = null;
+  private retreatsCompletion: Promise<void> | null = null;
+  private buildsCompletion: Promise<void> | null = null;
   private io?: Server<ClientToServerEvents, ServerToClientEvents>;
+  private readonly controllerFactory: PowerControllerFactory;
 
-  constructor() {
+  constructor(options: { controllerFactory?: PowerControllerFactory } = {}) {
     this.gameId = randomUUID().slice(0, 8).toUpperCase();
+    this.controllerFactory = options.controllerFactory ?? (controllerOptions =>
+      createPowerController({
+        ...controllerOptions,
+        provider: controllerOptions.provider as LlmProviderId,
+      })
+    );
     this.state = this.buildInitialState();
   }
 
@@ -56,6 +83,9 @@ export class GameRoom {
       territories: buildInitialTerritories(),
       units,
       players: [],
+      settings: {
+        llmNegotiationInitiators: 2,
+      },
       submittedPowers: [],
       lastAdjudicationResult: null,
       status: 'LOBBY',
@@ -88,13 +118,32 @@ export class GameRoom {
     return this.getPlayerBySocket(socketId)?.id === this.state.hostPlayerId;
   }
 
+  updateLlmNegotiationInitiators(count: number): boolean {
+    if (
+      this.state.status !== 'LOBBY' ||
+      !Number.isInteger(count) ||
+      count < 0 ||
+      count > ALL_POWERS.length
+    ) {
+      return false;
+    }
+    this.state.settings = {
+      ...this.state.settings,
+      llmNegotiationInitiators: count,
+    };
+    return true;
+  }
+
   addPlayer(
     socketId: string,
-    name: string
+    name: string,
+    preferredPower: Power | 'RANDOM' = 'RANDOM'
   ): { player: HumanPlayer; sessionToken: string } | null {
     if (this.state.status !== 'LOBBY') return null;
-    const assignedPowers = new Set(this.state.players.map(p => p.power));
-    const available = ALL_POWERS.find(p => !assignedPowers.has(p));
+    const availablePowers = this.getAvailablePowers();
+    const available = preferredPower === 'RANDOM'
+      ? availablePowers[Math.floor(Math.random() * availablePowers.length)]
+      : availablePowers.includes(preferredPower) ? preferredPower : undefined;
     if (!available) return null;
 
     const playerId = randomUUID();
@@ -134,13 +183,17 @@ export class GameRoom {
   }
 
   addLlmPlayer(options: {
+    power?: Power | 'RANDOM';
     name?: string;
-    provider?: 'STUB' | 'OPENAI' | 'ANTHROPIC' | 'OPENROUTER' | 'OLLAMA';
+    provider?: LlmProviderId;
     model?: string;
     persona?: string | null;
   } = {}): Player | null {
-    const assignedPowers = new Set(this.state.players.map(p => p.power));
-    const available = ALL_POWERS.find(p => !assignedPowers.has(p));
+    const availablePowers = this.getAvailablePowers();
+    const requestedPower = options.power ?? 'RANDOM';
+    const available = requestedPower === 'RANDOM'
+      ? availablePowers[0]
+      : availablePowers.includes(requestedPower) ? requestedPower : undefined;
     if (!available) return null;
 
     const player: Player = {
@@ -159,8 +212,15 @@ export class GameRoom {
       updatedAt: null,
       messageIdsByPower: {},
       diplomaticContext: '',
+      strategicSummary: '',
+      agreements: [],
     });
     return player;
+  }
+
+  getAvailablePowers(): Power[] {
+    const assignedPowers = new Set(this.state.players.map(player => player.power));
+    return ALL_POWERS.filter(power => !assignedPowers.has(power));
   }
 
   validateDiplomaticMessage(fromPower: Power, toPower: Power, body: string): string | null {
@@ -178,24 +238,30 @@ export class GameRoom {
     return null;
   }
 
-  sendDiplomaticMessage(
+  async sendDiplomaticMessage(
     fromPower: Power,
     toPower: Power,
-    body: string
-  ): DiplomaticMessage[] {
-    const message = this.createDiplomaticMessage(fromPower, toPower, body.trim(), false);
+    body: string,
+    clientMessageId?: string
+  ): Promise<DiplomaticMessage[]> {
+    const message = this.createDiplomaticMessage(
+      fromPower,
+      toPower,
+      body.trim(),
+      false,
+      clientMessageId
+    );
     const messages = [message];
+    this.deliverDiplomaticMessage(message);
     const recipient = this.state.players.find(player => player.power === toPower);
 
-    if (recipient?.kind === 'LLM' && recipient.provider === 'STUB') {
-      messages.push(
-        this.createDiplomaticMessage(
-          toPower,
-          fromPower,
-          'Message received. This stub player records diplomacy, but strategic negotiation is not connected yet.',
-          true
-        )
+    if (recipient?.kind === 'LLM') {
+      const reply = await this.runSerializedForPower(toPower, () =>
+        this.generateDiplomaticReply(recipient, message)
       );
+      const replyMessage = this.createDiplomaticMessage(toPower, fromPower, reply, true);
+      messages.push(replyMessage);
+      this.deliverDiplomaticMessage(replyMessage);
     }
 
     return messages;
@@ -218,7 +284,17 @@ export class GameRoom {
           [...ids],
         ])
       ),
+      agreements: memory.agreements.map(agreement => ({ ...agreement })),
     };
+  }
+
+  getLlmRunArtifacts(power?: Power): LlmRunArtifact[] {
+    return this.llmRunArtifacts
+      .filter(artifact => !power || artifact.power === power)
+      .map(artifact => ({
+        ...artifact,
+        validationErrors: [...artifact.validationErrors],
+      }));
   }
 
   deliverDiplomaticMessage(message: DiplomaticMessage): void {
@@ -236,10 +312,10 @@ export class GameRoom {
     return ALL_POWERS.every(power => this.state.players.some(p => p.power === power));
   }
 
-  startGame(): boolean {
+  async startGame(): Promise<boolean> {
     if (this.state.status !== 'LOBBY' || !this.canStart()) return false;
     this.state.status = 'IN_PROGRESS';
-    this.queueAutomatedPhaseActions();
+    await this.completeOrdersPhaseIfReady();
     return true;
   }
 
@@ -252,7 +328,7 @@ export class GameRoom {
     }
   }
 
-  submitOrders(power: Power, orders: Order[]): void {
+  async submitOrders(power: Power, orders: Order[]): Promise<void> {
     if (this.state.status !== 'IN_PROGRESS') return;
     if (this.state.phase !== 'ORDERS') return;
     if (this.state.submittedPowers.includes(power)) return;
@@ -268,16 +344,14 @@ export class GameRoom {
       totalRequired: activePowers.length,
     });
 
-    if (activePowers.every(p => this.state.submittedPowers.includes(p))) {
-      try {
-        this.advanceTurn();
-      } catch (error) {
-        this.pendingOrders.delete(power);
-        this.state.submittedPowers = this.state.submittedPowers.filter(
-          submittedPower => submittedPower !== power
-        );
-        throw error;
-      }
+    try {
+      await this.completeOrdersPhaseIfReady();
+    } catch (error) {
+      this.pendingOrders.delete(power);
+      this.state.submittedPowers = this.state.submittedPowers.filter(
+        submittedPower => submittedPower !== power
+      );
+      throw error;
     }
   }
 
@@ -296,6 +370,55 @@ export class GameRoom {
       seen.add(order.unitTerritory);
     }
     return null;
+  }
+
+  validateAutomatedOrders(power: Power, orders: Order[]): string[] {
+    const errors: string[] = [];
+    const units = this.state.units.filter(
+      unit => unit.power === power && !unit.mustRetreat
+    );
+    const basicError = this.validateOrders(power, orders);
+    if (basicError) errors.push(basicError);
+    if (orders.length !== units.length) {
+      errors.push(`Exactly ${units.length} orders are required`);
+    }
+
+    for (const unit of units) {
+      const order = orders.find(candidate => candidate.unitTerritory === unit.territory);
+      if (!order) {
+        errors.push(`Missing order for ${unit.territory}`);
+        continue;
+      }
+      const adjacency = unit.type === 'ARMY'
+        ? getArmyAdjacency(unit.territory)
+        : getFleetAdjacency(unit.territory, unit.coast);
+      if (order.type === 'MOVE' && (!order.targetTerritory || !adjacency.includes(order.targetTerritory))) {
+        errors.push(`${unit.territory} cannot move to ${order.targetTerritory ?? 'null'}`);
+      }
+      if (order.type === 'HOLD' && (
+        order.targetTerritory ||
+        order.supportedUnit ||
+        order.supportedDestination
+      )) {
+        errors.push(`Hold order for ${unit.territory} contains unexpected targets`);
+      }
+      if (
+        (order.type === 'SUPPORT_HOLD' || order.type === 'SUPPORT_MOVE') &&
+        !order.supportedUnit
+      ) {
+        errors.push(`Support order for ${unit.territory} requires a supported unit`);
+      }
+      if (
+        order.type === 'SUPPORT_MOVE' &&
+        (!order.supportedDestination || !adjacency.includes(order.supportedDestination))
+      ) {
+        errors.push(`Support from ${unit.territory} cannot reach the supported destination`);
+      }
+      if (order.type === 'CONVOY' && unit.type !== 'FLEET') {
+        errors.push(`Only fleets may convoy from ${unit.territory}`);
+      }
+    }
+    return [...new Set(errors)];
   }
 
   validateRetreats(
@@ -371,34 +494,26 @@ export class GameRoom {
     return null;
   }
 
-  submitRetreats(
+  async submitRetreats(
     power: Power,
     retreats: Record<string, RetreatDestination | null>
-  ): void {
+  ): Promise<void> {
     if (this.state.status !== 'IN_PROGRESS') return;
     if (this.state.phase !== 'RETREATS') return;
     this.pendingRetreats.set(power, retreats);
 
-    const powersWithDislodged = this.getPowersWithDislodgedUnits();
-    if (powersWithDislodged.every(p => this.pendingRetreats.has(p))) {
-      this.resolveRetreats();
-    }
+    await this.completeRetreatsPhaseIfReady();
   }
 
-  submitBuilds(power: Power, payload: SubmitBuildsPayload): void {
+  async submitBuilds(power: Power, payload: SubmitBuildsPayload): Promise<void> {
     if (this.state.status !== 'IN_PROGRESS') return;
     if (this.state.phase !== 'BUILDS') return;
     this.pendingBuilds.set(power, payload);
 
-    const powersNeedingAction = this.getPowersNeedingBuildAction();
-    if (powersNeedingAction.every(p => this.pendingBuilds.has(p))) {
-      this.resolveBuilds();
-    }
+    await this.completeBuildsPhaseIfReady();
   }
 
-  private advanceTurn(): void {
-    this.queueAutomatedOrders();
-
+  private async advanceTurn(): Promise<void> {
     const allOrders = Array.from(this.pendingOrders.values()).flat();
     const adjudication = adjudicateWithGodip(this.state, allOrders);
     const result = adjudication.result;
@@ -417,15 +532,15 @@ export class GameRoom {
         allDislodged,
         gameState: this.state,
       });
-      this.queueAutomatedPhaseActions();
+      await this.completeRetreatsPhaseIfReady();
     } else {
-      this.advanceSeasonPhase(result);
+      await this.advanceSeasonPhase(result);
     }
 
     this.broadcast('turn_resolved', { adjudicationResult: result, newGameState: this.state });
   }
 
-  private resolveRetreats(): void {
+  private async resolveRetreats(): Promise<void> {
     for (const [, retreats] of this.pendingRetreats) {
       for (const [unitId, destination] of Object.entries(retreats)) {
         const unit = this.state.units.find(u => u.id === unitId);
@@ -465,7 +580,7 @@ export class GameRoom {
     }
 
     this.pendingRetreats.clear();
-    this.advanceSeasonPhase(this.state.lastAdjudicationResult!);
+    await this.advanceSeasonPhase(this.state.lastAdjudicationResult!);
   }
 
   private resolveBuilds(): void {
@@ -496,11 +611,12 @@ export class GameRoom {
     this.finishBuildPhase();
   }
 
-  private advanceSeasonPhase(result: NonNullable<GameState['lastAdjudicationResult']>): void {
+  private async advanceSeasonPhase(
+    result: NonNullable<GameState['lastAdjudicationResult']>
+  ): Promise<void> {
     if (this.state.season === 'SPRING') {
       this.state.season = 'FALL';
       this.state.phase = 'ORDERS';
-      this.queueAutomatedPhaseActions();
       this.broadcast('game_state_sync', { gameState: this.state });
       return;
     }
@@ -530,71 +646,7 @@ export class GameRoom {
     this.state.phase = 'BUILDS';
 
     this.broadcast('build_phase_start', { buildCounts, gameState: this.state });
-    this.queueAutomatedPhaseActions();
-  }
-
-  private queueAutomatedPhaseActions(): void {
-    if (this.state.phase === 'ORDERS') {
-      this.queueAutomatedOrders();
-      const activePowers = this.getPowersWithUnits();
-      if (activePowers.length > 0 && activePowers.every(power => this.state.submittedPowers.includes(power))) {
-        this.advanceTurn();
-      }
-    }
-    if (this.state.phase === 'RETREATS') {
-      this.queueAutomatedRetreats();
-      const powersWithDislodged = this.getPowersWithDislodgedUnits();
-      if (powersWithDislodged.length > 0 && powersWithDislodged.every(power => this.pendingRetreats.has(power))) {
-        this.resolveRetreats();
-      }
-    }
-    if (this.state.phase === 'BUILDS') {
-      this.queueAutomatedBuilds();
-      const powersNeedingAction = this.getPowersNeedingBuildAction();
-      if (powersNeedingAction.length > 0 && powersNeedingAction.every(power => this.pendingBuilds.has(power))) {
-        this.resolveBuilds();
-      }
-    }
-  }
-
-  private queueAutomatedOrders(): void {
-    for (const player of this.state.players) {
-      if (player.kind !== 'LLM' || this.pendingOrders.has(player.power)) continue;
-      const holds = this.createHoldOrders(player.power);
-      this.pendingOrders.set(player.power, holds);
-      if (!this.state.submittedPowers.includes(player.power)) {
-        this.state.submittedPowers = [...this.state.submittedPowers, player.power];
-      }
-    }
-  }
-
-  private queueAutomatedRetreats(): void {
-    for (const player of this.state.players) {
-      if (player.kind !== 'LLM' || this.pendingRetreats.has(player.power)) continue;
-      const retreats = Object.fromEntries(
-        this.state.units
-          .filter(unit => unit.power === player.power && unit.mustRetreat)
-          .map(unit => [unit.id, null])
-      );
-      if (Object.keys(retreats).length > 0) this.pendingRetreats.set(player.power, retreats);
-    }
-  }
-
-  private queueAutomatedBuilds(): void {
-    const counts = this.computeBuildCounts();
-    for (const player of this.state.players) {
-      if (player.kind !== 'LLM' || this.pendingBuilds.has(player.power)) continue;
-      const disbandCount = Math.max(0, -counts[player.power]);
-      const disbands = this.state.units
-        .filter(unit => unit.power === player.power)
-        .slice(0, disbandCount)
-        .map(unit => unit.id);
-      this.pendingBuilds.set(player.power, {
-        gameId: this.gameId,
-        builds: [],
-        disbands,
-      });
-    }
+    await this.completeBuildsPhaseIfReady();
   }
 
   private createHoldOrders(power: Power): Order[] {
@@ -613,14 +665,456 @@ export class GameRoom {
       }));
   }
 
+  private async completeOrdersPhaseIfReady(): Promise<void> {
+    if (this.state.phase !== 'ORDERS' || this.ordersCompletion) {
+      await this.ordersCompletion;
+      return;
+    }
+    const activePowers = this.getPowersWithUnits();
+    const activeHumans = activePowers.filter(power => this.isHumanPower(power));
+    if (!activeHumans.every(power => this.pendingOrders.has(power))) return;
+
+    this.ordersCompletion = (async () => {
+      const llmPlayers = this.getLlmPlayers().filter(
+        player => activePowers.includes(player.power) && !this.pendingOrders.has(player.power)
+      );
+      await this.runLlmNegotiationRound(llmPlayers);
+      await Promise.all(llmPlayers.map(async player => {
+        const decision = await this.generatePhaseDecision(
+          player,
+          'ORDERS',
+          (controller, errors) =>
+            controller.requestOrders(this.controllerContext(player), errors),
+          actions => this.validateAutomatedOrders(player.power, actions),
+          () => this.createHoldOrders(player.power)
+        );
+        this.pendingOrders.set(player.power, decision);
+        this.markSubmitted(player.power, activePowers.length);
+      }));
+      if (activePowers.every(power => this.pendingOrders.has(power))) {
+        await this.advanceTurn();
+      }
+    })().finally(() => {
+      this.ordersCompletion = null;
+    });
+    await this.ordersCompletion;
+  }
+
+  private async runLlmNegotiationRound(players: LlmPlayer[]): Promise<void> {
+    const conversationalPlayers = players.filter(player => player.provider !== 'STUB');
+    const configuredInitiators = this.state.settings.llmNegotiationInitiators;
+    if (conversationalPlayers.length < 2 || configuredInitiators === 0) return;
+    const sortedPlayers = [...conversationalPlayers].sort(
+      (left, right) => ALL_POWERS.indexOf(left.power) - ALL_POWERS.indexOf(right.power)
+    );
+    const seasonOffset = this.state.season === 'FALL' ? 1 : 0;
+    const startIndex = (this.state.year * 2 + seasonOffset) % sortedPlayers.length;
+    const initiators = Array.from(
+      { length: Math.min(configuredInitiators, sortedPlayers.length) },
+      (_, index) => sortedPlayers[(startIndex + index) % sortedPlayers.length]
+    );
+
+    for (const initiator of initiators) {
+      const eligiblePowers = sortedPlayers
+        .map(player => player.power)
+        .filter(power => power !== initiator.power);
+      const initiative = await this.generateDiplomaticInitiative(
+        initiator,
+        eligiblePowers
+      );
+      if (!initiative.toPower) continue;
+      await this.sendDiplomaticMessage(
+        initiator.power,
+        initiative.toPower,
+        initiative.message
+      );
+    }
+  }
+
+  private async generateDiplomaticInitiative(
+    player: LlmPlayer,
+    eligiblePowers: Power[]
+  ): Promise<{ toPower: Power | null; message: string }> {
+    const started = Date.now();
+    const artifact = this.createRunArtifact(player, 'DIPLOMACY');
+    let errors: string[] = [];
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      this.broadcastLlmStatus(
+        player.power,
+        attempt === 0 ? 'THINKING' : 'RETRYING',
+        'DIPLOMACY'
+      );
+      try {
+        const decision = await this.controllerFor(player).requestDiplomaticInitiative(
+          this.controllerContext(player),
+          eligiblePowers,
+          errors
+        );
+        const message = decision.message.trim();
+        errors = [];
+        if (decision.toPower === null) {
+          if (message) errors.push('Message must be empty when no recipient is selected');
+        } else {
+          if (!eligiblePowers.includes(decision.toPower)) {
+            errors.push(`${decision.toPower} is not an eligible LLM recipient`);
+          }
+          if (!message) errors.push('An initiated diplomatic message cannot be empty');
+          if (message.length > 2000) {
+            errors.push('An initiated diplomatic message cannot exceed 2000 characters');
+          }
+        }
+        if (errors.length === 0) {
+          this.applyControllerMemory(player.power, decision);
+          artifact.inputTokens = decision.usage?.inputTokens ?? null;
+          artifact.outputTokens = decision.usage?.outputTokens ?? null;
+          artifact.retryCount = attempt;
+          artifact.latencyMs = Date.now() - started;
+          this.llmRunArtifacts.push(artifact);
+          this.broadcastLlmStatus(player.power, 'IDLE', 'DIPLOMACY');
+          return { toPower: decision.toPower, message };
+        }
+      } catch (error) {
+        errors = [error instanceof Error ? error.message : String(error)];
+      }
+    }
+
+    artifact.retryCount = 1;
+    artifact.validationErrors = errors;
+    artifact.fallbackReason = errors.join('; ') || 'Invalid diplomatic initiative';
+    artifact.latencyMs = Date.now() - started;
+    this.llmRunArtifacts.push(artifact);
+    this.broadcastLlmStatus(player.power, 'FALLBACK', 'DIPLOMACY');
+    this.broadcastLlmStatus(player.power, 'IDLE', 'DIPLOMACY');
+    return { toPower: null, message: '' };
+  }
+
+  private async completeRetreatsPhaseIfReady(): Promise<void> {
+    if (this.state.phase !== 'RETREATS' || this.retreatsCompletion) {
+      await this.retreatsCompletion;
+      return;
+    }
+    const powers = this.getPowersWithDislodgedUnits();
+    const humans = powers.filter(power => this.isHumanPower(power));
+    if (!humans.every(power => this.pendingRetreats.has(power))) return;
+
+    this.retreatsCompletion = (async () => {
+      const llmPlayers = this.getLlmPlayers().filter(
+        player => powers.includes(player.power) && !this.pendingRetreats.has(player.power)
+      );
+      await Promise.all(llmPlayers.map(async player => {
+        const actions = await this.generatePhaseDecision(
+          player,
+          'RETREATS',
+          (controller, errors) =>
+            controller.requestRetreats(this.controllerContext(player), errors),
+          retreats => {
+            const error = this.validateRetreats(player.power, retreats);
+            return error ? [error] : [];
+          },
+          () => this.createFallbackRetreats(player.power)
+        );
+        this.pendingRetreats.set(player.power, actions);
+      }));
+      if (powers.every(power => this.pendingRetreats.has(power))) {
+        await this.resolveRetreats();
+      }
+    })().finally(() => {
+      this.retreatsCompletion = null;
+    });
+    await this.retreatsCompletion;
+  }
+
+  private async completeBuildsPhaseIfReady(): Promise<void> {
+    if (this.state.phase !== 'BUILDS' || this.buildsCompletion) {
+      await this.buildsCompletion;
+      return;
+    }
+    const powers = this.getPowersNeedingBuildAction();
+    const humans = powers.filter(power => this.isHumanPower(power));
+    if (!humans.every(power => this.pendingBuilds.has(power))) return;
+
+    this.buildsCompletion = (async () => {
+      const llmPlayers = this.getLlmPlayers().filter(
+        player => powers.includes(player.power) && !this.pendingBuilds.has(player.power)
+      );
+      await Promise.all(llmPlayers.map(async player => {
+        const actions = await this.generatePhaseDecision(
+          player,
+          'BUILDS',
+          (controller, errors) =>
+            controller.requestBuilds(this.controllerContext(player), errors),
+          builds => {
+            const error = this.validateBuilds(player.power, {
+              gameId: this.gameId,
+              ...builds,
+            });
+            return error ? [error] : [];
+          },
+          () => {
+            const fallback = this.createFallbackBuilds(player.power);
+            return { builds: fallback.builds, disbands: fallback.disbands };
+          }
+        );
+        this.pendingBuilds.set(player.power, { gameId: this.gameId, ...actions });
+      }));
+      if (powers.every(power => this.pendingBuilds.has(power))) {
+        this.resolveBuilds();
+      }
+    })().finally(() => {
+      this.buildsCompletion = null;
+    });
+    await this.buildsCompletion;
+  }
+
+  private async generatePhaseDecision<T>(
+    player: LlmPlayer,
+    purpose: 'ORDERS' | 'RETREATS' | 'BUILDS',
+    request: (controller: PowerController, errors: string[]) => Promise<ControllerDecision<T>>,
+    validate: (actions: T) => string[],
+    fallback: () => T
+  ): Promise<T> {
+    const started = Date.now();
+    const artifact = this.createRunArtifact(player, purpose);
+    let errors: string[] = [];
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      this.broadcastLlmStatus(player.power, attempt === 0 ? 'THINKING' : 'RETRYING', purpose);
+      try {
+        const controller = this.controllerFor(player);
+        const decision = await request(controller, errors);
+        errors = validate(decision.actions);
+        if (errors.length === 0) {
+          this.applyControllerMemory(player.power, decision);
+          artifact.inputTokens = decision.usage?.inputTokens ?? null;
+          artifact.outputTokens = decision.usage?.outputTokens ?? null;
+          artifact.retryCount = attempt;
+          artifact.validationErrors = [];
+          artifact.latencyMs = Date.now() - started;
+          this.llmRunArtifacts.push(artifact);
+          this.broadcastLlmStatus(player.power, 'IDLE', purpose);
+          return decision.actions;
+        }
+      } catch (error) {
+        errors = [error instanceof Error ? error.message : String(error)];
+      }
+    }
+
+    artifact.retryCount = 1;
+    artifact.validationErrors = errors;
+    artifact.fallbackReason = errors.join('; ') || 'Invalid controller output';
+    artifact.latencyMs = Date.now() - started;
+    this.llmRunArtifacts.push(artifact);
+    this.broadcastLlmStatus(player.power, 'FALLBACK', purpose);
+    this.broadcastLlmStatus(player.power, 'IDLE', purpose);
+    return fallback();
+  }
+
+  private async generateDiplomaticReply(
+    player: LlmPlayer,
+    incomingMessage: DiplomaticMessage
+  ): Promise<string> {
+    const started = Date.now();
+    const artifact = this.createRunArtifact(player, 'DIPLOMACY');
+    let errors: string[] = [];
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      this.deliverLlmStatus(
+        incomingMessage.fromPower,
+        player.power,
+        attempt === 0 ? 'THINKING' : 'RETRYING',
+        'DIPLOMACY'
+      );
+      try {
+        const decision = await this.controllerFor(player).requestDiplomaticReply(
+          this.controllerContext(player),
+          incomingMessage,
+          errors
+        );
+        const reply = decision.reply.trim();
+        errors = !reply
+          ? ['Diplomatic reply cannot be empty']
+          : reply.length > 2000 ? ['Diplomatic reply cannot exceed 2000 characters'] : [];
+        if (errors.length === 0) {
+          this.applyControllerMemory(player.power, decision);
+          artifact.inputTokens = decision.usage?.inputTokens ?? null;
+          artifact.outputTokens = decision.usage?.outputTokens ?? null;
+          artifact.retryCount = attempt;
+          artifact.latencyMs = Date.now() - started;
+          this.llmRunArtifacts.push(artifact);
+          this.deliverLlmStatus(
+            incomingMessage.fromPower,
+            player.power,
+            'IDLE',
+            'DIPLOMACY'
+          );
+          return reply;
+        }
+      } catch (error) {
+        errors = [error instanceof Error ? error.message : String(error)];
+      }
+    }
+
+    artifact.retryCount = 1;
+    artifact.validationErrors = errors;
+    artifact.fallbackReason = errors.join('; ') || 'Invalid diplomatic reply';
+    artifact.latencyMs = Date.now() - started;
+    this.llmRunArtifacts.push(artifact);
+    this.deliverLlmStatus(
+      incomingMessage.fromPower,
+      player.power,
+      'FALLBACK',
+      'DIPLOMACY'
+    );
+    this.deliverLlmStatus(
+      incomingMessage.fromPower,
+      player.power,
+      'IDLE',
+      'DIPLOMACY'
+    );
+    return 'Message received. I will consider this in my next phase decision.';
+  }
+
+  private createFallbackRetreats(
+    power: Power
+  ): Record<string, RetreatDestination | null> {
+    return Object.fromEntries(
+      this.state.units
+        .filter(unit => unit.power === power && unit.mustRetreat)
+        .map(unit => [unit.id, null])
+    );
+  }
+
+  private createFallbackBuilds(power: Power): SubmitBuildsPayload {
+    const counts = this.computeBuildCounts();
+    const disbandCount = Math.max(0, -counts[power]);
+    return {
+      gameId: this.gameId,
+      builds: [],
+      disbands: this.state.units
+        .filter(unit => unit.power === power)
+        .slice(0, disbandCount)
+        .map(unit => unit.id),
+    };
+  }
+
+  private controllerFor(player: LlmPlayer): PowerController {
+    return this.controllerFactory({
+      power: player.power,
+      provider: player.provider,
+      model: player.model,
+    });
+  }
+
+  private controllerContext(player: LlmPlayer): ControllerContext {
+    const memory = this.llmMemories.get(player.power);
+    if (!memory) throw new Error(`Missing LLM memory for ${player.power}`);
+    return {
+      state: this.state,
+      power: player.power,
+      persona: player.persona,
+      messages: this.getDiplomaticMessages(player.power),
+      memory: this.getLlmDiplomacyMemory(player.power)!,
+    };
+  }
+
+  private applyControllerMemory(
+    power: Power,
+    decision: Pick<ControllerDecision<unknown>, 'strategicSummary' | 'agreements'>
+  ): void {
+    const memory = this.llmMemories.get(power);
+    if (!memory) return;
+    memory.strategicSummary = decision.strategicSummary.trim();
+    memory.agreements = decision.agreements.map(agreement => ({ ...agreement }));
+    memory.updatedAt = new Date().toISOString();
+    memory.revision++;
+  }
+
+  private createRunArtifact(
+    player: LlmPlayer,
+    purpose: LlmRunArtifact['purpose']
+  ): LlmRunArtifact {
+    return {
+      id: randomUUID(),
+      power: player.power,
+      year: this.state.year,
+      season: this.state.season,
+      phase: this.state.phase,
+      purpose,
+      provider: player.provider,
+      model: player.model,
+      promptVersion: PROMPT_VERSION,
+      startedAt: new Date().toISOString(),
+      latencyMs: 0,
+      retryCount: 0,
+      fallbackReason: null,
+      validationErrors: [],
+      inputTokens: null,
+      outputTokens: null,
+    };
+  }
+
+  private broadcastLlmStatus(
+    power: Power,
+    status: 'IDLE' | 'THINKING' | 'RETRYING' | 'FALLBACK',
+    purpose: LlmRunArtifact['purpose']
+  ): void {
+    this.broadcast('llm_status', { power, status, purpose });
+  }
+
+  private deliverLlmStatus(
+    viewerPower: Power,
+    power: Power,
+    status: 'IDLE' | 'THINKING' | 'RETRYING' | 'FALLBACK',
+    purpose: LlmRunArtifact['purpose']
+  ): void {
+    if (!this.io) return;
+    const socketId = this.getSocketIdForPower(viewerPower);
+    if (socketId) this.io.to(socketId).emit('llm_status', { power, status, purpose });
+  }
+
+  private markSubmitted(power: Power, totalRequired: number): void {
+    if (!this.state.submittedPowers.includes(power)) {
+      this.state.submittedPowers = [...this.state.submittedPowers, power];
+    }
+    this.broadcast('power_submitted', {
+      power,
+      totalSubmitted: this.state.submittedPowers.length,
+      totalRequired,
+    });
+  }
+
+  private isHumanPower(power: Power): boolean {
+    return this.state.players.some(
+      player => player.kind === 'HUMAN' && player.power === power
+    );
+  }
+
+  private getLlmPlayers(): LlmPlayer[] {
+    return this.state.players.filter(
+      (player): player is LlmPlayer => player.kind === 'LLM'
+    );
+  }
+
+  private runSerializedForPower<T>(power: Power, task: () => Promise<T>): Promise<T> {
+    const previous = this.llmQueues.get(power) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(task);
+    this.llmQueues.set(power, next);
+    void next.finally(() => {
+      if (this.llmQueues.get(power) === next) this.llmQueues.delete(power);
+    });
+    return next;
+  }
+
   private createDiplomaticMessage(
     fromPower: Power,
     toPower: Power,
     body: string,
-    automated: boolean
+    automated: boolean,
+    id: string = randomUUID()
   ): DiplomaticMessage {
     const message: DiplomaticMessage = {
-      id: randomUUID(),
+      id,
       gameId: this.gameId,
       fromPower,
       toPower,
@@ -715,7 +1209,6 @@ export class GameRoom {
     this.state.year++;
     this.state.season = 'SPRING';
     this.state.phase = 'ORDERS';
-    this.queueAutomatedPhaseActions();
     this.broadcast('game_state_sync', { gameState: this.state });
   }
 

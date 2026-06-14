@@ -7,7 +7,7 @@ export function attachGameHandlers(
   io: Server<ClientToServerEvents, ServerToClientEvents>,
   gameManager: GameManager
 ): void {
-  socket.on('create_game', ({ playerName }) => {
+  socket.on('create_game', ({ playerName, preferredPower }) => {
     const normalizedName = normalizePlayerName(playerName);
     if (!normalizedName) {
       socket.emit('error', { message: 'Player name must be 1-40 characters', code: 'INVALID_NAME' });
@@ -22,8 +22,15 @@ export function attachGameHandlers(
     const room = gameManager.createGame();
     room.setIO(io);
 
-    const joined = room.addPlayer(socket.id, normalizedName);
-    if (!joined) return;
+    const requestedPower = preferredPower ?? 'RANDOM';
+    const joined = room.addPlayer(socket.id, normalizedName, requestedPower);
+    if (!joined) {
+      socket.emit('error', {
+        message: `${requestedPower} is not available`,
+        code: 'POWER_UNAVAILABLE',
+      });
+      return;
+    }
     const { player, sessionToken } = joined;
 
     socket.join(room.gameId);
@@ -40,7 +47,7 @@ export function attachGameHandlers(
     console.log(`Game created: ${room.gameId} by ${normalizedName} (${player.power})`);
   });
 
-  socket.on('join_game', ({ gameId, playerName }) => {
+  socket.on('join_game', ({ gameId, playerName, preferredPower }) => {
     const normalizedGameId = gameId.trim().toUpperCase();
     const normalizedName = normalizePlayerName(playerName);
     if (!normalizedName) {
@@ -57,9 +64,15 @@ export function attachGameHandlers(
       return;
     }
 
-    const joined = room.addPlayer(socket.id, normalizedName);
+    const requestedPower = preferredPower ?? 'RANDOM';
+    const joined = room.addPlayer(socket.id, normalizedName, requestedPower);
     if (!joined) {
-      socket.emit('join_error', { message: 'Game is full', code: 'GAME_FULL' });
+      socket.emit('join_error', {
+        message: room.getAvailablePowers().length === 0
+          ? 'Game is full'
+          : `${requestedPower} is no longer available`,
+        code: room.getAvailablePowers().length === 0 ? 'GAME_FULL' : 'POWER_UNAVAILABLE',
+      });
       return;
     }
     const { player, sessionToken } = joined;
@@ -108,7 +121,7 @@ export function attachGameHandlers(
     room.broadcast('game_state_sync', { gameState: room.getState() });
   });
 
-  socket.on('add_llm_player', ({ gameId, name, provider, model, persona }) => {
+  socket.on('add_llm_player', ({ gameId, power, name, provider, model, persona }) => {
     const room = gameManager.getRoom(gameId);
     if (!room) {
       socket.emit('error', { message: `Game ${gameId} not found`, code: 'GAME_NOT_FOUND' });
@@ -130,7 +143,7 @@ export function attachGameHandlers(
       return;
     }
 
-    const player = room.addLlmPlayer({ name, provider, model, persona });
+    const player = room.addLlmPlayer({ power, name, provider, model, persona });
     if (!player) {
       socket.emit('error', { message: 'Game is full', code: 'GAME_FULL' });
       return;
@@ -142,7 +155,27 @@ export function attachGameHandlers(
     });
   });
 
-  socket.on('start_game', ({ gameId }) => {
+  socket.on('update_game_settings', ({ gameId, llmNegotiationInitiators }) => {
+    const room = gameManager.getRoom(gameId);
+    if (!room) {
+      socket.emit('error', { message: `Game ${gameId} not found`, code: 'GAME_NOT_FOUND' });
+      return;
+    }
+    if (!room.isHost(socket.id)) {
+      socket.emit('error', { message: 'Only the host can change game settings', code: 'HOST_REQUIRED' });
+      return;
+    }
+    if (!room.updateLlmNegotiationInitiators(llmNegotiationInitiators)) {
+      socket.emit('error', {
+        message: 'LLM conversations must be a whole number from 0 to 7 and can only change in the lobby',
+        code: 'INVALID_GAME_SETTINGS',
+      });
+      return;
+    }
+    room.broadcast('game_state_sync', { gameState: room.getState() });
+  });
+
+  socket.on('start_game', async ({ gameId }) => {
     const room = gameManager.getRoom(gameId);
     if (!room) {
       socket.emit('error', { message: `Game ${gameId} not found`, code: 'GAME_NOT_FOUND' });
@@ -159,10 +192,19 @@ export function attachGameHandlers(
       return;
     }
 
-    if (!room.startGame()) {
+    try {
+      if (!await room.startGame()) {
+        socket.emit('error', {
+          message: 'All seven powers need a human or LLM controller before starting',
+          code: 'GAME_NOT_READY',
+        });
+        return;
+      }
+    } catch (error) {
+      console.error(`Failed to start game ${room.gameId}:`, error);
       socket.emit('error', {
-        message: 'All seven powers need a human or LLM controller before starting',
-        code: 'GAME_NOT_READY',
+        message: 'The game could not start because phase initialization failed.',
+        code: 'GAME_START_FAILED',
       });
       return;
     }

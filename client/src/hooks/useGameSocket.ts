@@ -5,6 +5,7 @@ import type {
   ClientToServerEvents,
   DiplomaticMessage,
   GameState,
+  LlmRunStatus,
   Order,
   Power,
   RetreatDestination,
@@ -43,6 +44,9 @@ export function useGameSocket() {
   const [myPower, setMyPower] = useState<Power | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [diplomaticMessages, setDiplomaticMessages] = useState<DiplomaticMessage[]>([]);
+  const [llmStatuses, setLlmStatuses] = useState<
+    Partial<Record<Power, LlmRunStatus>>
+  >({});
 
   function log(kind: LogEntry['kind'], event: string, detail: unknown = '') {
     const text = typeof detail === 'string' ? detail : JSON.stringify(detail);
@@ -156,6 +160,10 @@ export function useGameSocket() {
           : [...messages, message]
       );
     });
+    nextSocket.on('llm_status', payload => {
+      setLlmStatuses(statuses => ({ ...statuses, [payload.power]: payload.status }));
+      log('incoming', 'llm_status', `${payload.power} ${payload.status} ${payload.purpose}`);
+    });
     nextSocket.on('error', payload => log('error', payload.code, payload.message));
 
     return () => {
@@ -170,20 +178,37 @@ export function useGameSocket() {
     myPlayerId,
     myPower,
     diplomaticMessages,
+    llmStatuses,
     logs,
-    createGame(playerName: string) {
-      socket?.emit('create_game', { playerName });
-      log('outgoing', 'create_game', playerName);
+    createGame(playerName: string, preferredPower: Power | 'RANDOM') {
+      socket?.emit('create_game', { playerName, preferredPower });
+      log('outgoing', 'create_game', `${playerName} ${preferredPower}`);
     },
-    joinGame(nextGameId: string, playerName: string) {
+    joinGame(
+      nextGameId: string,
+      playerName: string,
+      preferredPower: Power | 'RANDOM'
+    ) {
       setGameId(nextGameId.trim().toUpperCase());
-      socket?.emit('join_game', { gameId: nextGameId.trim().toUpperCase(), playerName });
-      log('outgoing', 'join_game', nextGameId);
+      socket?.emit('join_game', {
+        gameId: nextGameId.trim().toUpperCase(),
+        playerName,
+        preferredPower,
+      });
+      log('outgoing', 'join_game', `${nextGameId} ${preferredPower}`);
     },
     addLlmPlayer(payload: Omit<AddLlmPlayerPayload, 'gameId'> = {}) {
       if (!gameId) return;
       socket?.emit('add_llm_player', { gameId, ...payload });
       log('outgoing', 'add_llm_player', payload);
+    },
+    updateLlmNegotiationInitiators(count: number) {
+      if (!gameId) return;
+      socket?.emit('update_game_settings', {
+        gameId,
+        llmNegotiationInitiators: count,
+      });
+      log('outgoing', 'update_game_settings', `${count} conversations`);
     },
     startGame() {
       if (!gameId) return;
@@ -206,14 +231,34 @@ export function useGameSocket() {
       log('outgoing', 'submit_builds', payload);
     },
     sendDiplomaticMessage(toPower: Power, body: string) {
-      if (!gameId) return;
-      socket?.emit('send_diplomatic_message', { gameId, toPower, body });
+      if (!gameId || !myPower || !gameState) return;
+      const clientMessageId = crypto.randomUUID();
+      const message: DiplomaticMessage = {
+        id: clientMessageId,
+        gameId,
+        fromPower: myPower,
+        toPower,
+        body: body.trim(),
+        sentAt: new Date().toISOString(),
+        year: gameState.year,
+        season: gameState.season,
+        phase: gameState.phase,
+        automated: false,
+      };
+      setDiplomaticMessages(messages => [...messages, message]);
+      socket?.emit('send_diplomatic_message', {
+        gameId,
+        clientMessageId,
+        toPower,
+        body,
+      });
     },
   }), [
     connection,
     diplomaticMessages,
     gameId,
     gameState,
+    llmStatuses,
     logs,
     myPlayerId,
     myPower,
