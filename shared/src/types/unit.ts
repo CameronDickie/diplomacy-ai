@@ -11,5 +11,6 @@ export interface Unit {
   coast: Coast | null;
   mustRetreat: boolean;
   retreatOptions: TerritoryId[];
+  retreatCoasts: Partial<Record<TerritoryId, Coast[]>>;
   dislodgedBy: TerritoryId | null;
 }

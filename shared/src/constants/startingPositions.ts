@@ -4,7 +4,10 @@ import type { Unit } from '../types/unit.js';
 import { HOME_SUPPLY_CENTERS, TERRITORIES } from './territories.js';
 
 /** Starting unit definitions (before UUIDs are assigned) */
-export const STARTING_UNITS: Omit<Unit, 'id' | 'mustRetreat' | 'retreatOptions' | 'dislodgedBy'>[] = [
+export const STARTING_UNITS: Omit<
+  Unit,
+  'id' | 'mustRetreat' | 'retreatOptions' | 'retreatCoasts' | 'dislodgedBy'
+>[] = [
   // AUSTRIA
   { type: 'ARMY',  power: 'AUSTRIA', territory: 'BUD', coast: null },
   { type: 'ARMY',  power: 'AUSTRIA', territory: 'VIE', coast: null },

@@ -14,6 +14,8 @@ export interface Order {
   targetTerritory: TerritoryId | null;
   /** MOVE: coast specifier for fleet entering multi-coast territory */
   targetCoast: Coast | null;
+  /** MOVE: force an adjacent army move to use a convoy route */
+  viaConvoy?: boolean;
   /** SUPPORT_HOLD / SUPPORT_MOVE: territory of the unit being supported */
   supportedUnit: TerritoryId | null;
   /** SUPPORT_MOVE: destination the supported unit is moving to */

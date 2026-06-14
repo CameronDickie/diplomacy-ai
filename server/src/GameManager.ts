@@ -3,10 +3,9 @@ import { GameRoom } from './GameRoom.js';
 export class GameManager {
   private rooms = new Map<string, GameRoom>();
 
-  createGame(creatorSocketId: string, playerName: string): GameRoom {
+  createGame(): GameRoom {
     const room = new GameRoom();
     this.rooms.set(room.gameId, room);
-    room.addPlayer(creatorSocketId, playerName);
     return room;
   }
 

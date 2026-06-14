@@ -1,10 +1,17 @@
 {
   "name": "diplomacy",
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "workspaces": ["shared", "server", "client"],
   "scripts": {
-    "dev": "concurrently \"npm run dev -w server\" \"npm run dev -w client\"",
-    "build": "npm run build -w shared && npm run build -w server && npm run build -w client"
+    "dev": "npm run build:engine && npm run build -w shared && concurrently \"npm run dev -w shared\" \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build:engine": "mkdir -p engine/bin engine/.cache/go-build && GOCACHE=$PWD/engine/.cache/go-build go -C engine build -buildvcs=false -o bin/diplomacy-engine ./cmd/diplomacy-engine",
+    "generate:board": "GOCACHE=$PWD/engine/.cache/go-build go -C engine run -buildvcs=false ./cmd/generate-board -out ../shared/src/constants/adjacency.generated.ts",
+    "build": "npm run build:engine && npm run build -w shared && npm run build -w server && npm run build -w client",
+    "check": "npm run build && npm test -w server",
+    "start": "npm start -w server"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

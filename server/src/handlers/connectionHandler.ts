@@ -3,6 +3,7 @@ import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shar
 import type { GameManager } from '../GameManager.js';
 import { attachGameHandlers } from './gameHandler.js';
 import { attachOrderHandlers } from './orderHandler.js';
+import { attachDiplomacyHandlers } from './diplomacyHandler.js';
 
 export function attachHandlers(
   socket: Socket<ClientToServerEvents, ServerToClientEvents>,
@@ -13,6 +14,7 @@ export function attachHandlers(
 
   attachGameHandlers(socket, io, gameManager);
   attachOrderHandlers(socket, io, gameManager);
+  attachDiplomacyHandlers(socket, io, gameManager);
 
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`);

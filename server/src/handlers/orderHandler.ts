@@ -22,15 +22,32 @@ export function attachOrderHandlers(
       return;
     }
 
+    if (room.getState().status !== 'IN_PROGRESS') {
+      socket.emit('error', { message: 'Game has not started', code: 'GAME_NOT_STARTED' });
+      return;
+    }
+
     if (room.getState().phase !== 'ORDERS') {
       socket.emit('error', { message: 'Not in orders phase', code: 'WRONG_PHASE' });
       return;
     }
 
-    // Acknowledge receipt
-    socket.emit('orders_acknowledged', { orders });
+    const validationError = room.validateOrders(player.power, orders);
+    if (validationError) {
+      socket.emit('error', { message: validationError, code: 'INVALID_ORDERS' });
+      return;
+    }
 
-    room.submitOrders(player.power, orders);
+    try {
+      room.submitOrders(player.power, orders);
+      socket.emit('orders_acknowledged', { orders });
+    } catch (error) {
+      console.error(`Failed to adjudicate game ${room.gameId}:`, error);
+      socket.emit('error', {
+        message: 'Turn resolution failed. Your submission was not finalized; please retry.',
+        code: 'ADJUDICATION_FAILED',
+      });
+    }
   });
 
   socket.on('submit_retreats', ({ gameId, retreats }) => {
@@ -40,8 +57,19 @@ export function attachOrderHandlers(
     const player = room.getPlayerBySocket(socket.id);
     if (!player) return;
 
+    if (room.getState().status !== 'IN_PROGRESS') {
+      socket.emit('error', { message: 'Game has not started', code: 'GAME_NOT_STARTED' });
+      return;
+    }
+
     if (room.getState().phase !== 'RETREATS') {
       socket.emit('error', { message: 'Not in retreats phase', code: 'WRONG_PHASE' });
+      return;
+    }
+
+    const validationError = room.validateRetreats(player.power, retreats);
+    if (validationError) {
+      socket.emit('error', { message: validationError, code: 'INVALID_RETREATS' });
       return;
     }
 
@@ -55,11 +83,23 @@ export function attachOrderHandlers(
     const player = room.getPlayerBySocket(socket.id);
     if (!player) return;
 
+    if (room.getState().status !== 'IN_PROGRESS') {
+      socket.emit('error', { message: 'Game has not started', code: 'GAME_NOT_STARTED' });
+      return;
+    }
+
     if (room.getState().phase !== 'BUILDS') {
       socket.emit('error', { message: 'Not in builds phase', code: 'WRONG_PHASE' });
       return;
     }
 
-    room.submitBuilds(player.power, { gameId, builds, disbands });
+    const payload = { gameId, builds, disbands };
+    const validationError = room.validateBuilds(player.power, payload);
+    if (validationError) {
+      socket.emit('error', { message: validationError, code: 'INVALID_BUILDS' });
+      return;
+    }
+
+    room.submitBuilds(player.power, payload);
   });
 }

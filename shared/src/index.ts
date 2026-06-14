@@ -4,6 +4,7 @@ export * from './types/unit.js';
 export * from './types/order.js';
 export * from './types/state.js';
 export * from './types/socket.js';
+export * from './types/diplomacy.js';
 export * from './constants/territories.js';
 export * from './constants/adjacency.js';
 export * from './constants/startingPositions.js';
