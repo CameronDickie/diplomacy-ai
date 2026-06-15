@@ -33,4 +33,10 @@ export function attachHandlers(
     if (!room) return;
     socket.emit('game_state_sync', { gameState: room.getState() });
   });
+
+  socket.on('request_phase_history', ({ gameId }) => {
+    const room = gameManager.getRoom(gameId);
+    if (!room || !room.hasSocket(socket.id)) return;
+    socket.emit('phase_history', { reports: room.getPhaseHistory() });
+  });
 }

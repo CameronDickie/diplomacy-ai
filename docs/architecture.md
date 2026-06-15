@@ -57,14 +57,51 @@ latest private negotiations are included. Invalid provider output is retried
 once with validation feedback and then replaced by a deterministic fallback so
 a provider outage cannot stall the game.
 
-Before final order generation, two rotating provider-backed LLM powers may each
-choose one other LLM for a single opening-and-reply exchange. This bounded round
-gives automated powers initiative without creating an unbounded conversation
-loop or allowing autonomous messages to delay the phase indefinitely.
+Before final order generation, a host-configured number of rotating
+provider-backed LLM powers may each use an optional cheaper planner model to
+choose the most strategically relevant LLM recipient and open a conversation.
+Each structured opening and reply states whether another answer is required.
+The server alternates speakers only while that flag remains true, warns models
+at a configurable message count, and always terminates at a hard message cap.
+This gives automated powers initiative without allowing autonomous messages to
+delay the phase indefinitely.
 
 Each LLM has one power-scoped memory containing its private transcript, concise
 strategic summary, and structured agreement ledger. Incoming messages are
-serialized per power before replies and memory updates are generated. The
-current provider implementations are the deterministic stub and OpenAI
+serialized per power before replies and memory updates are generated. LLM
+conversations are also serialized across the room so two live automated
+exchanges cannot overlap. Presence is server-owned: participants see the exact
+pair, uninvolved players see only generic automated activity unless the host
+enabled public pairings before the game.
+
+Every provider call creates a private structured run artifact with context
+message IDs, memory revisions, board snapshot, decision, validation/fallback
+metadata, and lifecycle statuses. These artifacts intentionally exclude hidden
+chain-of-thought. They remain server-private until observer/research roles and
+their authorization rules are implemented.
+
+The current provider implementations are the deterministic stub and OpenAI
 structured output; other provider identifiers remain reserved for later
 adapters.
+
+An all-LLM room can resolve its opening phase without a human submission, but
+continuous simulation requires a separate background game runner. That runner
+must persist checkpoints, enforce turn and spend limits, support pause/resume,
+recover provider failures, detect repeated or stagnant states, and avoid
+holding a socket request open for the lifetime of a game.
+
+## Public History and Replay
+
+The server records an immutable public report after every orders, retreats, and
+adjustments phase. Each report contains before/after board snapshots and the
+public decisions and outcomes needed to explain the resolution. Reports are
+sent on reconnect and streamed as phases resolve.
+
+The client timeline and replay renderer consume only these reports. Replay
+never mutates live game state: it renders the stored pre-resolution snapshot,
+decision layer, and resolved snapshot with movement interpolation and
+outcome-specific styling. Public JSON export uses the same schema and excludes
+private press, LLM journals, session tokens, and provider credentials.
+
+Reports currently live in memory. Durable restart recovery and long-running
+all-LLM studies require the persistence layer planned for deployment work.

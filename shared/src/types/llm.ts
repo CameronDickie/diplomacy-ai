@@ -1,8 +1,15 @@
 import type { Phase, Power, Season } from './game.js';
+import type { PublicBoardSnapshot } from './history.js';
 
 export type LlmProviderId = 'STUB' | 'OPENAI' | 'ANTHROPIC' | 'OPENROUTER' | 'OLLAMA';
 
 export type LlmRunStatus = 'IDLE' | 'THINKING' | 'RETRYING' | 'FALLBACK';
+export type LlmJournalStatus =
+  | 'QUEUED'
+  | 'THINKING'
+  | 'RETRYING'
+  | 'FALLBACK'
+  | 'COMPLETE';
 
 export interface DiplomaticAgreement {
   id: string;
@@ -33,4 +40,15 @@ export interface LlmRunArtifact {
   validationErrors: string[];
   inputTokens: number | null;
   outputTokens: number | null;
+  contextMessageIds: string[];
+  memoryRevisionBefore: number;
+  strategicSummary: string | null;
+  agreementsBefore: DiplomaticAgreement[];
+  agreementsAfter: DiplomaticAgreement[];
+  structuredDecision: unknown;
+  boardSnapshot: PublicBoardSnapshot;
+  statusHistory: Array<{
+    status: LlmJournalStatus;
+    at: string;
+  }>;
 }

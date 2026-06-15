@@ -9,6 +9,7 @@ export function ChatPanel({ game }: { game: GameSocket }) {
   const [recipient, setRecipient] = useState<Power | null>(null);
   const [draft, setDraft] = useState('');
   const messageListRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
   const recipients = useMemo(
     () => game.gameState?.players.filter(player => player.power !== game.myPower) ?? [],
     [game.gameState?.players, game.myPower]
@@ -35,11 +36,19 @@ export function ChatPanel({ game }: { game: GameSocket }) {
   }, [recipient, recipients]);
 
   useEffect(() => {
-    messageListRef.current?.scrollTo({
-      top: messageListRef.current.scrollHeight,
+    stickToBottomRef.current = true;
+    const list = messageListRef.current;
+    if (list) list.scrollTop = list.scrollHeight;
+  }, [recipient]);
+
+  useEffect(() => {
+    const list = messageListRef.current;
+    if (!list || !stickToBottomRef.current) return;
+    list.scrollTo({
+      top: list.scrollHeight,
       behavior: 'smooth',
     });
-  }, [messages.length, recipient]);
+  }, [messages.length, isWaitingForLlm]);
 
   function sendMessage() {
     if (!recipient || !draft.trim()) return;
@@ -72,6 +81,22 @@ export function ChatPanel({ game }: { game: GameSocket }) {
       </div>
 
       <div className="conversation">
+        {game.conversationPresence.active && (
+          <div className="conversation-presence" role="status">
+            <span className="presence-pulse" />
+            <strong>
+              {game.conversationPresence.participants
+                ? `${game.conversationPresence.participants.join(' and ')} are conversing`
+                : 'Automated diplomacy in progress'}
+            </strong>
+            <span>{presenceLabel(game.conversationPresence.status)}</span>
+            {game.conversationPresence.maxMessages > 0 && (
+              <em>
+                {game.conversationPresence.messageCount}/{game.conversationPresence.maxMessages}
+              </em>
+            )}
+          </div>
+        )}
         <header>
           <div>
             <h2>{recipient ?? 'Select a power'}</h2>
@@ -84,7 +109,15 @@ export function ChatPanel({ game }: { game: GameSocket }) {
           <span>{messages.length} messages</span>
         </header>
 
-        <div className="message-list" ref={messageListRef}>
+        <div
+          className="message-list"
+          ref={messageListRef}
+          onScroll={event => {
+            const list = event.currentTarget;
+            stickToBottomRef.current =
+              list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+          }}
+        >
           {recipient && messages.length === 0 && (
             <p className="chat-empty">No messages in this channel.</p>
           )}
@@ -140,4 +173,13 @@ export function ChatPanel({ game }: { game: GameSocket }) {
       </div>
     </section>
   );
+}
+
+function presenceLabel(
+  status: 'IDLE' | 'WAITING_FOR_REPLY' | 'RESPONDING' | 'AT_MESSAGE_LIMIT'
+): string {
+  if (status === 'RESPONDING') return 'responding';
+  if (status === 'WAITING_FOR_REPLY') return 'waiting for reply';
+  if (status === 'AT_MESSAGE_LIMIT') return 'message limit reached';
+  return 'idle';
 }

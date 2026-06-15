@@ -26,6 +26,10 @@ export type Player = HumanPlayer | LlmPlayer;
 
 export interface GameSettings {
   llmNegotiationInitiators: number;
+  llmNegotiationMaxMessages: number;
+  llmNegotiationWarningAtMessages: number;
+  llmNegotiationPlannerModel: string;
+  publicLlmConversationPresence: boolean;
 }
 
 export interface GameState {

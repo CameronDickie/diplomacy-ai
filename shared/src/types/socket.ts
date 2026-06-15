@@ -5,6 +5,7 @@ import type { Order, AdjudicationResult } from './order.js';
 import type { GameState, Player } from './state.js';
 import type { DiplomaticMessage } from './diplomacy.js';
 import type { LlmProviderId, LlmRunStatus } from './llm.js';
+import type { PublicPhaseReport } from './history.js';
 
 // ── Client → Server ──────────────────────────────────────────────────────────
 
@@ -39,7 +40,11 @@ export interface StartGamePayload {
 
 export interface UpdateGameSettingsPayload {
   gameId: string;
-  llmNegotiationInitiators: number;
+  llmNegotiationInitiators?: number;
+  llmNegotiationMaxMessages?: number;
+  llmNegotiationWarningAtMessages?: number;
+  llmNegotiationPlannerModel?: string;
+  publicLlmConversationPresence?: boolean;
 }
 
 export interface SubmitOrdersPayload {
@@ -83,6 +88,7 @@ export interface ClientToServerEvents {
   submit_builds: (payload: SubmitBuildsPayload) => void;
   send_diplomatic_message: (payload: SendDiplomaticMessagePayload) => void;
   request_diplomacy_history: (payload: { gameId: string }) => void;
+  request_phase_history: (payload: { gameId: string }) => void;
   request_state: () => void;
 }
 
@@ -172,6 +178,23 @@ export interface DiplomacyMessagePayload {
   message: DiplomaticMessage;
 }
 
+export interface PhaseHistoryPayload {
+  reports: PublicPhaseReport[];
+}
+
+export interface PhaseReportAddedPayload {
+  report: PublicPhaseReport;
+}
+
+export interface ConversationPresencePayload {
+  active: boolean;
+  status: 'IDLE' | 'WAITING_FOR_REPLY' | 'RESPONDING' | 'AT_MESSAGE_LIMIT';
+  conversationId: string | null;
+  participants: [Power, Power] | null;
+  messageCount: number;
+  maxMessages: number;
+}
+
 export interface LlmStatusPayload {
   power: Power;
   status: LlmRunStatus;
@@ -196,6 +219,9 @@ export interface ServerToClientEvents {
   game_over: (payload: GameOverPayload) => void;
   diplomacy_history: (payload: DiplomacyHistoryPayload) => void;
   diplomacy_message: (payload: DiplomacyMessagePayload) => void;
+  phase_history: (payload: PhaseHistoryPayload) => void;
+  phase_report_added: (payload: PhaseReportAddedPayload) => void;
+  conversation_presence: (payload: ConversationPresencePayload) => void;
   llm_status: (payload: LlmStatusPayload) => void;
   error: (payload: ErrorPayload) => void;
 }

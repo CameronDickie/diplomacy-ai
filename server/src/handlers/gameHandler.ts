@@ -43,6 +43,7 @@ export function attachGameHandlers(
       gameState: room.getState(),
     });
     socket.emit('diplomacy_history', { messages: room.getDiplomaticMessages(player.power) });
+    socket.emit('phase_history', { reports: room.getPhaseHistory() });
 
     console.log(`Game created: ${room.gameId} by ${normalizedName} (${player.power})`);
   });
@@ -88,6 +89,7 @@ export function attachGameHandlers(
       gameState: room.getState(),
     });
     socket.emit('diplomacy_history', { messages: room.getDiplomaticMessages(player.power) });
+    socket.emit('phase_history', { reports: room.getPhaseHistory() });
 
     room.broadcast('player_joined', {
       player,
@@ -118,6 +120,7 @@ export function attachGameHandlers(
       gameState: room.getState(),
     });
     socket.emit('diplomacy_history', { messages: room.getDiplomaticMessages(player.power) });
+    socket.emit('phase_history', { reports: room.getPhaseHistory() });
     room.broadcast('game_state_sync', { gameState: room.getState() });
   });
 
@@ -155,7 +158,7 @@ export function attachGameHandlers(
     });
   });
 
-  socket.on('update_game_settings', ({ gameId, llmNegotiationInitiators }) => {
+  socket.on('update_game_settings', ({ gameId, ...settings }) => {
     const room = gameManager.getRoom(gameId);
     if (!room) {
       socket.emit('error', { message: `Game ${gameId} not found`, code: 'GAME_NOT_FOUND' });
@@ -165,9 +168,9 @@ export function attachGameHandlers(
       socket.emit('error', { message: 'Only the host can change game settings', code: 'HOST_REQUIRED' });
       return;
     }
-    if (!room.updateLlmNegotiationInitiators(llmNegotiationInitiators)) {
+    if (!room.updateGameSettings(settings)) {
       socket.emit('error', {
-        message: 'LLM conversations must be a whole number from 0 to 7 and can only change in the lobby',
+        message: 'Invalid game settings or the game has already started',
         code: 'INVALID_GAME_SETTINGS',
       });
       return;

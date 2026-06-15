@@ -17,6 +17,7 @@ import {
 import type {
   ControllerContext,
   ControllerDecision,
+  DiplomaticConversationContext,
   DiplomaticInitiativeDecision,
   DiplomaticReplyDecision,
   LlmProvider,
@@ -59,6 +60,7 @@ export class StructuredLlmController implements PowerController {
     const result = await this.provider.completeJson<{
       toPower: Power | null;
       message: string;
+      expectsReply: boolean;
       strategicSummary: string;
       agreements: AgreementOutput[];
     }>({
@@ -68,6 +70,7 @@ export class StructuredLlmController implements PowerController {
         buildControllerPrompt(context, 'DIPLOMACY', validationErrors),
         `You may initiate one brief private conversation with one of these LLM powers: ${eligiblePowers.join(', ')}.`,
         'Choose the most strategically relevant recipient. Set toPower to null and message to an empty string if no outreach is useful.',
+        'Set expectsReply to true only when the other power needs to answer before you can finalize your orders.',
         'Do not contact human powers in this autonomous negotiation round.',
       ].join('\n'),
       schemaName: 'diplomacy_initiative',
@@ -83,16 +86,24 @@ export class StructuredLlmController implements PowerController {
   async requestDiplomaticReply(
     context: ControllerContext,
     incomingMessage: { body: string },
+    conversation?: DiplomaticConversationContext,
     validationErrors: string[] = []
   ): Promise<DiplomaticReplyDecision> {
     const result = await this.provider.completeJson<{
       reply: string;
+      expectsReply: boolean;
       strategicSummary: string;
       agreements: AgreementOutput[];
     }>({
       model: this.model,
       system: CONTROLLER_SYSTEM_PROMPT,
-      prompt: `${buildControllerPrompt(context, 'DIPLOMACY', validationErrors)}\nIncoming message: ${incomingMessage.body}`,
+      prompt: [
+        buildControllerPrompt(context, 'DIPLOMACY', validationErrors),
+        `Incoming message: ${incomingMessage.body}`,
+        conversation
+          ? conversationInstruction(conversation)
+          : 'Set expectsReply to true only if a further answer is strategically necessary.',
+      ].join('\n'),
       schemaName: 'diplomacy_reply',
       schema: diplomacyReplySchema,
     });
@@ -217,9 +228,10 @@ const commonDecisionProperties = {
 const diplomacyReplySchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['reply', 'strategicSummary', 'agreements'],
+  required: ['reply', 'expectsReply', 'strategicSummary', 'agreements'],
   properties: {
     reply: { type: 'string' },
+    expectsReply: { type: 'boolean' },
     ...commonDecisionProperties,
   },
 };
@@ -228,7 +240,7 @@ function diplomacyInitiativeSchema(eligiblePowers: Power[]) {
   return {
     type: 'object',
     additionalProperties: false,
-    required: ['toPower', 'message', 'strategicSummary', 'agreements'],
+    required: ['toPower', 'message', 'expectsReply', 'strategicSummary', 'agreements'],
     properties: {
       toPower: {
         anyOf: [
@@ -237,9 +249,22 @@ function diplomacyInitiativeSchema(eligiblePowers: Power[]) {
         ],
       },
       message: { type: 'string' },
+      expectsReply: { type: 'boolean' },
       ...commonDecisionProperties,
     },
   };
+}
+
+function conversationInstruction(context: DiplomaticConversationContext): string {
+  const remaining = context.maxMessages - context.messageNumber;
+  const warning = context.messageNumber >= context.warningAtMessages
+    ? 'The configured warning threshold has been reached. Conclude now unless another answer is essential.'
+    : 'Continue only while another answer is strategically necessary.';
+  return [
+    `This reply will be message ${context.messageNumber} of at most ${context.maxMessages}.`,
+    `${remaining} messages will remain after this reply. ${warning}`,
+    'Set expectsReply to false when the exchange has reached a useful conclusion.',
+  ].join(' ');
 }
 
 const ordersSchema = {

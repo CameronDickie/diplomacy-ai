@@ -1,5 +1,8 @@
 # MVP Roadmap
 
+Detailed playtest-derived feature workstreams and acceptance criteria are kept
+in [playtest-feature-notebook.md](./playtest-feature-notebook.md).
+
 ## 1. Complete Rules Workflow
 
 - Route retreats and adjustments through Godip.
@@ -52,9 +55,12 @@
   accepting output.
 - Trigger final LLM decisions only after all active human powers submit, so the
   latest negotiations are considered.
-- Run a bounded autonomous negotiation round after human submission: two
-  rotating LLM initiators may each select one other provider-backed LLM, send
-  one opening message, and receive one reply before final orders are generated.
+- Run a bounded autonomous negotiation round after human submission. A
+  host-configured number of rotating LLM initiators use an optional cheaper
+  planner model to select a relevant recipient and open a conversation.
+- Let each structured opening and reply state whether another answer is
+  required. Warn the models at a configured message count and enforce a
+  server-side hard cap regardless of model output.
 - Retry invalid structured output once with validation feedback, then fall back
   to holds, disbands, or waived builds so provider failure cannot stall a game.
 - Serialize message handling per LLM power and update its shared memory after
@@ -65,6 +71,9 @@
   validation failures, retry count, fallback reason, latency, and token usage.
 - Add evaluation fixtures for action legality, agreement recall, cross-channel
   consistency, fallback rate, latency, and cost.
+- Add a durable all-LLM simulation runner with pause/resume, per-game token and
+  dollar budgets, maximum year/turn limits, checkpoints, provider backoff,
+  observability, and explicit termination reasons.
 
 ## 7. Voice and Discord
 

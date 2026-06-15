@@ -22,7 +22,7 @@ export function EventLog({
         </button>
       </header>
       {open && (
-        <div>
+        <div className="event-log-entries">
           {entries.map(entry => (
             <p className={entry.kind} key={entry.id}>
               <span>{entry.at}</span>

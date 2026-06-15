@@ -3,11 +3,14 @@ import { io, Socket } from 'socket.io-client';
 import type {
   AddLlmPlayerPayload,
   ClientToServerEvents,
+  ConversationPresencePayload,
   DiplomaticMessage,
+  GameSettings,
   GameState,
   LlmRunStatus,
   Order,
   Power,
+  PublicPhaseReport,
   RetreatDestination,
   ServerToClientEvents,
   SubmitBuildsPayload,
@@ -44,9 +47,19 @@ export function useGameSocket() {
   const [myPower, setMyPower] = useState<Power | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [diplomaticMessages, setDiplomaticMessages] = useState<DiplomaticMessage[]>([]);
+  const [phaseHistory, setPhaseHistory] = useState<PublicPhaseReport[]>([]);
   const [llmStatuses, setLlmStatuses] = useState<
     Partial<Record<Power, LlmRunStatus>>
   >({});
+  const [conversationPresence, setConversationPresence] =
+    useState<ConversationPresencePayload>({
+      active: false,
+      status: 'IDLE',
+      conversationId: null,
+      participants: null,
+      messageCount: 0,
+      maxMessages: 0,
+    });
 
   function log(kind: LogEntry['kind'], event: string, detail: unknown = '') {
     const text = typeof detail === 'string' ? detail : JSON.stringify(detail);
@@ -82,6 +95,7 @@ export function useGameSocket() {
       setMyPower(payload.power);
       setGameState(payload.gameState);
       setDiplomaticMessages([]);
+      setPhaseHistory([]);
       saveSession(payload);
       log('incoming', 'game_created', { gameId: payload.gameId, power: payload.power });
     });
@@ -91,6 +105,7 @@ export function useGameSocket() {
       setMyPower(payload.power);
       setGameState(payload.gameState);
       setDiplomaticMessages([]);
+      setPhaseHistory([]);
       saveSession(payload);
       log('incoming', 'game_joined', { power: payload.power });
     });
@@ -99,6 +114,7 @@ export function useGameSocket() {
       setMyPlayerId(payload.playerId);
       setMyPower(payload.power);
       setGameState(payload.gameState);
+      setPhaseHistory([]);
       log('incoming', 'game_resumed', { gameId: payload.gameId, power: payload.power });
     });
     nextSocket.on('resume_error', payload => {
@@ -160,6 +176,28 @@ export function useGameSocket() {
           : [...messages, message]
       );
     });
+    nextSocket.on('phase_history', payload => {
+      setPhaseHistory(payload.reports);
+      log('incoming', 'phase_history', `${payload.reports.length} reports`);
+    });
+    nextSocket.on('phase_report_added', ({ report }) => {
+      setPhaseHistory(reports =>
+        reports.some(candidate => candidate.id === report.id)
+          ? reports
+          : [...reports, report]
+      );
+      log('incoming', 'phase_report_added', `${report.year} ${report.season} ${report.phase}`);
+    });
+    nextSocket.on('conversation_presence', payload => {
+      setConversationPresence(payload);
+      log(
+        'incoming',
+        'conversation_presence',
+        payload.active
+          ? `${payload.participants?.join(' / ') ?? 'private'} ${payload.messageCount}/${payload.maxMessages}`
+          : 'idle'
+      );
+    });
     nextSocket.on('llm_status', payload => {
       setLlmStatuses(statuses => ({ ...statuses, [payload.power]: payload.status }));
       log('incoming', 'llm_status', `${payload.power} ${payload.status} ${payload.purpose}`);
@@ -178,6 +216,8 @@ export function useGameSocket() {
     myPlayerId,
     myPower,
     diplomaticMessages,
+    phaseHistory,
+    conversationPresence,
     llmStatuses,
     logs,
     createGame(playerName: string, preferredPower: Power | 'RANDOM') {
@@ -202,13 +242,13 @@ export function useGameSocket() {
       socket?.emit('add_llm_player', { gameId, ...payload });
       log('outgoing', 'add_llm_player', payload);
     },
-    updateLlmNegotiationInitiators(count: number) {
+    updateGameSettings(settings: Partial<GameSettings>) {
       if (!gameId) return;
       socket?.emit('update_game_settings', {
         gameId,
-        llmNegotiationInitiators: count,
+        ...settings,
       });
-      log('outgoing', 'update_game_settings', `${count} conversations`);
+      log('outgoing', 'update_game_settings', settings);
     },
     startGame() {
       if (!gameId) return;
@@ -255,7 +295,9 @@ export function useGameSocket() {
     },
   }), [
     connection,
+    conversationPresence,
     diplomaticMessages,
+    phaseHistory,
     gameId,
     gameState,
     llmStatuses,

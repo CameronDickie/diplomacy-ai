@@ -416,6 +416,9 @@ function BuildPanel({ gameState, myPower, onSubmitBuilds }: Props) {
   const [territory, setTerritory] = useState<TerritoryId>('');
   const [unitType, setUnitType] = useState<UnitType>('ARMY');
   const [coast, setCoast] = useState<Coast | ''>('');
+  const remainingBuilds = Math.max(0, delta - builds.length);
+  const requiredDisbands = Math.max(0, -delta);
+  const remainingDisbands = Math.max(0, requiredDisbands - disbands.length);
 
   const availableCenters = TERRITORIES.filter(candidate =>
     candidate.isSupplyCenter &&
@@ -427,7 +430,7 @@ function BuildPanel({ gameState, myPower, onSubmitBuilds }: Props) {
   const selectedCenter = territory ? TERRITORY_BY_ID[territory] : null;
   const buildCoasts = unitType === 'FLEET' ? selectedCenter?.coasts ?? [] : [];
   const canAddBuild =
-    delta > builds.length &&
+    remainingBuilds > 0 &&
     Boolean(territory) &&
     !(unitType === 'FLEET' && selectedCenter?.type === 'LAND') &&
     (buildCoasts.length === 0 || Boolean(coast));
@@ -456,13 +459,15 @@ function BuildPanel({ gameState, myPower, onSubmitBuilds }: Props) {
   return (
     <div className="order-builder">
       <h3>Adjustments</h3>
-      <p>
+      <p className="adjustment-count" aria-live="polite">
         {delta > 0
-          ? `${delta} builds available; builds may be waived`
-          : `${Math.abs(delta)} disbands required`}
+          ? `${remainingBuilds} of ${delta} builds remaining`
+          : delta < 0
+            ? `${remainingDisbands} of ${requiredDisbands} disbands remaining`
+            : 'No adjustments required'}
       </p>
 
-      {delta > 0 && (
+      {delta > 0 && remainingBuilds > 0 && (
         <>
           <select value={territory} onChange={event => {
             setTerritory(event.target.value);
@@ -487,6 +492,12 @@ function BuildPanel({ gameState, myPower, onSubmitBuilds }: Props) {
             </select>
           )}
           <button onClick={addBuild} disabled={!canAddBuild}>Add Build</button>
+        </>
+      )}
+
+      {delta > 0 && builds.length > 0 && (
+        <div className="adjustment-draft">
+          <h3>Queued builds</h3>
           {builds.map((build, index) => (
             <p key={`${build.territory}-${build.type}`}>
               {build.type} in {build.territory}{build.coast ? `/${build.coast}` : ''}
@@ -498,10 +509,14 @@ function BuildPanel({ gameState, myPower, onSubmitBuilds }: Props) {
               </button>
             </p>
           ))}
-        </>
+        </div>
       )}
 
-      {delta < 0 && units.map(unit => (
+      {delta > 0 && remainingBuilds === 0 && (
+        <p className="adjustment-complete">All available builds are queued.</p>
+      )}
+
+      {delta < 0 && remainingDisbands > 0 && units.map(unit => (
         <label className="check-row" key={unit.id}>
           <input
             type="checkbox"
@@ -512,12 +527,28 @@ function BuildPanel({ gameState, myPower, onSubmitBuilds }: Props) {
         </label>
       ))}
 
+      {delta < 0 && remainingDisbands === 0 && (
+        <div className="adjustment-draft">
+          <h3>Selected disbands</h3>
+          {units.filter(unit => disbands.includes(unit.id)).map(unit => (
+            <p key={unit.id}>
+              {unitLabel(unit)}
+              <button className="inline-remove" onClick={() => toggleDisband(unit.id)}>
+                Remove
+              </button>
+            </p>
+          ))}
+        </div>
+      )}
+
       <button
         className="primary"
-        disabled={delta < 0 && disbands.length !== Math.abs(delta)}
+        disabled={delta < 0 && remainingDisbands !== 0}
         onClick={() => onSubmitBuilds({ builds, disbands })}
       >
-        Submit Adjustments
+        {delta > 0 && remainingBuilds > 0
+          ? `Submit and waive ${remainingBuilds}`
+          : 'Submit Adjustments'}
       </button>
     </div>
   );

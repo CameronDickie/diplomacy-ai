@@ -67,7 +67,9 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                 <select
                   value={game.gameState.settings.llmNegotiationInitiators}
                   onChange={event =>
-                    game.updateLlmNegotiationInitiators(Number(event.target.value))
+                    game.updateGameSettings({
+                      llmNegotiationInitiators: Number(event.target.value),
+                    })
                   }
                 >
                   {Array.from({ length: 8 }, (_, count) => (
@@ -76,7 +78,72 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                 </select>
               </label>
               <p className="field-help">
-                Maximum LLM-initiated exchanges after all human orders are submitted.
+                Maximum LLM powers that may initiate a conversation each order phase.
+              </p>
+              <label>
+                Planner model
+                <input
+                  placeholder="Use each seat's model"
+                  value={game.gameState.settings.llmNegotiationPlannerModel}
+                  onChange={event => game.updateGameSettings({
+                    llmNegotiationPlannerModel: event.target.value,
+                  })}
+                />
+              </label>
+              <p className="field-help">
+                Optional cheaper model, using the same provider, for choosing a recipient and
+                writing the opening message.
+              </p>
+              <label>
+                Message warning
+                <select
+                  value={game.gameState.settings.llmNegotiationWarningAtMessages}
+                  onChange={event => game.updateGameSettings({
+                    llmNegotiationWarningAtMessages: Number(event.target.value),
+                  })}
+                >
+                  {Array.from(
+                    { length: game.gameState.settings.llmNegotiationMaxMessages },
+                    (_, index) => index + 1
+                  ).map(count => <option value={count} key={count}>{count}</option>)}
+                </select>
+              </label>
+              <label>
+                Hard message cap
+                <select
+                  value={game.gameState.settings.llmNegotiationMaxMessages}
+                  onChange={event => {
+                    const max = Number(event.target.value);
+                    game.updateGameSettings({
+                      llmNegotiationMaxMessages: max,
+                      llmNegotiationWarningAtMessages: Math.min(
+                        game.gameState!.settings.llmNegotiationWarningAtMessages,
+                        max
+                      ),
+                    });
+                  }}
+                >
+                  {Array.from({ length: 19 }, (_, index) => index + 2).map(count => (
+                    <option value={count} key={count}>{count}</option>
+                  ))}
+                </select>
+              </label>
+              <p className="field-help">
+                Models are urged to conclude at the warning threshold. The server always stops
+                the exchange at the hard cap.
+              </p>
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={game.gameState.settings.publicLlmConversationPresence}
+                  onChange={event => game.updateGameSettings({
+                    publicLlmConversationPresence: event.target.checked,
+                  })}
+                />
+                Show autonomous conversation pairings to every player
+              </label>
+              <p className="field-help">
+                Off by default so private diplomatic activity does not reveal who is coordinating.
               </p>
               <h3>Next LLM seat</h3>
               <label>

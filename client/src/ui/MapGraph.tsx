@@ -7,6 +7,9 @@ interface Props {
   selectedTerritory: TerritoryId | null;
   validTargets: TerritoryId[];
   pendingOrders: Order[];
+  replayStandoffs?: TerritoryId[];
+  unitAnimationFrom?: Unit[];
+  unitAnimationKey?: string | null;
   onSelectTerritory: (territory: TerritoryId) => void;
 }
 
@@ -33,6 +36,9 @@ export function MapGraph({
   selectedTerritory,
   validTargets,
   pendingOrders,
+  replayStandoffs = [],
+  unitAnimationFrom,
+  unitAnimationKey,
   onSelectTerritory,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -45,9 +51,13 @@ export function MapGraph({
     moved: boolean;
   } | null>(null);
   const suppressClickRef = useRef(false);
+  const consumedAnimationKeyRef = useRef<string | null>(null);
   const [markup, setMarkup] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
+  const pendingControlCount = gameState
+    ? pendingSupplyControl(gameState).length
+    : 0;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -73,7 +83,15 @@ export function MapGraph({
     svg.removeAttribute('width');
     svg.removeAttribute('height');
     svg.setAttribute('role', 'img');
-    svg.setAttribute('aria-label', 'Interactive Diplomacy board');
+    const pendingControl = gameState ? pendingSupplyControl(gameState) : [];
+    svg.setAttribute(
+      'aria-label',
+      pendingControl.length === 0
+        ? 'Interactive Diplomacy board'
+        : `Interactive Diplomacy board. Pending Fall control: ${pendingControl
+            .map(item => `${territoryName(item.territory)} occupied by ${item.power}`)
+            .join(', ')}`
+    );
     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     svg.querySelectorAll('title').forEach(title => title.remove());
 
@@ -101,6 +119,7 @@ export function MapGraph({
         shape.classList.add('province-shape');
         shape.classList.toggle('selected', territory === selectedTerritory);
         shape.classList.toggle('valid-target', validTargets.includes(territory));
+        shape.classList.toggle('replay-standoff', replayStandoffs.includes(territory));
         shape.style.setProperty('fill', color, 'important');
         shape.style.setProperty(
           'fill-opacity',
@@ -117,6 +136,7 @@ export function MapGraph({
       supplyCenters.style.display = 'inline';
       supplyCenters.style.pointerEvents = 'none';
     }
+    renderPendingSupplyControl(svg, pendingControl);
 
     const names = svg.querySelector<SVGGElement>('#names');
     if (names) names.style.pointerEvents = 'none';
@@ -127,7 +147,15 @@ export function MapGraph({
       provinceCenters.style.visibility = 'hidden';
     }
 
-    renderUnits(svg, gameState?.units ?? []);
+    const shouldAnimateUnits = Boolean(
+      unitAnimationKey && consumedAnimationKeyRef.current !== unitAnimationKey
+    );
+    renderUnits(
+      svg,
+      gameState?.units ?? [],
+      shouldAnimateUnits ? unitAnimationFrom : undefined
+    );
+    if (shouldAnimateUnits) consumedAnimationKeyRef.current = unitAnimationKey ?? null;
     renderOrders(svg, pendingOrders);
 
     const handleClick = (event: Event) => {
@@ -150,7 +178,10 @@ export function MapGraph({
     markup,
     onSelectTerritory,
     pendingOrders,
+    replayStandoffs,
     selectedTerritory,
+    unitAnimationFrom,
+    unitAnimationKey,
     validTargets,
   ]);
 
@@ -262,6 +293,11 @@ export function MapGraph({
           <span><i className="legend-convoy" /> Convoy</span>
         </div>
       )}
+      {pendingControlCount > 0 && (
+        <div className="control-legend">
+          <i /> Occupier differs from current owner
+        </div>
+      )}
       <div
         className="map-viewport"
         ref={containerRef}
@@ -281,7 +317,50 @@ export function MapGraph({
   );
 }
 
-function renderUnits(svg: SVGSVGElement, units: Unit[]): void {
+function pendingSupplyControl(gameState: GameState): Array<{
+  territory: TerritoryId;
+  power: Unit['power'];
+}> {
+  return gameState.units.flatMap(unit => {
+    if (unit.mustRetreat) return [];
+    const territory = gameState.territories[unit.territory];
+    if (!territory?.isSupplyCenter || territory.owner === unit.power) return [];
+    return [{ territory: unit.territory, power: unit.power }];
+  });
+}
+
+function renderPendingSupplyControl(
+  svg: SVGSVGElement,
+  pendingControl: Array<{ territory: TerritoryId; power: Unit['power'] }>
+): void {
+  svg.querySelector('#pending-supply-control')?.remove();
+  const layer = document.createElementNS(SVG_NAMESPACE, 'g');
+  layer.id = 'pending-supply-control';
+  layer.setAttribute('aria-hidden', 'true');
+
+  for (const item of pendingControl) {
+    const province = INTERNAL_TO_SVG[item.territory] ?? item.territory.toLowerCase();
+    const anchor = svg.getElementById(`${province}Center`);
+    if (!(anchor instanceof SVGGraphicsElement)) continue;
+    const box = anchor.getBBox();
+    const marker = document.createElementNS(SVG_NAMESPACE, 'circle');
+    marker.classList.add('pending-control-marker');
+    marker.setAttribute('cx', String(box.x + box.width / 2));
+    marker.setAttribute('cy', String(box.y + box.height / 2));
+    marker.setAttribute('r', '25');
+    marker.style.setProperty('--occupier-color', POWER_COLORS[item.power]);
+    layer.append(marker);
+  }
+
+  const units = svg.querySelector('#units');
+  units?.parentNode?.insertBefore(layer, units);
+}
+
+function renderUnits(
+  svg: SVGSVGElement,
+  units: Unit[],
+  animationFrom?: Unit[]
+): void {
   const layer = svg.querySelector<SVGGElement>('#units');
   if (!layer) return;
   layer.replaceChildren();
@@ -318,6 +397,29 @@ function renderUnits(svg: SVGSVGElement, units: Unit[]): void {
 
     marker.append(body, label);
     layer.append(marker);
+
+    const previous = animationFrom?.find(candidate => candidate.id === unit.id);
+    if (
+      previous &&
+      (previous.territory !== unit.territory || previous.coast !== unit.coast) &&
+      !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      const previousCenter = territoryCenter(svg, previous.territory, previous.coast);
+      if (previousCenter) {
+        marker.animate(
+          [
+            {
+              transform: `translate(${previousCenter.x - x}px, ${previousCenter.y - y}px)`,
+            },
+            { transform: 'translate(0, 0)' },
+          ],
+          {
+            duration: 900,
+            easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+          }
+        );
+      }
+    }
   }
 }
 
@@ -330,23 +432,29 @@ function renderOrders(svg: SVGSVGElement, orders: Order[]): void {
     const source = territoryCenter(svg, order.unitTerritory, order.unitCoast);
     if (!source) continue;
     const color = POWER_COLORS[order.power];
+    const visual = document.createElementNS(SVG_NAMESPACE, 'g');
+    visual.classList.add('order-visual');
+    if ('resolution' in order && typeof order.resolution === 'string') {
+      visual.classList.add(`result-${order.resolution.toLowerCase()}`);
+    }
+    layer.append(visual);
 
     if (order.type === 'HOLD') {
-      drawOrderRing(layer, source, color, 'H');
+      drawOrderRing(visual, source, color, 'H');
       continue;
     }
 
     if (order.type === 'MOVE' && order.targetTerritory) {
       const target = territoryCenter(svg, order.targetTerritory, order.targetCoast);
-      if (target) drawOrderArrow(layer, source, target, color, 'move');
+      if (target) drawOrderArrow(visual, source, target, color, 'move');
       continue;
     }
 
     if (order.type === 'SUPPORT_HOLD' && order.supportedUnit) {
       const supported = territoryCenter(svg, order.supportedUnit, null);
       if (supported) {
-        drawOrderArrow(layer, source, supported, color, 'support-hold', false);
-        drawOrderRing(layer, supported, color, 'S', 24);
+        drawOrderArrow(visual, source, supported, color, 'support-hold', false);
+        drawOrderRing(visual, supported, color, 'S', 24);
       }
       continue;
     }
@@ -354,8 +462,8 @@ function renderOrders(svg: SVGSVGElement, orders: Order[]): void {
     if (order.type === 'SUPPORT_MOVE' && order.supportedDestination) {
       const destination = territoryCenter(svg, order.supportedDestination, null);
       if (destination) {
-        drawOrderArrow(layer, source, destination, color, 'support-move');
-        drawOrderBadge(layer, source, 'S');
+        drawOrderArrow(visual, source, destination, color, 'support-move');
+        drawOrderBadge(visual, source, 'S');
       }
       continue;
     }
@@ -364,9 +472,9 @@ function renderOrders(svg: SVGSVGElement, orders: Order[]): void {
       const army = territoryCenter(svg, order.supportedUnit, null);
       const destination = territoryCenter(svg, order.targetTerritory, null);
       if (army && destination) {
-        drawOrderArrow(layer, army, source, color, 'convoy', false);
-        drawOrderArrow(layer, source, destination, color, 'convoy');
-        drawOrderBadge(layer, source, 'C');
+        drawOrderArrow(visual, army, source, color, 'convoy', false);
+        drawOrderArrow(visual, source, destination, color, 'convoy');
+        drawOrderBadge(visual, source, 'C');
       }
     }
   }

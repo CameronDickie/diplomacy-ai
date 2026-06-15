@@ -29,6 +29,7 @@ export interface ControllerDecision<T> {
 
 export interface DiplomaticReplyDecision {
   reply: string;
+  expectsReply?: boolean;
   strategicSummary: string;
   agreements: DiplomaticAgreement[];
   usage?: {
@@ -40,12 +41,19 @@ export interface DiplomaticReplyDecision {
 export interface DiplomaticInitiativeDecision {
   toPower: Power | null;
   message: string;
+  expectsReply?: boolean;
   strategicSummary: string;
   agreements: DiplomaticAgreement[];
   usage?: {
     inputTokens: number | null;
     outputTokens: number | null;
   };
+}
+
+export interface DiplomaticConversationContext {
+  messageNumber: number;
+  maxMessages: number;
+  warningAtMessages: number;
 }
 
 export interface PowerController {
@@ -58,6 +66,7 @@ export interface PowerController {
   requestDiplomaticReply(
     context: ControllerContext,
     incomingMessage: DiplomaticMessage,
+    conversation?: DiplomaticConversationContext,
     validationErrors?: string[]
   ): Promise<DiplomaticReplyDecision>;
   requestOrders(
