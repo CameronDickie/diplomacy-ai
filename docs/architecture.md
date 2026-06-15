@@ -105,3 +105,26 @@ private press, LLM journals, session tokens, and provider credentials.
 
 Reports currently live in memory. Durable restart recovery and long-running
 all-LLM studies require the persistence layer planned for deployment work.
+
+## Discord Transport
+
+Discord is an optional transport over the same authoritative room and
+diplomacy service used by Socket.IO. One coordinator bot handles a single
+guild's game binding and short-lived account-link codes. Seven separately
+authenticated power bots provide distinct DM and voice identities.
+
+Discord DMs are converted into canonical diplomatic messages with source and
+external-message metadata. The application service validates and deduplicates
+them before `GameRoom` updates private history and LLM memory. Browser clients
+receive the same messages through their existing socket stream.
+
+Voice sessions use temporary private channels and an explicit-turn state
+machine controlled from the browser. Discord Opus is decoded and converted to
+24 kHz mono PCM for an OpenAI Realtime server WebSocket; returned PCM is
+converted to Discord's 48 kHz stereo stream. Final transcripts are canonical
+messages and raw audio is discarded. A room-wide voice lock stores incoming
+text immediately while delaying generated responses and autonomous diplomacy
+until voice ends.
+
+Discord integration and voice are independently configurable. All binding and
+session state remains in memory until the persistence deployment milestone.

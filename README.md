@@ -19,12 +19,13 @@ server architecture designed to support human and LLM-controlled powers.
   retry, and deterministic fallback.
 - Run the built client and Socket.IO server from one Node process.
 
-Deadlines, persistence, replay, complete engine-generated legal action menus,
-additional model providers, and voice integration remain active work.
+Deadlines, persistence, complete engine-generated legal action menus,
+additional model providers, remote deployment, and production voice validation
+remain active work.
 
 ## Requirements
 
-- Node.js 20 or newer
+- Node.js 22.12 or newer
 - npm
 - Go 1.23 or newer
 
@@ -40,6 +41,18 @@ Open `http://localhost:5173`. Vite proxies Socket.IO to port `3001`.
 LLM seats use the local stub controller unless the host selects `OPENAI`.
 OpenAI-backed seats require `OPENAI_API_KEY` in the server environment. Model
 identifiers are entered per seat and are not hard-coded by the controller.
+
+## Discord
+
+Discord can provide private text and explicit-turn voice diplomacy while the
+browser remains authoritative for the board, orders, and game setup. The local
+integration uses one coordinator bot plus one separate bot identity for each
+power.
+
+Discord is optional. Without `DISCORD_GUILD_ID` and
+`DISCORD_COORDINATOR_TOKEN`, the server starts normally with the integration
+disabled. See [docs/discord-local-setup.md](docs/discord-local-setup.md) for
+application creation, permissions, linking, and voice setup.
 
 The client adjacency hints are generated from Godip's graph:
 

@@ -19,6 +19,7 @@ import type {
   ControllerDecision,
   DiplomaticConversationContext,
   DiplomaticInitiativeDecision,
+  DiplomaticMemoryDecision,
   DiplomaticReplyDecision,
   LlmProvider,
   PowerController,
@@ -109,6 +110,35 @@ export class StructuredLlmController implements PowerController {
     });
     return {
       ...result.value,
+      agreements: toAgreements(result.value.agreements, context),
+      usage: result.usage,
+    };
+  }
+
+  async reconcileDiplomaticMemory(
+    context: ControllerContext
+  ): Promise<DiplomaticMemoryDecision> {
+    const result = await this.provider.completeJson<{
+      strategicSummary: string;
+      agreements: AgreementOutput[];
+    }>({
+      model: this.model,
+      system: CONTROLLER_SYSTEM_PROMPT,
+      prompt: [
+        buildControllerPrompt(context, 'DIPLOMACY'),
+        'Reconcile the completed voice transcript into private memory.',
+        'Update the concise strategic summary and agreement ledger. Do not write a reply.',
+      ].join('\n'),
+      schemaName: 'diplomacy_memory',
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['strategicSummary', 'agreements'],
+        properties: commonDecisionProperties,
+      },
+    });
+    return {
+      strategicSummary: result.value.strategicSummary,
       agreements: toAgreements(result.value.agreements, context),
       usage: result.usage,
     };

@@ -13,6 +13,9 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
   const [llmProvider, setLlmProvider] = useState<LlmProviderId>('STUB');
   const [llmModel, setLlmModel] = useState('auto-hold-v0');
   const [llmPersona, setLlmPersona] = useState('');
+  const [llmRealtimeModel, setLlmRealtimeModel] = useState('gpt-realtime-2');
+  const [llmVoice, setLlmVoice] = useState('marin');
+  const [llmVoiceInstructions, setLlmVoiceInstructions] = useState('');
   const players = game.gameState?.players ?? [];
   const availablePowers = ALL_POWERS.filter(
     power => !players.some(player => player.power === power)
@@ -145,6 +148,43 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
               <p className="field-help">
                 Off by default so private diplomatic activity does not reveal who is coordinating.
               </p>
+              <h3>Voice limits</h3>
+              <label>
+                Maximum session minutes
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={game.gameState.settings.voiceMaxSessionMinutes}
+                  onChange={event => game.updateGameSettings({
+                    voiceMaxSessionMinutes: Number(event.target.value),
+                  })}
+                />
+              </label>
+              <label>
+                Maximum human turns
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={game.gameState.settings.voiceMaxTurns}
+                  onChange={event => game.updateGameSettings({
+                    voiceMaxTurns: Number(event.target.value),
+                  })}
+                />
+              </label>
+              <label>
+                Idle timeout seconds
+                <input
+                  type="number"
+                  min={15}
+                  max={300}
+                  value={game.gameState.settings.voiceIdleTimeoutSeconds}
+                  onChange={event => game.updateGameSettings({
+                    voiceIdleTimeoutSeconds: Number(event.target.value),
+                  })}
+                />
+              </label>
               <h3>Next LLM seat</h3>
               <label>
                 Country
@@ -187,6 +227,28 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                   onChange={event => setLlmPersona(event.target.value)}
                 />
               </label>
+              <label>
+                Realtime voice model
+                <input
+                  value={llmRealtimeModel}
+                  onChange={event => setLlmRealtimeModel(event.target.value)}
+                />
+              </label>
+              <label>
+                Voice
+                <input
+                  value={llmVoice}
+                  onChange={event => setLlmVoice(event.target.value)}
+                />
+              </label>
+              <label>
+                Voice persona instructions
+                <textarea
+                  placeholder="Optional spoken style and pacing"
+                  value={llmVoiceInstructions}
+                  onChange={event => setLlmVoiceInstructions(event.target.value)}
+                />
+              </label>
             </div>
           )}
           <div className="button-row">
@@ -196,6 +258,9 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                 provider: llmProvider,
                 model: llmModel,
                 persona: llmPersona || null,
+                realtimeModel: llmRealtimeModel,
+                voice: llmVoice,
+                voiceInstructions: llmVoiceInstructions || null,
               })}
               disabled={!isHost || missingCount === 0 || game.gameState.status !== 'LOBBY'}
             >
@@ -208,6 +273,9 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                   provider: llmProvider,
                   model: llmModel,
                   persona: llmPersona || null,
+                  realtimeModel: llmRealtimeModel,
+                  voice: llmVoice,
+                  voiceInstructions: llmVoiceInstructions || null,
                 })
               )}
               disabled={!isHost || missingCount === 0 || game.gameState.status !== 'LOBBY'}

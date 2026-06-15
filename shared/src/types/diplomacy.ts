@@ -1,6 +1,11 @@
 import type { Phase, Power, Season } from './game.js';
 import type { DiplomaticAgreement } from './llm.js';
 
+export type DiplomacyTransportSource =
+  | 'WEB'
+  | 'DISCORD_TEXT'
+  | 'DISCORD_VOICE';
+
 export interface DiplomaticMessage {
   id: string;
   gameId: string;
@@ -12,6 +17,8 @@ export interface DiplomaticMessage {
   season: Season;
   phase: Phase;
   automated: boolean;
+  source: DiplomacyTransportSource;
+  externalMessageId: string | null;
 }
 
 export interface LlmDiplomacyMemory {

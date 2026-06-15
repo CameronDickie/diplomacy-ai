@@ -16,6 +16,7 @@ import { MapGraph } from './MapGraph.js';
 import { OrderPanel } from './OrderPanel.js';
 import { TurnHistoryPanel } from './TurnHistoryPanel.js';
 import { ReplayControls } from './ReplayControls.js';
+import { DiscordPanel } from './DiscordPanel.js';
 import { adjacentTerritories, POWER_COLORS, TERRITORY_BY_ID } from '../lib/game.js';
 
 const ignoreMapSelection = () => undefined;
@@ -126,7 +127,12 @@ export function App() {
 
       <main className="workspace">
         <aside className="panel side-panel">
-          {isLobby ? <LobbyPanel game={game} /> : (
+          {isLobby ? (
+            <>
+              <LobbyPanel game={game} />
+              <DiscordPanel game={game} />
+            </>
+          ) : (
             <>
               <section className="card supply-card">
                 <h2>Supply Centers</h2>
@@ -159,6 +165,7 @@ export function App() {
                   ))}
                 </div>
               </section>
+              <DiscordPanel game={game} />
               <TurnHistoryPanel
                 reports={game.phaseHistory}
                 gameState={game.gameState!}

@@ -4,7 +4,9 @@ import type {
   AddLlmPlayerPayload,
   ClientToServerEvents,
   ConversationPresencePayload,
+  DiscordLinkStatus,
   DiplomaticMessage,
+  ExpiringDiscordCode,
   GameSettings,
   GameState,
   LlmRunStatus,
@@ -15,6 +17,7 @@ import type {
   ServerToClientEvents,
   SubmitBuildsPayload,
   TerritoryId,
+  VoiceSessionState,
 } from '@diplomacy/shared';
 
 type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -60,6 +63,29 @@ export function useGameSocket() {
       messageCount: 0,
       maxMessages: 0,
     });
+  const [discordStatus, setDiscordStatus] = useState<DiscordLinkStatus>({
+    configured: false,
+    voiceEnabled: false,
+    guildBound: false,
+    linked: false,
+    discordDisplayName: null,
+    powerBotAvailability: {},
+  });
+  const [discordGuildBindCode, setDiscordGuildBindCode] =
+    useState<ExpiringDiscordCode | null>(null);
+  const [discordPlayerLinkCode, setDiscordPlayerLinkCode] =
+    useState<ExpiringDiscordCode | null>(null);
+  const [voiceSession, setVoiceSession] = useState<VoiceSessionState>({
+    sessionId: null,
+    status: 'IDLE',
+    power: null,
+    channelId: null,
+    channelUrl: null,
+    startedAt: null,
+    turnCount: 0,
+    maxTurns: 0,
+    error: null,
+  });
 
   function log(kind: LogEntry['kind'], event: string, detail: unknown = '') {
     const text = typeof detail === 'string' ? detail : JSON.stringify(detail);
@@ -97,6 +123,7 @@ export function useGameSocket() {
       setDiplomaticMessages([]);
       setPhaseHistory([]);
       saveSession(payload);
+      nextSocket.emit('request_discord_link_status', { gameId: payload.gameId });
       log('incoming', 'game_created', { gameId: payload.gameId, power: payload.power });
     });
     nextSocket.on('game_joined', payload => {
@@ -107,6 +134,7 @@ export function useGameSocket() {
       setDiplomaticMessages([]);
       setPhaseHistory([]);
       saveSession(payload);
+      nextSocket.emit('request_discord_link_status', { gameId: payload.gameId });
       log('incoming', 'game_joined', { power: payload.power });
     });
     nextSocket.on('game_resumed', payload => {
@@ -115,6 +143,7 @@ export function useGameSocket() {
       setMyPower(payload.power);
       setGameState(payload.gameState);
       setPhaseHistory([]);
+      nextSocket.emit('request_discord_link_status', { gameId: payload.gameId });
       log('incoming', 'game_resumed', { gameId: payload.gameId, power: payload.power });
     });
     nextSocket.on('resume_error', payload => {
@@ -123,7 +152,11 @@ export function useGameSocket() {
     });
     nextSocket.on('join_error', payload => log('error', 'join_error', payload));
     nextSocket.on('player_joined', payload => {
-      setGameState(state => state ? { ...state, players: payload.allPlayers } : state);
+      setGameState(state => {
+        if (!state) return state;
+        nextSocket.emit('request_discord_link_status', { gameId: state.gameId });
+        return { ...state, players: payload.allPlayers };
+      });
       log('incoming', 'player_joined', `${payload.player.power} ${payload.player.kind}`);
     });
     nextSocket.on('player_disconnected', payload => {
@@ -202,6 +235,22 @@ export function useGameSocket() {
       setLlmStatuses(statuses => ({ ...statuses, [payload.power]: payload.status }));
       log('incoming', 'llm_status', `${payload.power} ${payload.status} ${payload.purpose}`);
     });
+    nextSocket.on('discord_link_status', ({ status }) => {
+      setDiscordStatus(status);
+      log('incoming', 'discord_link_status', status);
+    });
+    nextSocket.on('discord_guild_bind_code_created', ({ code }) => {
+      setDiscordGuildBindCode(code);
+      log('incoming', 'discord_guild_bind_code_created', code.expiresAt);
+    });
+    nextSocket.on('discord_player_link_code_created', ({ code }) => {
+      setDiscordPlayerLinkCode(code);
+      log('incoming', 'discord_player_link_code_created', code.expiresAt);
+    });
+    nextSocket.on('voice_session_state', ({ state }) => {
+      setVoiceSession(state);
+      log('incoming', 'voice_session_state', `${state.power ?? '-'} ${state.status}`);
+    });
     nextSocket.on('error', payload => log('error', payload.code, payload.message));
 
     return () => {
@@ -218,6 +267,10 @@ export function useGameSocket() {
     diplomaticMessages,
     phaseHistory,
     conversationPresence,
+    discordStatus,
+    discordGuildBindCode,
+    discordPlayerLinkCode,
+    voiceSession,
     llmStatuses,
     logs,
     createGame(playerName: string, preferredPower: Power | 'RANDOM') {
@@ -284,6 +337,8 @@ export function useGameSocket() {
         season: gameState.season,
         phase: gameState.phase,
         automated: false,
+        source: 'WEB',
+        externalMessageId: null,
       };
       setDiplomaticMessages(messages => [...messages, message]);
       socket?.emit('send_diplomatic_message', {
@@ -293,9 +348,44 @@ export function useGameSocket() {
         body,
       });
     },
+    createDiscordGuildBindCode() {
+      if (!gameId) return;
+      socket?.emit('create_discord_guild_bind_code', { gameId });
+    },
+    createDiscordPlayerLinkCode() {
+      if (!gameId) return;
+      socket?.emit('create_discord_player_link_code', { gameId });
+    },
+    refreshDiscordStatus() {
+      if (!gameId) return;
+      socket?.emit('request_discord_link_status', { gameId });
+    },
+    startVoiceSession(toPower: Power) {
+      if (!gameId) return;
+      socket?.emit('start_voice_session', { gameId, toPower });
+    },
+    beginVoiceInput() {
+      if (!gameId) return;
+      socket?.emit('begin_voice_input', { gameId });
+    },
+    commitVoiceInput() {
+      if (!gameId) return;
+      socket?.emit('commit_voice_input', { gameId });
+    },
+    interruptVoiceResponse() {
+      if (!gameId) return;
+      socket?.emit('interrupt_voice_response', { gameId });
+    },
+    endVoiceSession() {
+      if (!gameId) return;
+      socket?.emit('end_voice_session', { gameId });
+    },
   }), [
     connection,
     conversationPresence,
+    discordGuildBindCode,
+    discordPlayerLinkCode,
+    discordStatus,
     diplomaticMessages,
     phaseHistory,
     gameId,
@@ -305,6 +395,7 @@ export function useGameSocket() {
     myPlayerId,
     myPower,
     socket,
+    voiceSession,
   ]);
 }
 

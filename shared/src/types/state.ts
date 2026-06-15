@@ -20,6 +20,9 @@ export interface LlmPlayer extends BasePlayer {
   provider: LlmProviderId;
   model: string;
   persona: string | null;
+  realtimeModel: string;
+  voice: string;
+  voiceInstructions: string | null;
 }
 
 export type Player = HumanPlayer | LlmPlayer;
@@ -30,6 +33,9 @@ export interface GameSettings {
   llmNegotiationWarningAtMessages: number;
   llmNegotiationPlannerModel: string;
   publicLlmConversationPresence: boolean;
+  voiceMaxSessionMinutes: number;
+  voiceMaxTurns: number;
+  voiceIdleTimeoutSeconds: number;
 }
 
 export interface GameState {

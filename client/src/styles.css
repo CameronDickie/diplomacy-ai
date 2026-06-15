@@ -672,8 +672,9 @@ input, select, textarea { width: 100%; }
 }
 
 .conversation {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   min-width: 0;
 }
 .conversation-presence {
@@ -723,9 +724,67 @@ input, select, textarea { width: 100%; }
   flex-direction: column;
   gap: 7px;
   min-height: 0;
+  flex: 1 1 auto;
   overflow: auto;
   overscroll-behavior: contain;
   padding: 10px 12px;
+}
+.discord-card { gap: 9px; }
+.discord-code {
+  background: #18242c;
+  border: 1px solid #355467;
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+}
+.discord-code span,
+.discord-code em {
+  color: #8fa6b3;
+  font-size: 10px;
+  font-style: normal;
+}
+.discord-code strong {
+  color: #dcebf2;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 18px;
+  letter-spacing: 0.12em;
+}
+.voice-controls {
+  align-items: center;
+  background: #171d21;
+  border-bottom: 1px solid #2b3941;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 7px 12px;
+}
+.voice-controls button,
+.voice-controls a {
+  font-size: 10px;
+  padding: 6px 8px;
+}
+.voice-controls a {
+  border: 1px solid #456477;
+  border-radius: 8px;
+  color: #9ed2ee;
+  text-decoration: none;
+}
+.voice-controls strong,
+.voice-controls span {
+  color: #a9c4d3;
+  font-size: 10px;
+}
+.voice-controls p {
+  color: #74858f;
+  flex-basis: 100%;
+  font-size: 9px;
+  margin: 0;
+}
+.voice-controls em {
+  color: #e88d8d;
+  flex-basis: 100%;
+  font-size: 10px;
 }
 .chat-message {
   align-self: flex-start;

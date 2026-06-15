@@ -23,6 +23,7 @@ import type {
   PublicPhaseReport,
   RetreatResolution,
   AdjustmentResolution,
+  DiplomacyTransportSource,
 } from '@diplomacy/shared';
 import {
   ALL_POWERS,
@@ -54,6 +55,7 @@ export class GameRoom {
   private llmRunArtifacts: LlmRunArtifact[] = [];
   private llmQueues = new Map<Power, Promise<unknown>>();
   private diplomacyCompletion: Promise<unknown> = Promise.resolve();
+  private voiceLocks = new Map<Power, Promise<void>>();
   private activeConversation: {
     id: string;
     participants: [Power, Power];
@@ -103,6 +105,9 @@ export class GameRoom {
         llmNegotiationWarningAtMessages: 4,
         llmNegotiationPlannerModel: '',
         publicLlmConversationPresence: false,
+        voiceMaxSessionMinutes: 10,
+        voiceMaxTurns: 20,
+        voiceIdleTimeoutSeconds: 60,
       },
       submittedPowers: [],
       lastAdjudicationResult: null,
@@ -132,6 +137,20 @@ export class GameRoom {
     );
   }
 
+  getPlayerById(playerId: string): HumanPlayer | undefined {
+    return this.state.players.find(
+      (player): player is HumanPlayer =>
+        player.kind === 'HUMAN' && player.id === playerId
+    );
+  }
+
+  getLlmPlayer(power: Power): LlmPlayer | undefined {
+    return this.state.players.find(
+      (player): player is LlmPlayer =>
+        player.kind === 'LLM' && player.power === power
+    );
+  }
+
   isHost(socketId: string): boolean {
     return this.getPlayerBySocket(socketId)?.id === this.state.hostPlayerId;
   }
@@ -154,7 +173,16 @@ export class GameRoom {
       next.llmNegotiationWarningAtMessages < 1 ||
       next.llmNegotiationWarningAtMessages > next.llmNegotiationMaxMessages ||
       next.llmNegotiationPlannerModel.length > 100 ||
-      typeof next.publicLlmConversationPresence !== 'boolean'
+      typeof next.publicLlmConversationPresence !== 'boolean' ||
+      !Number.isInteger(next.voiceMaxSessionMinutes) ||
+      next.voiceMaxSessionMinutes < 1 ||
+      next.voiceMaxSessionMinutes > 30 ||
+      !Number.isInteger(next.voiceMaxTurns) ||
+      next.voiceMaxTurns < 1 ||
+      next.voiceMaxTurns > 50 ||
+      !Number.isInteger(next.voiceIdleTimeoutSeconds) ||
+      next.voiceIdleTimeoutSeconds < 15 ||
+      next.voiceIdleTimeoutSeconds > 300
     ) {
       return false;
     }
@@ -219,6 +247,9 @@ export class GameRoom {
     provider?: LlmProviderId;
     model?: string;
     persona?: string | null;
+    realtimeModel?: string;
+    voice?: string;
+    voiceInstructions?: string | null;
   } = {}): Player | null {
     const availablePowers = this.getAvailablePowers();
     const requestedPower = options.power ?? 'RANDOM';
@@ -235,6 +266,9 @@ export class GameRoom {
       provider: options.provider ?? 'STUB',
       model: options.model ?? 'auto-hold-v0',
       persona: options.persona ?? null,
+      realtimeModel: options.realtimeModel?.trim() || 'gpt-realtime-2',
+      voice: options.voice?.trim() || DEFAULT_VOICES[available],
+      voiceInstructions: options.voiceInstructions?.trim() || null,
     };
     this.state.players.push(player);
     this.llmMemories.set(available, {
@@ -273,14 +307,18 @@ export class GameRoom {
     fromPower: Power,
     toPower: Power,
     body: string,
-    clientMessageId?: string
+    clientMessageId?: string,
+    source: DiplomacyTransportSource = 'WEB',
+    externalMessageId: string | null = null
   ): Promise<DiplomaticMessage[]> {
     const message = this.createDiplomaticMessage(
       fromPower,
       toPower,
       body.trim(),
       false,
-      clientMessageId
+      clientMessageId,
+      source,
+      externalMessageId
     );
     const messages = [message];
     this.deliverDiplomaticMessage(message);
@@ -299,7 +337,9 @@ export class GameRoom {
             toPower,
             fromPower,
             decision.reply,
-            true
+            true,
+            randomUUID(),
+            source
           );
           this.deliverDiplomaticMessage(reply);
           return reply;
@@ -315,6 +355,121 @@ export class GameRoom {
     return this.diplomaticMessages
       .filter(message => message.fromPower === power || message.toPower === power)
       .map(message => ({ ...message }));
+  }
+
+  recordVoiceTranscript(
+    fromPower: Power,
+    toPower: Power,
+    body: string,
+    automated: boolean,
+    externalMessageId: string | null = null
+  ): DiplomaticMessage {
+    const message = this.createDiplomaticMessage(
+      fromPower,
+      toPower,
+      body.trim(),
+      automated,
+      randomUUID(),
+      'DISCORD_VOICE',
+      externalMessageId
+    );
+    this.deliverDiplomaticMessage(message);
+    return message;
+  }
+
+  async beginVoiceLock(power: Power, otherPower: Power): Promise<() => void> {
+    if (this.voiceLocks.size > 0) {
+      throw new Error('Another voice conversation is already active');
+    }
+    let release!: () => void;
+    const lock = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    this.voiceLocks.set(power, lock);
+    let markStarted!: () => void;
+    const started = new Promise<void>(resolve => {
+      markStarted = resolve;
+    });
+    const run = this.diplomacyCompletion
+      .catch(() => undefined)
+      .then(async () => {
+        this.activeConversation = {
+          id: randomUUID(),
+          participants: [otherPower, power],
+          messageCount: 0,
+          maxMessages: 0,
+          status: 'WAITING_FOR_REPLY',
+        };
+        this.broadcastConversationPresence();
+        markStarted();
+        try {
+          await lock;
+        } finally {
+          this.activeConversation = null;
+          this.broadcastConversationPresence();
+        }
+      });
+    this.diplomacyCompletion = run;
+    await started;
+    return () => {
+      if (this.voiceLocks.get(power) !== lock) return;
+      this.voiceLocks.delete(power);
+      release();
+    };
+  }
+
+  isVoiceBusy(power: Power): boolean {
+    return this.voiceLocks.has(power);
+  }
+
+  buildVoiceSessionInstructions(power: Power, otherPower: Power): string {
+    const player = this.getLlmPlayer(power);
+    const memory = this.llmMemories.get(power);
+    if (!player || !memory) throw new Error(`${power} is not an LLM power`);
+    return [
+      `You are speaking as ${power} in a standard game of Diplomacy.`,
+      `The other speaker controls ${otherPower}.`,
+      player.persona ? `Persona: ${player.persona}` : '',
+      player.voiceInstructions ?? '',
+      'Negotiate naturally and strategically. Keep each spoken turn concise enough for live conversation.',
+      'Use full spoken territory names such as Rumania and Bulgaria, never board abbreviations.',
+      'Do not claim that an agreement is mechanically binding.',
+      `Private strategic summary: ${memory.strategicSummary || 'None yet.'}`,
+      `Current agreements: ${JSON.stringify(memory.agreements)}`,
+      `Private conversation context: ${memory.diplomaticContext || 'No previous messages.'}`,
+    ].filter(Boolean).join('\n');
+  }
+
+  async reconcileVoiceMemory(power: Power): Promise<void> {
+    const player = this.getLlmPlayer(power);
+    if (!player) throw new Error(`${power} is not an LLM power`);
+    const controller = this.controllerFor(player);
+    if (!controller.reconcileDiplomaticMemory) return;
+
+    const started = Date.now();
+    const artifact = this.createRunArtifact(player, 'DIPLOMACY');
+    this.recordRunStatus(artifact, 'THINKING');
+    try {
+      const decision = await controller.reconcileDiplomaticMemory(
+        this.controllerContext(player)
+      );
+      this.applyControllerMemory(power, decision);
+      this.completeRunArtifact(artifact, decision, {
+        kind: 'VOICE_MEMORY_RECONCILIATION',
+      });
+      artifact.inputTokens = decision.usage?.inputTokens ?? null;
+      artifact.outputTokens = decision.usage?.outputTokens ?? null;
+      artifact.latencyMs = Date.now() - started;
+      this.recordRunStatus(artifact, 'COMPLETE');
+      this.llmRunArtifacts.push(artifact);
+    } catch (error) {
+      artifact.fallbackReason = error instanceof Error ? error.message : String(error);
+      artifact.latencyMs = Date.now() - started;
+      this.recordRunStatus(artifact, 'FALLBACK');
+      this.recordRunStatus(artifact, 'COMPLETE');
+      this.llmRunArtifacts.push(artifact);
+      throw error;
+    }
   }
 
   getLlmDiplomacyMemory(power: Power): LlmDiplomacyMemory | undefined {
@@ -351,6 +506,20 @@ export class GameRoom {
       deliveredSocketIds.add(socketId);
       this.io.to(socketId).emit('diplomacy_message', { message });
     }
+  }
+
+  emitToPlayer<Ev extends keyof ServerToClientEvents>(
+    playerId: string,
+    event: Ev,
+    data: Parameters<ServerToClientEvents[Ev]>[0]
+  ): void {
+    if (!this.io) return;
+    const socketId = this.playerSessions.get(playerId)?.socketId;
+    if (!socketId) return;
+    const target = this.io.to(socketId) as unknown as {
+      emit: (event: string, payload: unknown) => void;
+    };
+    target.emit(event as string, data);
   }
 
   canStart(): boolean {
@@ -1351,7 +1520,10 @@ export class GameRoom {
 
   private runSerializedForPower<T>(power: Power, task: () => Promise<T>): Promise<T> {
     const previous = this.llmQueues.get(power) ?? Promise.resolve();
-    const next = previous.catch(() => undefined).then(task);
+    const next = previous
+      .catch(() => undefined)
+      .then(() => this.voiceLocks.get(power))
+      .then(task);
     this.llmQueues.set(power, next);
     void next.finally(() => {
       if (this.llmQueues.get(power) === next) this.llmQueues.delete(power);
@@ -1436,7 +1608,9 @@ export class GameRoom {
     toPower: Power,
     body: string,
     automated: boolean,
-    id: string = randomUUID()
+    id: string = randomUUID(),
+    source: DiplomacyTransportSource = 'WEB',
+    externalMessageId: string | null = null
   ): DiplomaticMessage {
     const message: DiplomaticMessage = {
       id,
@@ -1449,6 +1623,8 @@ export class GameRoom {
       season: this.state.season,
       phase: this.state.phase,
       automated,
+      source,
+      externalMessageId,
     };
     this.diplomaticMessages.push(message);
     this.updateLlmDiplomacyMemory(message);
@@ -1570,3 +1746,13 @@ export class GameRoom {
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
+
+const DEFAULT_VOICES: Record<Power, string> = {
+  AUSTRIA: 'cedar',
+  ENGLAND: 'marin',
+  FRANCE: 'coral',
+  GERMANY: 'onyx',
+  ITALY: 'verse',
+  RUSSIA: 'ash',
+  TURKEY: 'sage',
+};

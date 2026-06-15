@@ -36,6 +36,13 @@ export class StubLlmController implements PowerController {
     };
   }
 
+  async reconcileDiplomaticMemory(context: ControllerContext) {
+    return {
+      strategicSummary: context.memory.strategicSummary,
+      agreements: context.memory.agreements,
+    };
+  }
+
   async requestOrders(
     context: ControllerContext
   ): Promise<ControllerDecision<Order[]>> {

@@ -6,6 +6,11 @@ import type { GameState, Player } from './state.js';
 import type { DiplomaticMessage } from './diplomacy.js';
 import type { LlmProviderId, LlmRunStatus } from './llm.js';
 import type { PublicPhaseReport } from './history.js';
+import type {
+  DiscordLinkStatus,
+  ExpiringDiscordCode,
+  VoiceSessionState,
+} from './discord.js';
 
 // ── Client → Server ──────────────────────────────────────────────────────────
 
@@ -32,6 +37,9 @@ export interface AddLlmPlayerPayload {
   provider?: LlmProviderId;
   model?: string;
   persona?: string | null;
+  realtimeModel?: string;
+  voice?: string;
+  voiceInstructions?: string | null;
 }
 
 export interface StartGamePayload {
@@ -45,6 +53,9 @@ export interface UpdateGameSettingsPayload {
   llmNegotiationWarningAtMessages?: number;
   llmNegotiationPlannerModel?: string;
   publicLlmConversationPresence?: boolean;
+  voiceMaxSessionMinutes?: number;
+  voiceMaxTurns?: number;
+  voiceIdleTimeoutSeconds?: number;
 }
 
 export interface SubmitOrdersPayload {
@@ -89,6 +100,14 @@ export interface ClientToServerEvents {
   send_diplomatic_message: (payload: SendDiplomaticMessagePayload) => void;
   request_diplomacy_history: (payload: { gameId: string }) => void;
   request_phase_history: (payload: { gameId: string }) => void;
+  create_discord_guild_bind_code: (payload: { gameId: string }) => void;
+  create_discord_player_link_code: (payload: { gameId: string }) => void;
+  request_discord_link_status: (payload: { gameId: string }) => void;
+  start_voice_session: (payload: { gameId: string; toPower: Power }) => void;
+  begin_voice_input: (payload: { gameId: string }) => void;
+  commit_voice_input: (payload: { gameId: string }) => void;
+  interrupt_voice_response: (payload: { gameId: string }) => void;
+  end_voice_session: (payload: { gameId: string }) => void;
   request_state: () => void;
 }
 
@@ -201,6 +220,18 @@ export interface LlmStatusPayload {
   purpose: 'DIPLOMACY' | 'ORDERS' | 'RETREATS' | 'BUILDS';
 }
 
+export interface DiscordLinkStatusPayload {
+  status: DiscordLinkStatus;
+}
+
+export interface DiscordCodeCreatedPayload {
+  code: ExpiringDiscordCode;
+}
+
+export interface VoiceSessionStatePayload {
+  state: VoiceSessionState;
+}
+
 export interface ServerToClientEvents {
   game_created: (payload: GameCreatedPayload) => void;
   game_joined: (payload: GameJoinedPayload) => void;
@@ -223,5 +254,9 @@ export interface ServerToClientEvents {
   phase_report_added: (payload: PhaseReportAddedPayload) => void;
   conversation_presence: (payload: ConversationPresencePayload) => void;
   llm_status: (payload: LlmStatusPayload) => void;
+  discord_link_status: (payload: DiscordLinkStatusPayload) => void;
+  discord_guild_bind_code_created: (payload: DiscordCodeCreatedPayload) => void;
+  discord_player_link_code_created: (payload: DiscordCodeCreatedPayload) => void;
+  voice_session_state: (payload: VoiceSessionStatePayload) => void;
   error: (payload: ErrorPayload) => void;
 }

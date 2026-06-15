@@ -1,11 +1,13 @@
 import type { Server, Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
 import type { GameManager } from '../GameManager.js';
+import type { DiplomacyService } from '../diplomacy/DiplomacyService.js';
 
 export function attachDiplomacyHandlers(
   socket: Socket<ClientToServerEvents, ServerToClientEvents>,
   io: Server<ClientToServerEvents, ServerToClientEvents>,
-  gameManager: GameManager
+  gameManager: GameManager,
+  diplomacy: DiplomacyService
 ): void {
   void io;
 
@@ -27,11 +29,6 @@ export function attachDiplomacyHandlers(
       return;
     }
 
-    const validationError = room.validateDiplomaticMessage(sender.power, toPower, body);
-    if (validationError) {
-      socket.emit('error', { message: validationError, code: 'INVALID_MESSAGE' });
-      return;
-    }
     if (!/^[0-9a-f-]{36}$/i.test(clientMessageId)) {
       socket.emit('error', {
         message: 'Invalid message identifier',
@@ -41,12 +38,14 @@ export function attachDiplomacyHandlers(
     }
 
     try {
-      await room.sendDiplomaticMessage(
-        sender.power,
+      await diplomacy.send({
+        gameId: room.gameId,
+        fromPower: sender.power,
         toPower,
         body,
-        clientMessageId
-      );
+        messageId: clientMessageId,
+        source: 'WEB',
+      });
     } catch (error) {
       console.error(`Failed to generate diplomatic reply in ${room.gameId}:`, error);
       socket.emit('error', {

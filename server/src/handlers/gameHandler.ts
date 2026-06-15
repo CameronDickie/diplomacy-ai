@@ -124,7 +124,17 @@ export function attachGameHandlers(
     room.broadcast('game_state_sync', { gameState: room.getState() });
   });
 
-  socket.on('add_llm_player', ({ gameId, power, name, provider, model, persona }) => {
+  socket.on('add_llm_player', ({
+    gameId,
+    power,
+    name,
+    provider,
+    model,
+    persona,
+    realtimeModel,
+    voice,
+    voiceInstructions,
+  }) => {
     const room = gameManager.getRoom(gameId);
     if (!room) {
       socket.emit('error', { message: `Game ${gameId} not found`, code: 'GAME_NOT_FOUND' });
@@ -146,7 +156,16 @@ export function attachGameHandlers(
       return;
     }
 
-    const player = room.addLlmPlayer({ power, name, provider, model, persona });
+    const player = room.addLlmPlayer({
+      power,
+      name,
+      provider,
+      model,
+      persona,
+      realtimeModel,
+      voice,
+      voiceInstructions,
+    });
     if (!player) {
       socket.emit('error', { message: 'Game is full', code: 'GAME_FULL' });
       return;

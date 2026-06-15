@@ -50,6 +50,15 @@ export interface DiplomaticInitiativeDecision {
   };
 }
 
+export interface DiplomaticMemoryDecision {
+  strategicSummary: string;
+  agreements: DiplomaticAgreement[];
+  usage?: {
+    inputTokens: number | null;
+    outputTokens: number | null;
+  };
+}
+
 export interface DiplomaticConversationContext {
   messageNumber: number;
   maxMessages: number;
@@ -69,6 +78,9 @@ export interface PowerController {
     conversation?: DiplomaticConversationContext,
     validationErrors?: string[]
   ): Promise<DiplomaticReplyDecision>;
+  reconcileDiplomaticMemory?(
+    context: ControllerContext
+  ): Promise<DiplomaticMemoryDecision>;
   requestOrders(
     context: ControllerContext,
     validationErrors?: string[]

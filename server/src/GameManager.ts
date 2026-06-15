@@ -13,6 +13,10 @@ export class GameManager {
     return this.rooms.get(gameId);
   }
 
+  getRooms(): GameRoom[] {
+    return [...this.rooms.values()];
+  }
+
   getRoomBySocket(socketId: string): GameRoom | undefined {
     for (const room of this.rooms.values()) {
       if (room.hasSocket(socketId)) return room;

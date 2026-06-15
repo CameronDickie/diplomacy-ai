@@ -77,10 +77,17 @@ in [playtest-feature-notebook.md](./playtest-feature-notebook.md).
 
 ## 7. Voice and Discord
 
-- Add Discord identity and channel mapping after durable game persistence.
-- Add speech-to-text input before realtime model voice.
-- Add realtime human voice rooms only after moderation, consent, and recording
-  policies are defined.
+- [x] Add optional single-guild coordinator and seven power bot identities.
+- [x] Route Discord DMs through canonical diplomacy history and LLM memory.
+- [x] Add short-lived browser-to-Discord account linking.
+- [x] Add feature-flagged explicit-turn Discord voice with OpenAI Realtime,
+  transcript retention, raw-audio deletion, interruption, and hard limits.
+- [ ] Validate Discord audio receive and DAVE behavior in the target local
+  guild before enabling voice by default.
+- [ ] Persist guild mappings, player links, transcripts, and recoverable voice
+  cleanup state before remote deployment.
+- [ ] Define moderation and disclosure policy before opening the service beyond
+  trusted friends.
 
 ## Deployment Gate
 

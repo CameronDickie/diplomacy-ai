@@ -7,6 +7,7 @@ export * from './types/socket.js';
 export * from './types/diplomacy.js';
 export * from './types/llm.js';
 export * from './types/history.js';
+export * from './types/discord.js';
 export * from './constants/territories.js';
 export * from './constants/adjacency.js';
 export * from './constants/startingPositions.js';
