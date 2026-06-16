@@ -66,7 +66,7 @@ export class OpenAIRealtimeSession {
             turn_detection: null,
           },
           output: {
-            format: { type: 'audio/pcm' },
+            format: { type: 'audio/pcm', rate: 24000 },
             voice: this.voice,
           },
         },

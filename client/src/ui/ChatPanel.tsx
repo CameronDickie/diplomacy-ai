@@ -24,21 +24,17 @@ export function ChatPanel({ game }: { game: GameSocket }) {
     [game.diplomaticMessages, game.myPower, recipient]
   );
   const selectedPlayer = recipients.find(player => player.power === recipient);
+  const visibleConversationParticipants = game.conversationPresence.participants;
+  const selectedConversationActive =
+    recipient !== null &&
+    visibleConversationParticipants !== null &&
+    visibleConversationParticipants.includes(recipient) &&
+    (game.myPower ? visibleConversationParticipants.includes(game.myPower) : false);
   const isWaitingForLlm =
     selectedPlayer?.kind === 'LLM' &&
     recipient !== null &&
+    selectedConversationActive &&
     ['THINKING', 'RETRYING'].includes(game.llmStatuses[recipient] ?? '');
-  const voice = game.voiceSession;
-  const voiceForRecipient = voice.sessionId && voice.power === recipient;
-  const canStartVoice =
-    selectedPlayer?.kind === 'LLM' &&
-    recipient !== null &&
-    game.discordStatus.configured &&
-    game.discordStatus.voiceEnabled &&
-    game.discordStatus.guildBound &&
-    game.discordStatus.linked &&
-    game.discordStatus.powerBotAvailability[recipient] === true &&
-    voice.status === 'IDLE';
 
   useEffect(() => {
     if (!recipient || !recipients.some(player => player.power === recipient)) {
@@ -119,54 +115,6 @@ export function ChatPanel({ game }: { game: GameSocket }) {
           </div>
           <span>{messages.length} messages</span>
         </header>
-
-        {recipient && selectedPlayer?.kind === 'LLM' && (
-          <div className="voice-controls">
-            {!voiceForRecipient ? (
-              <button
-                type="button"
-                onClick={() => game.startVoiceSession(recipient)}
-                disabled={!canStartVoice}
-              >
-                Start Discord voice
-              </button>
-            ) : (
-              <>
-                <strong>{voice.status.replace(/_/g, ' ').toLowerCase()}</strong>
-                {voice.channelUrl && (
-                  <a href={voice.channelUrl} target="_blank" rel="noreferrer">
-                    Join private channel
-                  </a>
-                )}
-                {['WAITING_FOR_USER', 'READY'].includes(voice.status) && (
-                  <button type="button" onClick={game.beginVoiceInput}>
-                    Start listening
-                  </button>
-                )}
-                {voice.status === 'LISTENING' && (
-                  <button type="button" className="primary" onClick={game.commitVoiceInput}>
-                    Done speaking
-                  </button>
-                )}
-                {['PROCESSING', 'SPEAKING'].includes(voice.status) && (
-                  <button type="button" onClick={game.interruptVoiceResponse}>
-                    Interrupt response
-                  </button>
-                )}
-                <button type="button" onClick={game.endVoiceSession}>End session</button>
-                <span>{voice.turnCount}/{voice.maxTurns} turns</span>
-              </>
-            )}
-            <p>
-              Audio is streamed to OpenAI only while listening. Final transcripts are
-              retained with the game; raw audio is discarded.
-            </p>
-            {!game.discordStatus.voiceEnabled && (
-              <em>Voice is disabled on this server. Discord text remains available.</em>
-            )}
-            {voiceForRecipient && voice.error && <em>{voice.error}</em>}
-          </div>
-        )}
 
         <div
           className="message-list"

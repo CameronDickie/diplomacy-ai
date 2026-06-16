@@ -24,6 +24,7 @@ import type {
   RetreatResolution,
   AdjustmentResolution,
   DiplomacyTransportSource,
+  TerritoryId,
 } from '@diplomacy/shared';
 import {
   ALL_POWERS,
@@ -54,15 +55,15 @@ export class GameRoom {
   private llmMemories = new Map<Power, LlmDiplomacyMemory>();
   private llmRunArtifacts: LlmRunArtifact[] = [];
   private llmQueues = new Map<Power, Promise<unknown>>();
-  private diplomacyCompletion: Promise<unknown> = Promise.resolve();
+  private diplomacyParticipantLocks = new Map<Power, Promise<unknown>>();
   private voiceLocks = new Map<Power, Promise<void>>();
-  private activeConversation: {
+  private activeConversations = new Map<string, {
     id: string;
     participants: [Power, Power];
     messageCount: number;
     maxMessages: number;
     status: 'WAITING_FOR_REPLY' | 'RESPONDING' | 'AT_MESSAGE_LIMIT';
-  } | null = null;
+  }>();
   private ordersCompletion: Promise<void> | null = null;
   private retreatsCompletion: Promise<void> | null = null;
   private buildsCompletion: Promise<void> | null = null;
@@ -103,7 +104,7 @@ export class GameRoom {
         llmNegotiationInitiators: 2,
         llmNegotiationMaxMessages: 6,
         llmNegotiationWarningAtMessages: 4,
-        llmNegotiationPlannerModel: '',
+        llmNegotiationPlannerModel: 'gpt-5.4-mini',
         publicLlmConversationPresence: false,
         voiceMaxSessionMinutes: 10,
         voiceMaxTurns: 20,
@@ -329,10 +330,10 @@ export class GameRoom {
         [fromPower, toPower],
         2,
         1,
-        () => this.runSerializedForPower(toPower, async () => {
-          this.updateConversationStatus('RESPONDING');
+        conversationId => this.runSerializedForPower(toPower, async () => {
+          this.updateConversationStatus(conversationId, 'RESPONDING');
           const decision = await this.generateDiplomaticReply(recipient, message);
-          this.updateConversationMessageCount(2);
+          this.updateConversationMessageCount(conversationId, 2);
           const reply = this.createDiplomaticMessage(
             toPower,
             fromPower,
@@ -378,8 +379,8 @@ export class GameRoom {
   }
 
   async beginVoiceLock(power: Power, otherPower: Power): Promise<() => void> {
-    if (this.voiceLocks.size > 0) {
-      throw new Error('Another voice conversation is already active');
+    if (this.voiceLocks.has(power)) {
+      throw new Error(`${power} is already in a voice conversation`);
     }
     let release!: () => void;
     const lock = new Promise<void>(resolve => {
@@ -390,26 +391,16 @@ export class GameRoom {
     const started = new Promise<void>(resolve => {
       markStarted = resolve;
     });
-    const run = this.diplomacyCompletion
-      .catch(() => undefined)
-      .then(async () => {
-        this.activeConversation = {
-          id: randomUUID(),
-          participants: [otherPower, power],
-          messageCount: 0,
-          maxMessages: 0,
-          status: 'WAITING_FOR_REPLY',
-        };
-        this.broadcastConversationPresence();
+    void this.runSerializedDiplomacy(
+      [otherPower, power],
+      0,
+      0,
+      async conversationId => {
+        this.updateConversationStatus(conversationId, 'WAITING_FOR_REPLY');
         markStarted();
-        try {
-          await lock;
-        } finally {
-          this.activeConversation = null;
-          this.broadcastConversationPresence();
-        }
-      });
-    this.diplomacyCompletion = run;
+        await lock;
+      }
+    );
     await started;
     return () => {
       if (this.voiceLocks.get(power) !== lock) return;
@@ -739,15 +730,11 @@ export class GameRoom {
     this.state.units = adjudication.units;
     this.pendingOrders.clear();
     this.state.submittedPowers = [];
-    if (this.state.season === 'FALL') this.updateSupplyCenterOwnership();
+    const hasRetreats = result.dislodgedUnits.length > 0;
+    const ownershipChanges = this.state.season === 'FALL' && !hasRetreats
+      ? this.updateSupplyCenterOwnership(before)
+      : [];
     const after = this.publicBoardSnapshot();
-    const ownershipChanges = Object.entries(after.territoryOwners)
-      .filter(([territory, owner]) => before.territoryOwners[territory] !== owner)
-      .map(([territory, toPower]) => ({
-        territory,
-        fromPower: before.territoryOwners[territory],
-        toPower,
-      }));
     result.newTerritoryOwnership = Object.fromEntries(
       ownershipChanges.map(change => [change.territory, change.toPower])
     );
@@ -767,7 +754,7 @@ export class GameRoom {
       ownershipChanges,
     });
 
-    if (result.dislodgedUnits.length > 0) {
+    if (hasRetreats) {
       this.state.phase = 'RETREATS';
       const allDislodged = this.state.units.filter(u => u.mustRetreat);
       this.broadcast('retreat_phase_start', {
@@ -827,6 +814,15 @@ export class GameRoom {
     }
 
     this.pendingRetreats.clear();
+    const ownershipChanges = this.state.season === 'FALL'
+      ? this.updateSupplyCenterOwnership(before)
+      : [];
+    const adjudicationResult = this.state.lastAdjudicationResult;
+    if (adjudicationResult) {
+      adjudicationResult.newTerritoryOwnership = Object.fromEntries(
+        ownershipChanges.map(change => [change.territory, change.toPower])
+      );
+    }
     this.recordPhaseReport({
       id: randomUUID(),
       sequence: this.phaseHistory.length + 1,
@@ -837,6 +833,7 @@ export class GameRoom {
       before,
       after: this.publicBoardSnapshot(),
       retreats: resolutions,
+      ownershipChanges,
     });
     await this.advanceSeasonPhase(this.state.lastAdjudicationResult!);
   }
@@ -994,7 +991,7 @@ export class GameRoom {
       (_, index) => sortedPlayers[(startIndex + index) % sortedPlayers.length]
     );
 
-    for (const initiator of initiators) {
+    const initiatives = await Promise.all(initiators.map(async initiator => {
       const eligiblePowers = sortedPlayers
         .map(player => player.power)
         .filter(power => power !== initiator.power);
@@ -1002,26 +999,32 @@ export class GameRoom {
         initiator,
         eligiblePowers
       );
-      if (!initiative.toPower) continue;
-      await this.runSerializedDiplomacy(
+      return { initiator, initiative };
+    }));
+
+    await Promise.all(initiatives.map(({ initiator, initiative }) => {
+      if (!initiative.toPower) return Promise.resolve();
+      return this.runSerializedDiplomacy(
         [initiator.power, initiative.toPower],
         this.state.settings.llmNegotiationMaxMessages,
         0,
-        () => this.runAutonomousConversation(
+        conversationId => this.runAutonomousConversation(
           initiator,
           initiative.toPower!,
           initiative.message,
-          initiative.expectsReply
+          initiative.expectsReply,
+          conversationId
         )
       );
-    }
+    }));
   }
 
   private async runAutonomousConversation(
     initiator: LlmPlayer,
     recipientPower: Power,
     opening: string,
-    expectsReply: boolean
+    expectsReply: boolean,
+    conversationId: string
   ): Promise<void> {
     const maxMessages = this.state.settings.llmNegotiationMaxMessages;
     let currentMessage = this.createDiplomaticMessage(
@@ -1032,7 +1035,7 @@ export class GameRoom {
     );
     this.deliverDiplomaticMessage(currentMessage);
     let messageCount = 1;
-    this.updateConversationMessageCount(messageCount);
+    this.updateConversationMessageCount(conversationId, messageCount);
     let shouldContinue = expectsReply;
 
     while (shouldContinue && messageCount < maxMessages) {
@@ -1041,7 +1044,7 @@ export class GameRoom {
           player.kind === 'LLM' && player.power === currentMessage.toPower
       );
       if (!recipient) return;
-      this.updateConversationStatus('RESPONDING');
+      this.updateConversationStatus(conversationId, 'RESPONDING');
       const decision = await this.runSerializedForPower(recipient.power, () =>
         this.generateDiplomaticReply(
           recipient,
@@ -1063,7 +1066,7 @@ export class GameRoom {
       this.deliverDiplomaticMessage(reply);
       currentMessage = reply;
       messageCount++;
-      this.updateConversationMessageCount(messageCount);
+      this.updateConversationMessageCount(conversationId, messageCount);
       shouldContinue = decision.expectsReply && messageCount < maxMessages;
     }
   }
@@ -1535,45 +1538,60 @@ export class GameRoom {
     participants: [Power, Power],
     maxMessages: number,
     initialMessageCount: number,
-    task: () => Promise<T>
+    task: (conversationId: string) => Promise<T>
   ): Promise<T> {
-    const run = this.diplomacyCompletion
-      .catch(() => undefined)
+    const previous = participants.map(
+      power => this.diplomacyParticipantLocks.get(power) ?? Promise.resolve()
+    );
+    const conversationId = randomUUID();
+    const run = Promise.all(previous.map(lock => lock.catch(() => undefined)))
       .then(async () => {
-        this.activeConversation = {
-          id: randomUUID(),
+        this.activeConversations.set(conversationId, {
+          id: conversationId,
           participants,
           messageCount: initialMessageCount,
           maxMessages,
           status: 'RESPONDING',
-        };
+        });
         this.broadcastConversationPresence();
         try {
-          return await task();
+          return await task(conversationId);
         } finally {
-          this.activeConversation = null;
+          this.activeConversations.delete(conversationId);
           this.broadcastConversationPresence();
         }
       });
-    this.diplomacyCompletion = run;
+    for (const participant of participants) {
+      this.diplomacyParticipantLocks.set(participant, run);
+    }
+    void run.finally(() => {
+      for (const participant of participants) {
+        if (this.diplomacyParticipantLocks.get(participant) === run) {
+          this.diplomacyParticipantLocks.delete(participant);
+        }
+      }
+    });
     return run;
   }
 
-  private updateConversationMessageCount(messageCount: number): void {
-    if (!this.activeConversation) return;
-    this.activeConversation.messageCount = messageCount;
-    this.activeConversation.status =
-      messageCount >= this.activeConversation.maxMessages
+  private updateConversationMessageCount(conversationId: string, messageCount: number): void {
+    const conversation = this.activeConversations.get(conversationId);
+    if (!conversation) return;
+    conversation.messageCount = messageCount;
+    conversation.status =
+      conversation.maxMessages > 0 && messageCount >= conversation.maxMessages
         ? 'AT_MESSAGE_LIMIT'
         : 'WAITING_FOR_REPLY';
     this.broadcastConversationPresence();
   }
 
   private updateConversationStatus(
+    conversationId: string,
     status: 'WAITING_FOR_REPLY' | 'RESPONDING' | 'AT_MESSAGE_LIMIT'
   ): void {
-    if (!this.activeConversation) return;
-    this.activeConversation.status = status;
+    const conversation = this.activeConversations.get(conversationId);
+    if (!conversation) return;
+    conversation.status = status;
     this.broadcastConversationPresence();
   }
 
@@ -1583,20 +1601,24 @@ export class GameRoom {
       if (player.kind !== 'HUMAN') continue;
       const socketId = this.getSocketIdForPower(player.power);
       if (!socketId) continue;
-      const conversation = this.activeConversation;
-      const maySeeParticipants = Boolean(
-        conversation && (
-          this.state.settings.publicLlmConversationPresence ||
-          conversation.participants.includes(player.power)
-        )
+      const conversations = [...this.activeConversations.values()];
+      const conversation = conversations.find(candidate =>
+        candidate.participants.includes(player.power)
+      ) ?? (
+        this.state.settings.publicLlmConversationPresence ? conversations[0] : undefined
       );
+      const hasHiddenConversation = conversations.length > 0 && !conversation;
+      const visibleParticipants = conversation && (
+        this.state.settings.publicLlmConversationPresence ||
+        conversation.participants.includes(player.power)
+      )
+        ? [...conversation.participants] as [Power, Power]
+        : null;
       this.io.to(socketId).emit('conversation_presence', {
-        active: Boolean(conversation),
+        active: Boolean(conversation) || hasHiddenConversation,
         status: conversation?.status ?? 'IDLE',
         conversationId: conversation?.id ?? null,
-        participants: maySeeParticipants
-          ? [...conversation!.participants] as [Power, Power]
-          : null,
+        participants: visibleParticipants,
         messageCount: conversation?.messageCount ?? 0,
         maxMessages: conversation?.maxMessages ?? 0,
       });
@@ -1692,12 +1714,22 @@ export class GameRoom {
     return ALL_POWERS.filter(p => buildCounts[p] !== 0);
   }
 
-  private updateSupplyCenterOwnership(): void {
+  private updateSupplyCenterOwnership(
+    before: PublicBoardSnapshot
+  ): Array<{ territory: TerritoryId; fromPower: Power | null; toPower: Power | null }> {
     for (const unit of this.state.units) {
       if (unit.mustRetreat) continue;
       const territory = this.state.territories[unit.territory];
       if (territory?.isSupplyCenter) territory.owner = unit.power;
     }
+    const after = this.publicBoardSnapshot();
+    return Object.entries(after.territoryOwners)
+      .filter(([territory, owner]) => before.territoryOwners[territory] !== owner)
+      .map(([territory, toPower]) => ({
+        territory: territory as TerritoryId,
+        fromPower: before.territoryOwners[territory],
+        toPower,
+      }));
   }
 
   private publicBoardSnapshot(): PublicBoardSnapshot {

@@ -35,5 +35,9 @@ export interface VoiceSessionState {
   startedAt: string | null;
   turnCount: number;
   maxTurns: number;
+  inputAudioMs: number;
+  receivePackets: number;
+  outputAudioMs: number;
+  debug: string[];
   error: string | null;
 }

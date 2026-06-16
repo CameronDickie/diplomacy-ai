@@ -2,6 +2,7 @@ import {
   Client,
   Events,
   GatewayIntentBits,
+  MessageFlags,
   Partials,
   SlashCommandBuilder,
   type ChatInputCommandInteraction,
@@ -82,7 +83,7 @@ export class DiscordBotManager {
 
   private createCoordinatorClient(): Client {
     const client = new Client({
-      intents: [GatewayIntentBits.Guilds],
+      intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
     });
     client.once(Events.ClientReady, async readyClient => {
       const guild = await readyClient.guilds.fetch(this.config.guildId);
@@ -125,7 +126,10 @@ export class DiscordBotManager {
   ): Promise<void> {
     try {
       if (interaction.guildId !== this.config.guildId) {
-        await interaction.reply({ content: 'This deployment serves another server.', ephemeral: true });
+        await interaction.reply({
+          content: 'This deployment serves another server.',
+          flags: MessageFlags.Ephemeral,
+        });
         return;
       }
       if (interaction.commandName === 'link') {
@@ -139,7 +143,7 @@ export class DiscordBotManager {
         this.notifyStatuses(link.gameId);
         await interaction.reply({
           content: `Linked Discord to the ${this.gameManager.getRoom(link.gameId)?.getPlayerById(link.playerId)?.power} seat.`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
@@ -149,7 +153,7 @@ export class DiscordBotManager {
         if (linked) this.notifyStatuses(linked.gameId);
         await interaction.reply({
           content: removed ? 'Discord link removed.' : 'No player link was found.',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
@@ -163,7 +167,7 @@ export class DiscordBotManager {
           this.notifyStatuses(gameId);
           await interaction.reply({
             content: `This server is now bound to game ${gameId}.`,
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
           return;
         }
@@ -172,15 +176,15 @@ export class DiscordBotManager {
           content: gameId
             ? `This server is bound to game ${gameId}.`
             : 'No browser game is bound to this server.',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
     } catch (error) {
       const content = error instanceof Error ? error.message : 'Discord command failed';
       if (interaction.replied || interaction.deferred) {
-        await interaction.followUp({ content, ephemeral: true });
+        await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
       } else {
-        await interaction.reply({ content, ephemeral: true });
+        await interaction.reply({ content, flags: MessageFlags.Ephemeral });
       }
     }
   }

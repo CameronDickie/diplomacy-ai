@@ -440,7 +440,7 @@ test('autonomous conversations continue by consent and stop at the hard cap', as
   assert.ok(modelsByPurpose.includes('decision-model'));
 });
 
-test('LLM diplomatic replies are serialized across powers', async () => {
+test('LLM diplomatic replies can run concurrently for disjoint powers', async () => {
   let activeReplies = 0;
   let maxActiveReplies = 0;
   const room = new GameRoom({
@@ -489,6 +489,59 @@ test('LLM diplomatic replies are serialized across powers', async () => {
   await Promise.all([
     room.sendDiplomaticMessage('FRANCE', 'GERMANY', 'Can we coordinate?'),
     room.sendDiplomaticMessage('ENGLAND', 'ITALY', 'Can we coordinate?'),
+  ]);
+
+  assert.equal(maxActiveReplies, 2);
+});
+
+test('LLM diplomatic replies serialize when conversations share a power', async () => {
+  let activeReplies = 0;
+  let maxActiveReplies = 0;
+  const room = new GameRoom({
+    controllerFactory: ({ power }) => ({
+      power,
+      async requestDiplomaticInitiative(context) {
+        return {
+          toPower: null,
+          message: '',
+          strategicSummary: context.memory.strategicSummary,
+          agreements: context.memory.agreements,
+        };
+      },
+      async requestDiplomaticReply(context) {
+        activeReplies++;
+        maxActiveReplies = Math.max(maxActiveReplies, activeReplies);
+        await new Promise(resolve => setTimeout(resolve, 10));
+        activeReplies--;
+        return {
+          reply: 'Acknowledged.',
+          expectsReply: false,
+          strategicSummary: context.memory.strategicSummary,
+          agreements: context.memory.agreements,
+        };
+      },
+      async requestOrders() {
+        return { actions: [], strategicSummary: '', agreements: [] };
+      },
+      async requestRetreats() {
+        return { actions: {}, strategicSummary: '', agreements: [] };
+      },
+      async requestBuilds() {
+        return {
+          actions: { builds: [], disbands: [] },
+          strategicSummary: '',
+          agreements: [],
+        };
+      },
+    }),
+  });
+  assert.ok(room.addPlayer('france-socket', 'France', 'FRANCE'));
+  assert.ok(room.addPlayer('england-socket', 'England', 'ENGLAND'));
+  assert.ok(room.addLlmPlayer({ power: 'GERMANY', provider: 'OPENAI' }));
+
+  await Promise.all([
+    room.sendDiplomaticMessage('FRANCE', 'GERMANY', 'Can we coordinate?'),
+    room.sendDiplomaticMessage('ENGLAND', 'GERMANY', 'Can we coordinate?'),
   ]);
 
   assert.equal(maxActiveReplies, 1);
@@ -628,8 +681,119 @@ test('retreat resolution is recorded as a public phase report', async () => {
     assert.equal(retreatReport.retreats.length, 1);
     assert.equal(retreatReport.retreats[0].fromTerritory, 'VIE');
     assert.equal(retreatReport.retreats[0].outcome, 'DISBANDED');
+    assert.deepEqual(retreatReport.ownershipChanges, []);
     assert.equal(retreatReport.after.units.some(unit => unit.id === dislodged.id), false);
   }
+});
+
+test('Fall occupation captures supply centers and is reported publicly', async () => {
+  const room = humanRoom();
+  assert.equal(await room.startGame(), true);
+  const state = room.getState();
+  state.season = 'FALL';
+  state.phase = 'ORDERS';
+  state.units = [testUnit('austria-bud', 'AUSTRIA', 'ARMY', 'BUD')];
+  for (const territory of Object.values(state.territories)) territory.owner = null;
+
+  await room.submitOrders('AUSTRIA', [
+    testOrder('AUSTRIA', 'BUD', 'MOVE', 'RUM'),
+  ]);
+
+  assert.equal(room.getState().territories.RUM.owner, 'AUSTRIA');
+  const report = room.getPhaseHistory()[0];
+  assert.equal(report.phase, 'ORDERS');
+  if (report.phase === 'ORDERS') {
+    assert.deepEqual(report.ownershipChanges, [{
+      territory: 'RUM',
+      fromPower: null,
+      toPower: 'AUSTRIA',
+    }]);
+    assert.deepEqual(report.resolvedOrders.map(order => order.resolution), ['SUCCEEDS']);
+  }
+});
+
+test('captured supply centers stay owned after the unit leaves in Spring', async () => {
+  const room = humanRoom();
+  assert.equal(await room.startGame(), true);
+  const state = room.getState();
+  state.season = 'SPRING';
+  state.phase = 'ORDERS';
+  state.units = [testUnit('austria-rum', 'AUSTRIA', 'ARMY', 'RUM')];
+  for (const territory of Object.values(state.territories)) territory.owner = null;
+  state.territories.RUM.owner = 'AUSTRIA';
+
+  await room.submitOrders('AUSTRIA', [
+    testOrder('AUSTRIA', 'RUM', 'MOVE', 'UKR'),
+  ]);
+
+  assert.equal(room.getState().territories.RUM.owner, 'AUSTRIA');
+  const report = room.getPhaseHistory()[0];
+  assert.equal(report.phase, 'ORDERS');
+  if (report.phase === 'ORDERS') {
+    assert.deepEqual(report.ownershipChanges, []);
+  }
+});
+
+test('Spring-only occupation does not capture a supply center vacated in Fall', async () => {
+  const room = humanRoom();
+  assert.equal(await room.startGame(), true);
+  const state = room.getState();
+  state.season = 'FALL';
+  state.phase = 'ORDERS';
+  state.units = [testUnit('austria-rum', 'AUSTRIA', 'ARMY', 'RUM')];
+  for (const territory of Object.values(state.territories)) territory.owner = null;
+
+  await room.submitOrders('AUSTRIA', [
+    testOrder('AUSTRIA', 'RUM', 'MOVE', 'UKR'),
+  ]);
+
+  assert.equal(room.getState().territories.RUM.owner, null);
+  const report = room.getPhaseHistory()[0];
+  assert.equal(report.phase, 'ORDERS');
+  if (report.phase === 'ORDERS') {
+    assert.deepEqual(report.ownershipChanges, []);
+  }
+});
+
+test('Fall retreats can capture unoccupied supply centers', async () => {
+  const room = humanRoom();
+  assert.equal(await room.startGame(), true);
+  const state = room.getState();
+  state.season = 'FALL';
+  state.phase = 'RETREATS';
+  for (const territory of Object.values(state.territories)) territory.owner = null;
+  state.units = [{
+    ...testUnit('austria-ser', 'AUSTRIA', 'ARMY', 'SER'),
+    mustRetreat: true,
+    retreatOptions: ['RUM'],
+  }];
+  state.lastAdjudicationResult = {
+    resolvedOrders: [],
+    standoffTerritories: [],
+    dislodgedUnits: [],
+    destroyedUnits: [],
+    newTerritoryOwnership: {},
+    buildCounts: {} as Record<Power, number>,
+  };
+
+  await room.submitRetreats('AUSTRIA', {
+    'austria-ser': { territory: 'RUM', coast: null },
+  });
+
+  assert.equal(room.getState().territories.RUM.owner, 'AUSTRIA');
+  const report = room.getPhaseHistory()[0];
+  assert.equal(report.phase, 'RETREATS');
+  if (report.phase === 'RETREATS') {
+    assert.equal(report.retreats[0].outcome, 'RETREATED');
+    assert.deepEqual(report.ownershipChanges, [{
+      territory: 'RUM',
+      fromPower: null,
+      toPower: 'AUSTRIA',
+    }]);
+  }
+  assert.deepEqual(state.lastAdjudicationResult?.newTerritoryOwnership, {
+    RUM: 'AUSTRIA',
+  });
 });
 
 test('builds, disbands, and waived builds are recorded publicly', async () => {

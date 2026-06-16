@@ -84,6 +84,10 @@ export function useGameSocket() {
     startedAt: null,
     turnCount: 0,
     maxTurns: 0,
+    inputAudioMs: 0,
+    receivePackets: 0,
+    outputAudioMs: 0,
+    debug: [],
     error: null,
   });
 

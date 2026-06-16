@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'crypto';
 import { PassThrough, type Transform } from 'stream';
+import type { Readable } from 'stream';
 import {
   AudioPlayerStatus,
   EndBehaviorType,
@@ -7,13 +8,17 @@ import {
   StreamType,
   createAudioPlayer,
   createAudioResource,
+  entersState,
   joinVoiceChannel,
   type AudioPlayer,
   type VoiceConnection,
+  VoiceConnectionStatus,
 } from '@discordjs/voice';
 import {
   ChannelType,
   PermissionFlagsBits,
+  Routes,
+  type GuildMember,
   type VoiceChannel,
 } from 'discord.js';
 import prism from 'prism-media';
@@ -23,6 +28,7 @@ import type {
   VoiceSessionState,
   VoiceSessionStatus,
 } from '@diplomacy/shared';
+import { ALL_POWERS } from '@diplomacy/shared';
 import type { GameRoom } from '../GameRoom.js';
 import type { GameManager } from '../GameManager.js';
 import type { DiscordBotManager } from '../discord/DiscordBotManager.js';
@@ -33,17 +39,24 @@ interface ActiveVoiceSession {
   id: string;
   room: GameRoom;
   player: HumanPlayer;
+  targetPlayer: HumanPlayer | null;
   power: Power;
   discordUserId: string;
+  targetDiscordUserId: string | null;
   channel: VoiceChannel;
-  connection: VoiceConnection;
-  audioPlayer: AudioPlayer;
-  realtime: OpenAIRealtimeSession;
-  releasePowerLock: () => void;
+  kind: 'LLM' | 'HUMAN';
+  connection: VoiceConnection | null;
+  audioPlayer: AudioPlayer | null;
+  realtime: OpenAIRealtimeSession | null;
+  releasePowerLock: (() => void) | null;
   state: VoiceSessionState;
   inputStream: NodeJS.ReadableStream | null;
   decoder: Transform | null;
   outputStream: PassThrough | null;
+  inputAudioMs: number;
+  receivePackets: number;
+  outputAudioMs: number;
+  startedSpeaking: boolean;
   idleTimer: NodeJS.Timeout | null;
   durationTimer: NodeJS.Timeout | null;
   ignoreNextResponseDone: boolean;
@@ -62,7 +75,10 @@ export class VoiceSessionManager {
   ) {}
 
   getState(playerId: string): VoiceSessionState {
-    return this.sessionsByPlayerId.get(playerId)?.state ?? idleVoiceState();
+    const session = this.sessionsByPlayerId.get(playerId);
+    if (!session) return idleVoiceState();
+    const player = this.sessionPlayers(session).find(candidate => candidate.id === playerId);
+    return player ? this.stateForPlayer(session, player) : session.state;
   }
 
   async start(gameId: string, player: HumanPlayer, power: Power): Promise<void> {
@@ -76,9 +92,14 @@ export class VoiceSessionManager {
       throw new Error(`${power} is already in a voice conversation`);
     }
     const room = this.gameManager.getRoom(gameId);
-    const llm = room?.getLlmPlayer(power);
-    if (!room || !llm) throw new Error(`${power} is not an active LLM power`);
+    if (!room) throw new Error('Game not found');
     if (player.power === power) throw new Error('You cannot call your own power');
+
+    const llm = room.getLlmPlayer(power);
+    if (!llm) {
+      await this.startHumanSession(room, player, power);
+      return;
+    }
 
     const discordUserId = this.links.getDiscordUserId(player.id);
     if (!discordUserId) throw new Error('Link your Discord account before starting voice');
@@ -101,11 +122,15 @@ export class VoiceSessionManager {
         maxTurns: room.getState().settings.voiceMaxTurns,
       });
       const coordinatorGuild = await coordinator.guilds.fetch(this.links.configuredGuildId!);
-      const powerGuild = await powerClient.guilds.fetch(this.links.configuredGuildId!);
+      const powerGuild = powerClient.guilds.cache.get(this.links.configuredGuildId!) ??
+        await powerClient.guilds.fetch(this.links.configuredGuildId!);
       const member = await coordinatorGuild.members.fetch(discordUserId);
+      const powerMember = await coordinatorGuild.members.fetch(powerClient.user.id);
+      const coordinatorMember = await coordinatorGuild.members.fetch(coordinator.user.id);
       const channel = await coordinatorGuild.channels.create({
         name: `diplomacy-${player.power.toLowerCase()}-${power.toLowerCase()}`,
         type: ChannelType.GuildVoice,
+        userLimit: 2,
         permissionOverwrites: [
           {
             id: coordinatorGuild.roles.everyone.id,
@@ -113,38 +138,77 @@ export class VoiceSessionManager {
           },
           {
             id: discordUserId,
-            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect],
-          },
-          {
-            id: powerClient.user.id,
             allow: [
               PermissionFlagsBits.ViewChannel,
               PermissionFlagsBits.Connect,
               PermissionFlagsBits.Speak,
+              PermissionFlagsBits.UseVAD,
             ],
           },
           {
-            id: coordinator.user.id,
+            id: powerMember.id,
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.Connect,
+              PermissionFlagsBits.Speak,
+              PermissionFlagsBits.UseVAD,
+              PermissionFlagsBits.ManageChannels,
+            ],
+          },
+          {
+            id: coordinatorMember.id,
             allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ManageChannels],
           },
         ],
         reason: `Private Diplomacy voice session for game ${room.gameId}`,
       });
       provisioningChannel = channel;
+      await this.tryMoveMemberToChannel(member, channel);
       const connection = joinVoiceChannel({
         channelId: channel.id,
         guildId: powerGuild.id,
         adapterCreator: powerGuild.voiceAdapterCreator,
+        daveEncryption: true,
+        decryptionFailureTolerance: 100,
+        debug: true,
         selfDeaf: false,
         selfMute: false,
       });
+      connection.on('stateChange', (oldState, newState) => {
+        console.log(
+          `[voice ${power} provisioning] voice connection ${oldState.status} -> ${newState.status}`
+        );
+        const networking = Reflect.get(newState, 'networking') as { once?: (event: 'close', listener: (code: number) => void) => void } | undefined;
+        networking?.once?.('close', code => {
+          console.log(`[voice ${power} provisioning] networking closed with code ${code}`);
+        });
+      });
+      connection.on('debug', message => {
+        console.log(`[voice ${power} provisioning] ${message}`);
+      });
+      connection.on('error', error => {
+        console.warn(`[voice ${power} provisioning] ${error.message}`);
+      });
       provisioningConnection = connection;
+      try {
+        await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
+      } catch {
+        throw new Error(
+          `${power} voice bot could not finish joining the Discord voice channel. ` +
+          `The connection stayed ${connection.state.status}; verify that the ${power} bot is installed in the guild, has Connect/View Channel on the temporary voice channel, and that the bot process is receiving GuildVoiceStates events.`
+        );
+      }
+      const sessionId = randomUUID();
       const audioPlayer = createAudioPlayer({
-        behaviors: { noSubscriber: NoSubscriberBehavior.Pause },
+        behaviors: { noSubscriber: NoSubscriberBehavior.Play },
+      });
+      audioPlayer.on('error', error => {
+        const session = this.sessionsByPlayerId.get(player.id);
+        if (!session || session.id !== sessionId || session.ending) return;
+        this.fail(session, `Discord audio playback failed: ${error.message}`);
       });
       connection.subscribe(audioPlayer);
 
-      const sessionId = randomUUID();
       const realtime = new OpenAIRealtimeSession(
         llm.realtimeModel,
         llm.voice,
@@ -201,15 +265,22 @@ export class VoiceSessionManager {
         startedAt: new Date().toISOString(),
         turnCount: 0,
         maxTurns: room.getState().settings.voiceMaxTurns,
+        inputAudioMs: 0,
+        receivePackets: 0,
+        outputAudioMs: 0,
+        debug: [],
         error: null,
       };
       const session: ActiveVoiceSession = {
         id: sessionId,
         room,
         player,
+        targetPlayer: null,
         power,
         discordUserId,
+        targetDiscordUserId: null,
         channel,
+        kind: 'LLM',
         connection,
         audioPlayer,
         realtime,
@@ -218,13 +289,24 @@ export class VoiceSessionManager {
         inputStream: null,
         decoder: null,
         outputStream: null,
+        inputAudioMs: 0,
+        receivePackets: 0,
+        outputAudioMs: 0,
+        startedSpeaking: false,
         idleTimer: null,
         durationTimer: null,
         ignoreNextResponseDone: false,
         ending: false,
       };
+      this.attachVoiceConnectionDiagnostics(session);
+      this.recordVoiceDebug(
+        session,
+        `created voice session; linked user ${maskDiscordId(discordUserId)}; user channel ${member.voice.channelId ?? 'none'}; bot connection ${connection.state.status}`,
+        false
+      );
       this.sessionsByPlayerId.set(player.id, session);
       this.sessionsByPower.set(power, session);
+      this.sessionsByPower.set(player.power, session);
       session.durationTimer = setTimeout(
         () => void this.end(player.id),
         room.getState().settings.voiceMaxSessionMinutes * 60_000
@@ -236,11 +318,7 @@ export class VoiceSessionManager {
       provisioningRealtime?.close();
       provisioningConnection?.destroy();
       if (provisioningChannel) {
-        try {
-          await provisioningChannel.delete('Voice session provisioning failed');
-        } catch {
-          // The channel may already be gone or permissions may have changed.
-        }
+        await this.tryDeleteProvisioningChannel(provisioningChannel);
       }
       releasePowerLock();
       this.emitState(room, player, {
@@ -255,43 +333,93 @@ export class VoiceSessionManager {
 
   async beginInput(playerId: string): Promise<void> {
     const session = this.requireSession(playerId);
+    if (session.kind !== 'LLM' || !session.realtime || !session.connection) {
+      throw new Error('OpenAI voice input is only available when speaking with an LLM');
+    }
     if (!['WAITING_FOR_USER', 'READY'].includes(session.state.status)) {
       throw new Error('Voice input cannot start in the current state');
     }
-    const powerClient = this.bots.getPowerClient(session.power);
-    const guild = await powerClient?.guilds.fetch(session.channel.guildId);
+    const coordinator = this.bots.getCoordinatorClient();
+    const guild = await coordinator?.guilds.fetch(session.channel.guildId);
     const member = await guild?.members.fetch(session.discordUserId);
+    if (member && member.voice.channelId && member.voice.channelId !== session.channel.id) {
+      await this.tryMoveMemberToChannel(member, session.channel);
+    }
     if (!member || member.voice.channelId !== session.channel.id) {
       throw new Error('Join the temporary Discord voice channel first');
     }
+    if (session.connection.state.status !== VoiceConnectionStatus.Ready) {
+      throw new Error(
+        `${session.power} voice bot is not connected yet (${session.connection.state.status}). End this session and start a new one.`
+      );
+    }
 
-    session.realtime.clearInput();
-    const inputStream = session.connection.receiver.subscribe(session.discordUserId, {
+    const realtime = session.realtime;
+    const connection = session.connection;
+    realtime.clearInput();
+    session.inputAudioMs = 0;
+    session.receivePackets = 0;
+    session.startedSpeaking = false;
+    this.setStatus(session, 'LISTENING');
+    this.recordVoiceDebug(session, `listen requested; ${this.voiceReceiveSnapshot(session)}`);
+    this.attachInputStream(session, connection.receiver.subscribe(session.discordUserId, {
       end: { behavior: EndBehaviorType.Manual },
+    }));
+    const onSpeakingStart = (userId: string) => {
+      if (userId !== session.discordUserId || !session.inputStream) return;
+      session.startedSpeaking = true;
+      this.emit(session);
+      this.attachInputStream(session, connection.receiver.subscribe(session.discordUserId, {
+        end: { behavior: EndBehaviorType.Manual },
+      }));
+    };
+    connection.receiver.speaking.once('start', onSpeakingStart);
+    session.inputStream?.once('close', () => {
+      connection.receiver.speaking.off('start', onSpeakingStart);
     });
     const decoder = new prism.opus.Decoder({
       rate: 48000,
       channels: 2,
       frameSize: 960,
     });
-    inputStream.pipe(decoder);
+    session.inputStream?.pipe(decoder);
     decoder.on('data', chunk => {
       if (session.state.status !== 'LISTENING') return;
-      session.realtime.appendAudio(downsampleDiscordPcm(Buffer.from(chunk)));
+      const audio = downsampleDiscordPcm(Buffer.from(chunk));
+      session.receivePackets++;
+      session.inputAudioMs += pcmDurationMs(audio, 24000, 1);
+      realtime.appendAudio(audio);
+      this.emit(session);
     });
     decoder.on('error', error => this.fail(session, error.message));
-    session.inputStream = inputStream;
     session.decoder = decoder;
-    this.setStatus(session, 'LISTENING');
     this.resetIdleTimer(session);
   }
 
   commitInput(playerId: string): void {
     const session = this.requireSession(playerId);
+    if (session.kind !== 'LLM' || !session.realtime) {
+      throw new Error('OpenAI voice input is only available when speaking with an LLM');
+    }
     if (session.state.status !== 'LISTENING') {
       throw new Error('The voice session is not listening');
     }
+    const diagnosticsBeforeStop = this.voiceReceiveSnapshot(session);
     this.stopInput(session);
+    if (session.inputAudioMs < 100) {
+      const reason = session.startedSpeaking
+        ? 'Discord reported that you were speaking, but no decodable audio reached the bot.'
+        : 'Discord did not report any speech packets for your linked user.';
+      const diagnostics = diagnosticsBeforeStop;
+      this.recordVoiceDebug(session, `commit without audio; ${diagnostics}`);
+      session.state = {
+        ...session.state,
+        error: `${reason} ${diagnostics}. Click Listen, make sure you are in the temporary channel and unmuted, speak for at least a moment, then click Done.`,
+      };
+      this.setStatus(session, 'READY');
+      this.resetIdleTimer(session);
+      return;
+    }
     session.realtime.commitInput();
     this.setStatus(session, 'PROCESSING');
     this.resetIdleTimer(session);
@@ -299,6 +427,7 @@ export class VoiceSessionManager {
 
   interrupt(playerId: string): void {
     const session = this.requireSession(playerId);
+    if (session.kind !== 'LLM' || !session.realtime || !session.audioPlayer) return;
     if (!['PROCESSING', 'SPEAKING'].includes(session.state.status)) return;
     session.ignoreNextResponseDone = true;
     session.realtime.interrupt();
@@ -317,21 +446,20 @@ export class VoiceSessionManager {
     this.stopInput(session);
     if (session.idleTimer) clearTimeout(session.idleTimer);
     if (session.durationTimer) clearTimeout(session.durationTimer);
-    session.realtime.close();
-    session.audioPlayer.stop(true);
-    session.connection.destroy();
-    session.releasePowerLock();
-    this.sessionsByPlayerId.delete(playerId);
+    session.realtime?.close();
+    session.audioPlayer?.stop(true);
+    session.connection?.destroy();
+    session.releasePowerLock?.();
+    this.sessionsByPlayerId.delete(session.player.id);
+    if (session.targetPlayer) this.sessionsByPlayerId.delete(session.targetPlayer.id);
     this.sessionsByPower.delete(session.power);
-    try {
-      await session.channel.delete('Diplomacy voice session ended');
-    } catch (error) {
-      console.warn(`Could not delete voice channel ${session.channel.id}:`, error);
-    }
-    this.emitState(session.room, session.player, idleVoiceState());
+    this.sessionsByPower.delete(session.player.power);
+    await this.deleteVoiceChannel(session);
+    this.emitIdle(session);
   }
 
   private writeOutputAudio(session: ActiveVoiceSession, audio: Buffer): void {
+    if (!session.audioPlayer) return;
     if (!session.outputStream) {
       session.outputStream = new PassThrough();
       session.audioPlayer.play(createAudioResource(session.outputStream, {
@@ -342,9 +470,12 @@ export class VoiceSessionManager {
       });
     }
     session.outputStream.write(upsampleOpenAiPcm(audio));
+    session.outputAudioMs += pcmDurationMs(audio, 24000, 1);
+    this.emit(session);
   }
 
   private async finishResponse(session: ActiveVoiceSession): Promise<void> {
+    if (session.kind !== 'LLM') return;
     session.outputStream?.end();
     session.outputStream = null;
     session.state.turnCount++;
@@ -396,7 +527,9 @@ export class VoiceSessionManager {
   }
 
   private emit(session: ActiveVoiceSession): void {
-    this.emitState(session.room, session.player, session.state);
+    for (const player of this.sessionPlayers(session)) {
+      this.emitState(session.room, player, this.stateForPlayer(session, player));
+    }
   }
 
   private emitState(
@@ -414,6 +547,359 @@ export class VoiceSessionManager {
     if (!session) throw new Error('No active voice session');
     return session;
   }
+
+  private async startHumanSession(
+    room: GameRoom,
+    player: HumanPlayer,
+    power: Power
+  ): Promise<void> {
+    const targetPlayer = room.getState().players.find(
+      (candidate): candidate is HumanPlayer =>
+        candidate.kind === 'HUMAN' && candidate.power === power
+    );
+    if (!targetPlayer) throw new Error(`${power} is not an active human power`);
+    if (this.sessionsByPlayerId.has(targetPlayer.id)) {
+      throw new Error(`${power} is already in a voice conversation`);
+    }
+
+    const discordUserId = this.links.getDiscordUserId(player.id);
+    const targetDiscordUserId = this.links.getDiscordUserId(targetPlayer.id);
+    if (!discordUserId) throw new Error('Link your Discord account before starting voice');
+    if (!targetDiscordUserId) throw new Error(`${power} has not linked a Discord account`);
+    const coordinator = this.bots.getCoordinatorClient();
+    if (!coordinator?.user) throw new Error('Discord coordinator bot is not connected');
+
+    let provisioningChannel: VoiceChannel | null = null;
+    try {
+      this.emitState(room, player, {
+        ...idleVoiceState(),
+        sessionId: randomUUID(),
+        status: 'PROVISIONING',
+        power,
+      });
+      const guild = await coordinator.guilds.fetch(this.links.configuredGuildId!);
+      const requesterMember = await guild.members.fetch(discordUserId);
+      const targetMember = await guild.members.fetch(targetDiscordUserId);
+      const coordinatorMember = await guild.members.fetch(coordinator.user.id);
+      const channel = await guild.channels.create({
+        name: `diplomacy-${player.power.toLowerCase()}-${power.toLowerCase()}`,
+        type: ChannelType.GuildVoice,
+        userLimit: 2,
+        permissionOverwrites: [
+          {
+            id: guild.roles.everyone.id,
+            deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect],
+          },
+          {
+            id: requesterMember.id,
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.Connect,
+              PermissionFlagsBits.Speak,
+              PermissionFlagsBits.UseVAD,
+            ],
+          },
+          {
+            id: targetMember.id,
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.Connect,
+              PermissionFlagsBits.Speak,
+              PermissionFlagsBits.UseVAD,
+            ],
+          },
+          {
+            id: coordinatorMember.id,
+            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ManageChannels],
+          },
+        ],
+        reason: `Private Diplomacy player voice session for game ${room.gameId}`,
+      });
+      provisioningChannel = channel;
+      await this.tryMoveMemberToChannel(requesterMember, channel);
+
+      const sessionId = randomUUID();
+      const state: VoiceSessionState = {
+        sessionId,
+        status: 'READY',
+        power,
+        channelId: channel.id,
+        channelUrl: `https://discord.com/channels/${channel.guildId}/${channel.id}`,
+        startedAt: new Date().toISOString(),
+        turnCount: 0,
+        maxTurns: 0,
+        inputAudioMs: 0,
+        receivePackets: 0,
+        outputAudioMs: 0,
+        debug: [],
+        error: null,
+      };
+      const session: ActiveVoiceSession = {
+        id: sessionId,
+        room,
+        player,
+        targetPlayer,
+        power,
+        discordUserId,
+        targetDiscordUserId,
+        channel,
+        kind: 'HUMAN',
+        connection: null,
+        audioPlayer: null,
+        realtime: null,
+        releasePowerLock: null,
+        state,
+        inputStream: null,
+        decoder: null,
+        outputStream: null,
+        inputAudioMs: 0,
+        receivePackets: 0,
+        outputAudioMs: 0,
+        startedSpeaking: false,
+        idleTimer: null,
+        durationTimer: null,
+        ignoreNextResponseDone: false,
+        ending: false,
+      };
+      this.sessionsByPlayerId.set(player.id, session);
+      this.sessionsByPlayerId.set(targetPlayer.id, session);
+      this.sessionsByPower.set(player.power, session);
+      this.sessionsByPower.set(power, session);
+      session.durationTimer = setTimeout(
+        () => void this.end(player.id),
+        room.getState().settings.voiceMaxSessionMinutes * 60_000
+      );
+      this.emit(session);
+    } catch (error) {
+      if (provisioningChannel) {
+        await this.tryDeleteProvisioningChannel(provisioningChannel);
+      }
+      this.emitState(room, player, {
+        ...idleVoiceState(),
+        status: 'FAILED',
+        power,
+        error: error instanceof Error ? error.message : 'Voice provisioning failed',
+      });
+      throw error;
+    }
+  }
+
+  private sessionPlayers(session: ActiveVoiceSession): HumanPlayer[] {
+    return session.targetPlayer
+      ? [session.player, session.targetPlayer]
+      : [session.player];
+  }
+
+  private stateForPlayer(
+    session: ActiveVoiceSession,
+    player: HumanPlayer
+  ): VoiceSessionState {
+    if (!session.targetPlayer || player.id === session.player.id) {
+      return this.withVoiceDiagnostics(session.state, session);
+    }
+    return this.withVoiceDiagnostics({
+      ...session.state,
+      power: session.player.power,
+    }, session);
+  }
+
+  private emitIdle(session: ActiveVoiceSession): void {
+    for (const player of this.sessionPlayers(session)) {
+      this.emitState(session.room, player, idleVoiceState());
+    }
+  }
+
+  private async deleteVoiceChannel(session: ActiveVoiceSession): Promise<void> {
+    const coordinator = this.bots.getCoordinatorClient();
+    const attempts: Array<() => Promise<unknown>> = [];
+    if (coordinator) {
+      attempts.push(() =>
+        coordinator.rest.delete(Routes.channel(session.channel.id), {
+          reason: 'Diplomacy voice session ended',
+        })
+      );
+    }
+    const powerClient = this.bots.getPowerClient(session.power);
+    if (powerClient) {
+      attempts.push(() =>
+        powerClient.rest.delete(Routes.channel(session.channel.id), {
+          reason: 'Diplomacy voice session ended',
+        })
+      );
+    }
+    attempts.push(() => session.channel.delete('Diplomacy voice session ended'));
+
+    let lastError: unknown = null;
+    for (const attempt of attempts) {
+      try {
+        await attempt();
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    console.warn(`Could not delete voice channel ${session.channel.id}:`, lastError);
+  }
+
+  private async tryMoveMemberToChannel(
+    member: GuildMember,
+    channel: VoiceChannel
+  ): Promise<void> {
+    try {
+      if (!member.voice.channelId) return;
+      if (member.voice.channelId === channel.id) return;
+      await member.voice.setChannel(channel, 'Diplomacy private voice session started');
+    } catch (error) {
+      console.warn(`Could not move Discord member ${member.id} into voice channel ${channel.id}:`, error);
+    }
+  }
+
+  private async tryDeleteProvisioningChannel(channel: VoiceChannel): Promise<void> {
+    const coordinator = this.bots.getCoordinatorClient();
+    const attempts: Array<() => Promise<unknown>> = [];
+    if (coordinator) {
+      attempts.push(() =>
+        coordinator.rest.delete(Routes.channel(channel.id), {
+          reason: 'Voice session provisioning failed',
+        })
+      );
+    }
+    for (const power of ALL_POWERS) {
+      const client = this.bots.getPowerClient(power);
+      if (!client) continue;
+      attempts.push(() =>
+        client.rest.delete(Routes.channel(channel.id), {
+          reason: 'Voice session provisioning failed',
+        })
+      );
+    }
+    attempts.push(() => channel.delete('Voice session provisioning failed'));
+
+    let lastError: unknown = null;
+    for (const attempt of attempts) {
+      try {
+        await attempt();
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    console.warn(`Could not delete failed voice channel ${channel.id}:`, lastError);
+  }
+
+  private attachInputStream(
+    session: ActiveVoiceSession,
+    inputStream: Readable
+  ): void {
+    if (session.inputStream === inputStream) return;
+    session.inputStream?.unpipe(session.decoder ?? undefined);
+    session.inputStream = inputStream;
+    if (session.decoder) inputStream.pipe(session.decoder);
+    this.recordVoiceDebug(session, `subscribed to user audio; ${this.voiceReceiveSnapshot(session)}`);
+    inputStream.on('error', error => {
+      this.recordVoiceDebug(
+        session,
+        error instanceof Error
+          ? `audio receive stream error: ${error.message}`
+          : 'audio receive stream error'
+      );
+      this.fail(
+        session,
+        error instanceof Error
+          ? `Discord audio receive failed: ${error.message}`
+          : 'Discord audio receive failed'
+      );
+    });
+  }
+
+  private withVoiceDiagnostics(
+    state: VoiceSessionState,
+    session: ActiveVoiceSession
+  ): VoiceSessionState {
+    return {
+      ...state,
+      inputAudioMs: Math.round(session.inputAudioMs),
+      receivePackets: session.receivePackets,
+      outputAudioMs: Math.round(session.outputAudioMs),
+      debug: [...session.state.debug],
+    };
+  }
+
+  private attachVoiceConnectionDiagnostics(session: ActiveVoiceSession): void {
+    const connection = session.connection;
+    if (!connection) return;
+
+    connection.on('stateChange', (oldState, newState) => {
+      this.recordVoiceDebug(
+        session,
+        `voice connection ${oldState.status} -> ${newState.status}; ${this.voiceReceiveSnapshot(session)}`
+      );
+    });
+    connection.on('debug', message => {
+      this.recordVoiceDebug(session, `voice debug: ${message}`);
+    });
+    connection.on('error', error => {
+      this.recordVoiceDebug(session, `voice connection error: ${error.message}`);
+    });
+    connection.receiver.speaking.on('start', userId => {
+      const target = userId === session.discordUserId ? 'target' : 'other';
+      if (target === 'target') session.startedSpeaking = true;
+      this.recordVoiceDebug(
+        session,
+        `speaking start from ${target} ${maskDiscordId(userId)}; ${this.voiceReceiveSnapshot(session)}`
+      );
+    });
+    connection.receiver.speaking.on('end', userId => {
+      const target = userId === session.discordUserId ? 'target' : 'other';
+      this.recordVoiceDebug(session, `speaking end from ${target} ${maskDiscordId(userId)}`);
+    });
+    connection.receiver.ssrcMap.on('create', data => {
+      this.recordVoiceDebug(
+        session,
+        `ssrc create ${maskDiscordId(data.userId)} -> ${data.audioSSRC}`
+      );
+    });
+    connection.receiver.ssrcMap.on('update', (_oldData, data) => {
+      this.recordVoiceDebug(
+        session,
+        `ssrc update ${maskDiscordId(data.userId)} -> ${data.audioSSRC}`
+      );
+    });
+    connection.receiver.ssrcMap.on('delete', data => {
+      this.recordVoiceDebug(
+        session,
+        `ssrc delete ${maskDiscordId(data.userId)} -> ${data.audioSSRC}`
+      );
+    });
+  }
+
+  private recordVoiceDebug(
+    session: ActiveVoiceSession,
+    message: string,
+    emit = true
+  ): void {
+    const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
+    const debug = [...session.state.debug, `${timestamp} ${message}`].slice(-10);
+    session.state = { ...session.state, debug };
+    console.log(`[voice ${session.power} ${session.id.slice(0, 8)}] ${message}`);
+    if (emit) this.emit(session);
+  }
+
+  private voiceReceiveSnapshot(session: ActiveVoiceSession): string {
+    const connection = session.connection;
+    if (!connection) return 'no voice connection';
+    const ssrc = connection.receiver.ssrcMap.get(session.discordUserId);
+    const speakingUsers = [...connection.receiver.speaking.users.keys()];
+    return [
+      `connection=${connection.state.status}`,
+      `joinChannel=${connection.joinConfig.channelId}`,
+      `targetChannel=${session.channel.id}`,
+      `subscription=${connection.receiver.subscriptions.has(session.discordUserId) ? 'yes' : 'no'}`,
+      `ssrc=${ssrc?.audioSSRC ?? 'none'}`,
+      `speaking=${speakingUsers.length > 0 ? speakingUsers.map(maskDiscordId).join(',') : 'none'}`,
+      `encryption=${getReceiverEncryptionMode(connection)}`,
+    ].join('; ');
+  }
 }
 
 function idleVoiceState(): VoiceSessionState {
@@ -426,6 +912,10 @@ function idleVoiceState(): VoiceSessionState {
     startedAt: null,
     turnCount: 0,
     maxTurns: 0,
+    inputAudioMs: 0,
+    receivePackets: 0,
+    outputAudioMs: 0,
+    debug: [],
     error: null,
   };
 }
@@ -464,6 +954,21 @@ export function upsampleOpenAiPcm(input: Buffer): Buffer {
   return output;
 }
 
+function pcmDurationMs(input: Buffer, sampleRate: number, channels: number): number {
+  const bytesPerSample = 2;
+  return input.length / bytesPerSample / channels / sampleRate * 1000;
+}
+
 function hashDiscordUserId(discordUserId: string): string {
   return createHash('sha256').update(discordUserId).digest('hex');
+}
+
+function getReceiverEncryptionMode(connection: VoiceConnection): string {
+  const data = connection.receiver.connectionData as { encryptionMode?: string };
+  return data.encryptionMode ?? 'none';
+}
+
+function maskDiscordId(discordUserId: string | undefined): string {
+  if (!discordUserId) return 'unknown';
+  return `...${discordUserId.slice(-4)}`;
 }

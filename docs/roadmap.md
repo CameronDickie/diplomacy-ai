@@ -2,6 +2,8 @@
 
 Detailed playtest-derived feature workstreams and acceptance criteria are kept
 in [playtest-feature-notebook.md](./playtest-feature-notebook.md).
+The next post-Discord playtest iteration is specified in
+[next-playtest-workstreams.md](./next-playtest-workstreams.md).
 
 ## 1. Complete Rules Workflow
 
@@ -33,6 +35,10 @@ in [playtest-feature-notebook.md](./playtest-feature-notebook.md).
 - Draw pending and resolved order arrows in the SVG `orders` layer.
 - Add click workflows for support and convoy orders.
 - Improve mobile layout and accessibility.
+- [x] Lock Fall supply ownership timing with regression tests.
+- [x] Add controlled supply-center fills and striped potential-capture styling.
+- Add explicit last-occupier/non-supply control state if that becomes a
+  desired board concept.
 
 ## 5. Negotiation
 
@@ -41,6 +47,23 @@ in [playtest-feature-notebook.md](./playtest-feature-notebook.md).
 - Add optional global press channels.
 - Lock messages and orders at phase deadlines.
 - Store a replayable event log separate from transient Socket.IO events.
+- Replace room-wide conversation serialization with per-power locking so
+  disjoint live conversations can run concurrently.
+- [x] Schedule configured autonomous LLM conversations concurrently when their
+  power sets do not overlap.
+- Add accepted/declined/queued live conversation requests while keeping
+  ordinary private messages asynchronous.
+- [x] Scope typing indicators to the viewer's active diplomatic reply rather
+  than unrelated LLM work.
+
+## 5A. Game Sidebar
+
+- [x] Consolidate Powers, Orders, and Discord into one tabbed sidebar.
+- [x] Replace separate player and supply sections with expandable power rows.
+- Drive submitted, requested, queued, active, disconnected, and model-decision
+  indicators from server-owned activity state.
+- [x] Collapse browser chat by default with a global unread count.
+- Add per-power unread counts and persisted chat open/collapsed preference.
 
 ## 6. LLM Powers
 

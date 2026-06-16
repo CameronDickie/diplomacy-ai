@@ -7,17 +7,16 @@ import type {
   TerritoryId,
   Unit,
 } from '@diplomacy/shared';
-import { ALL_POWERS } from '@diplomacy/shared';
 import { useGameSocket } from '../hooks/useGameSocket.js';
 import { EventLog } from './EventLog.js';
 import { ChatPanel } from './ChatPanel.js';
 import { LobbyPanel } from './LobbyPanel.js';
 import { MapGraph } from './MapGraph.js';
 import { OrderPanel } from './OrderPanel.js';
-import { TurnHistoryPanel } from './TurnHistoryPanel.js';
 import { ReplayControls } from './ReplayControls.js';
 import { DiscordPanel } from './DiscordPanel.js';
-import { adjacentTerritories, POWER_COLORS, TERRITORY_BY_ID } from '../lib/game.js';
+import { GameSidebar } from './GameSidebar.js';
+import { adjacentTerritories, TERRITORY_BY_ID } from '../lib/game.js';
 
 const ignoreMapSelection = () => undefined;
 
@@ -26,6 +25,9 @@ export function App() {
   const [selectedTerritory, setSelectedTerritory] = useState<TerritoryId | null>(null);
   const [pendingOrders, setPendingOrders] = useState<Order[]>([]);
   const [eventLogOpen, setEventLogOpen] = useState(true);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [bottomDockOpen, setBottomDockOpen] = useState(false);
+  const [seenChatMessages, setSeenChatMessages] = useState(0);
   const [replayReport, setReplayReport] = useState<PublicPhaseReport | null>(null);
   const [replayFrame, setReplayFrame] = useState(0);
   const [replayPlaying, setReplayPlaying] = useState(false);
@@ -35,10 +37,18 @@ export function App() {
   const phaseKey = game.gameState
     ? `${game.gameState.year}-${game.gameState.season}-${game.gameState.phase}`
     : 'no-game';
+  const unreadChatMessages = Math.max(
+    0,
+    game.diplomaticMessages.length - seenChatMessages
+  );
 
   useEffect(() => {
     setPendingOrders([]);
   }, [phaseKey]);
+
+  useEffect(() => {
+    if (chatOpen) setSeenChatMessages(game.diplomaticMessages.length);
+  }, [chatOpen, game.diplomaticMessages.length]);
 
   useEffect(() => {
     if (!replayReport || !replayPlaying) return;
@@ -110,7 +120,7 @@ export function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${bottomDockOpen ? '' : 'bottom-dock-collapsed'}`}>
       <header className="topbar">
         <div>
           <h1>Diplomacy</h1>
@@ -133,50 +143,15 @@ export function App() {
               <DiscordPanel game={game} />
             </>
           ) : (
-            <>
-              <section className="card supply-card">
-                <h2>Supply Centers</h2>
-                {ALL_POWERS.map(power => {
-                  const count = Object.values(game.gameState!.territories).filter(
-                    territory => territory.isSupplyCenter && territory.owner === power
-                  ).length;
-                  return (
-                    <div className="supply-row" key={power}>
-                      <span className="power-swatch" style={{ background: POWER_COLORS[power] }} />
-                      <strong style={{ color: POWER_COLORS[power] }}>{power}</strong>
-                      <b>{count}</b>
-                    </div>
-                  );
-                })}
-              </section>
-              <section className="card">
-                <h2>Players</h2>
-                <div className="player-list">
-                  {game.gameState!.players.map(player => (
-                    <div className="player-row compact" key={player.id}>
-                      <strong>{player.power}</strong>
-                      <span>{player.name}</span>
-                      <em>
-                        {player.kind === 'HUMAN'
-                          ? (player.connected ? 'online' : 'offline')
-                          : `${player.provider} ${player.model}`}
-                      </em>
-                    </div>
-                  ))}
-                </div>
-              </section>
-              <DiscordPanel game={game} />
-              <TurnHistoryPanel
-                reports={game.phaseHistory}
-                gameState={game.gameState!}
-                onReplay={report => {
-                  setReplayReport(report);
-                  setReplayFrame(0);
-                  setReplayPlaying(true);
-                  setReplayRun(run => run + 1);
-                }}
-              />
-            </>
+            <GameSidebar
+              game={game}
+              onReplay={report => {
+                setReplayReport(report);
+                setReplayFrame(0);
+                setReplayPlaying(true);
+                setReplayRun(run => run + 1);
+              }}
+            />
           )}
         </aside>
 
@@ -244,13 +219,52 @@ export function App() {
         </aside>
       </main>
 
-      <section className={`bottom-dock ${eventLogOpen ? '' : 'log-collapsed'}`}>
-        <ChatPanel game={game} />
-        <EventLog
-          entries={game.logs}
-          open={eventLogOpen}
-          onToggle={() => setEventLogOpen(open => !open)}
-        />
+      <section className={`bottom-dock ${bottomDockOpen ? '' : 'dock-collapsed'} ${eventLogOpen ? '' : 'log-collapsed'} ${chatOpen ? '' : 'chat-hidden'}`}>
+        {bottomDockOpen ? (
+          <>
+            <div className="bottom-dock-toolbar">
+              <button type="button" onClick={() => setBottomDockOpen(false)}>
+                Hide diplomacy/logs
+              </button>
+              <button
+                type="button"
+                className={chatOpen ? 'selected' : ''}
+                onClick={() => setChatOpen(open => !open)}
+              >
+                Diplomacy
+                {unreadChatMessages > 0 && <strong>{unreadChatMessages}</strong>}
+              </button>
+              <button
+                type="button"
+                className={eventLogOpen ? 'selected' : ''}
+                onClick={() => setEventLogOpen(open => !open)}
+              >
+                Event log
+              </button>
+            </div>
+            {chatOpen && (
+              <div className="chat-dock">
+                <ChatPanel game={game} />
+              </div>
+            )}
+            {eventLogOpen && (
+              <EventLog
+                entries={game.logs}
+                open={eventLogOpen}
+                onToggle={() => setEventLogOpen(open => !open)}
+              />
+            )}
+          </>
+        ) : (
+          <button
+            type="button"
+            className="bottom-dock-restore"
+            onClick={() => setBottomDockOpen(true)}
+          >
+            Open diplomacy and logs
+            {unreadChatMessages > 0 && <strong>{unreadChatMessages}</strong>}
+          </button>
+        )}
       </section>
     </div>
   );

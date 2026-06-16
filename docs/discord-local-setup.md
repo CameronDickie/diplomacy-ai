@@ -96,6 +96,11 @@ lobby. Temporary channels are removed when the session ends or times out.
   that its highest role is allowed to create permission overwrites.
 - If voice input fails, confirm the linked user joined the generated channel,
   `DISCORD_VOICE_ENABLED=true`, and `OPENAI_API_KEY` is present.
+- If automatic movement into the temporary voice channel fails with
+  `Missing Permissions`, confirm the user is already connected to a voice
+  channel, the coordinator role has Move Members, and the coordinator's highest
+  role is above the target user's highest role. Discord does not allow bots to
+  move the server owner.
 - If playback fails, run on Node.js 22.12 or newer and reinstall dependencies
   so the Opus backend is available.
 

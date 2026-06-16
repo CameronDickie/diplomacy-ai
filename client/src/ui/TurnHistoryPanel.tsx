@@ -130,11 +130,22 @@ function PhaseReport({
       )}
 
       {report.phase === 'RETREATS' && (
-        <ReportSection title="Retreats">
-          {report.retreats.map(retreat => (
-            <p key={retreat.unitId}>{describeRetreat(retreat)}</p>
-          ))}
-        </ReportSection>
+        <>
+          <ReportSection title="Retreats">
+            {report.retreats.map(retreat => (
+              <p key={retreat.unitId}>{describeRetreat(retreat)}</p>
+            ))}
+          </ReportSection>
+          {report.ownershipChanges.length > 0 && (
+            <ReportSection title="Supply Control">
+              {report.ownershipChanges.map(change => (
+                <p key={change.territory}>
+                  {territoryName(change.territory)}: {change.fromPower ?? 'Neutral'} to {change.toPower ?? 'Neutral'}
+                </p>
+              ))}
+            </ReportSection>
+          )}
+        </>
       )}
 
       {report.phase === 'BUILDS' && (

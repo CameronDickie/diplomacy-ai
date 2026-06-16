@@ -96,6 +96,10 @@ export function MapGraph({
     svg.querySelectorAll('title').forEach(title => title.remove());
 
     const provinces = svg.querySelector<SVGGElement>('#provinces');
+    const pendingByTerritory = new Map(
+      pendingControl.map(item => [item.territory, item])
+    );
+    const dynamicPatterns = resetDynamicPatterns(svg);
     if (provinces) {
       provinces.style.display = 'inline';
       for (const shape of Array.from(provinces.children)) {
@@ -109,21 +113,41 @@ export function MapGraph({
         if (!definition) continue;
 
         const territoryState = gameState?.territories[territory];
+        const pendingCapture = pendingByTerritory.get(territory);
         const color = territoryState?.owner
           ? POWER_COLORS[territoryState.owner]
           : definition.type === 'SEA'
             ? '#32647d'
             : '#b5a98e';
+        const fill = pendingCapture
+          ? createControlPattern(
+            dynamicPatterns,
+            territory,
+            color,
+            POWER_COLORS[pendingCapture.power]
+          )
+          : color;
 
         shape.dataset.territory = territory;
         shape.classList.add('province-shape');
         shape.classList.toggle('selected', territory === selectedTerritory);
         shape.classList.toggle('valid-target', validTargets.includes(territory));
         shape.classList.toggle('replay-standoff', replayStandoffs.includes(territory));
-        shape.style.setProperty('fill', color, 'important');
+        shape.classList.toggle('controlled-supply', Boolean(territoryState?.owner && definition.isSupplyCenter));
+        shape.classList.toggle('controlled-non-supply', Boolean(territoryState?.owner && !definition.isSupplyCenter));
+        shape.classList.toggle('pending-capture', Boolean(pendingCapture));
+        shape.style.setProperty('fill', fill, 'important');
         shape.style.setProperty(
           'fill-opacity',
-          definition.type === 'SEA' ? '0.32' : territoryState?.owner ? '0.64' : '0.46',
+          definition.type === 'SEA'
+            ? '0.32'
+            : pendingCapture
+              ? '0.82'
+              : territoryState?.owner && definition.isSupplyCenter
+                ? '0.72'
+                : territoryState?.owner
+                  ? '0.56'
+                  : '0.46',
           'important'
         );
         shape.style.setProperty('stroke', '#17232b', 'important');
@@ -354,6 +378,54 @@ function renderPendingSupplyControl(
 
   const units = svg.querySelector('#units');
   units?.parentNode?.insertBefore(layer, units);
+}
+
+function resetDynamicPatterns(svg: SVGSVGElement): SVGDefsElement {
+  svg.querySelector('#dynamic-control-patterns')?.remove();
+  const defs = document.createElementNS(SVG_NAMESPACE, 'defs');
+  defs.id = 'dynamic-control-patterns';
+  svg.prepend(defs);
+  return defs;
+}
+
+function createControlPattern(
+  defs: SVGDefsElement,
+  territory: TerritoryId,
+  baseColor: string,
+  occupierColor: string
+): string {
+  const id = `pending-control-pattern-${territory}`;
+  const pattern = document.createElementNS(SVG_NAMESPACE, 'pattern');
+  pattern.id = id;
+  pattern.setAttribute('patternUnits', 'userSpaceOnUse');
+  pattern.setAttribute('width', '18');
+  pattern.setAttribute('height', '18');
+  pattern.setAttribute('patternTransform', 'rotate(45)');
+
+  const base = document.createElementNS(SVG_NAMESPACE, 'rect');
+  base.setAttribute('width', '18');
+  base.setAttribute('height', '18');
+  base.setAttribute('fill', baseColor);
+
+  const stripe = document.createElementNS(SVG_NAMESPACE, 'rect');
+  stripe.setAttribute('x', '0');
+  stripe.setAttribute('y', '0');
+  stripe.setAttribute('width', '7');
+  stripe.setAttribute('height', '18');
+  stripe.setAttribute('fill', occupierColor);
+  stripe.setAttribute('fill-opacity', '0.9');
+
+  const outline = document.createElementNS(SVG_NAMESPACE, 'rect');
+  outline.setAttribute('x', '7');
+  outline.setAttribute('y', '0');
+  outline.setAttribute('width', '1.5');
+  outline.setAttribute('height', '18');
+  outline.setAttribute('fill', '#101820');
+  outline.setAttribute('fill-opacity', '0.35');
+
+  pattern.append(base, stripe, outline);
+  defs.append(pattern);
+  return `url(#${id})`;
 }
 
 function renderUnits(

@@ -45,6 +45,11 @@ export interface RetreatResolution {
 export interface RetreatsPhaseReport extends BasePhaseReport {
   phase: 'RETREATS';
   retreats: RetreatResolution[];
+  ownershipChanges: Array<{
+    territory: TerritoryId;
+    fromPower: Power | null;
+    toPower: Power | null;
+  }>;
 }
 
 export interface AdjustmentResolution {

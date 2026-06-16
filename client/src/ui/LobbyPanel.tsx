@@ -10,8 +10,8 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
   const [joinCode, setJoinCode] = useState('');
   const [preferredPower, setPreferredPower] = useState<Power | 'RANDOM'>('RANDOM');
   const [llmPower, setLlmPower] = useState<Power | 'RANDOM'>('RANDOM');
-  const [llmProvider, setLlmProvider] = useState<LlmProviderId>('STUB');
-  const [llmModel, setLlmModel] = useState('auto-hold-v0');
+  const [llmProvider, setLlmProvider] = useState<LlmProviderId>('OPENAI');
+  const [llmModel, setLlmModel] = useState('gpt-5.5');
   const [llmPersona, setLlmPersona] = useState('');
   const [llmRealtimeModel, setLlmRealtimeModel] = useState('gpt-realtime-2');
   const [llmVoice, setLlmVoice] = useState('marin');
