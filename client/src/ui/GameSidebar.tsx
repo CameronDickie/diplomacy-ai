@@ -155,6 +155,7 @@ function PowerVoiceControls({
       game.discordStatus.powerBotAvailability[player.power] === true
     );
   const isLlmVoice = player.kind === 'LLM';
+  const showVoiceDiagnostics = activeForPower && isLlmVoice && Boolean(voice.error) && voice.debug.length > 0;
 
   return (
     <div className="power-voice-controls">
@@ -190,14 +191,12 @@ function PowerVoiceControls({
             </button>
           )}
           <button type="button" onClick={game.endVoiceSession}>End</button>
-          {isLlmVoice && (
-            <span className="voice-diagnostics">
-              in {voice.inputAudioMs}ms/{voice.receivePackets} pkts · out {voice.outputAudioMs}ms
-            </span>
-          )}
-          {isLlmVoice && voice.debug.length > 0 && (
+          {showVoiceDiagnostics && (
             <details className="voice-debug">
               <summary>Voice diagnostics</summary>
+              <p className="voice-diagnostics">
+                in {voice.inputAudioMs}ms/{voice.receivePackets} pkts · out {voice.outputAudioMs}ms
+              </p>
               <ul>
                 {voice.debug.slice(-6).map((entry, index) => (
                   <li key={`${entry}-${index}`}>{entry}</li>

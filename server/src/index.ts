@@ -55,7 +55,9 @@ const voice = discordBots
       gameManager,
       discordLinks,
       discordBots,
-      process.env.DISCORD_VOICE_ENABLED === 'true'
+      process.env.DISCORD_VOICE_ENABLED === 'true',
+      process.env.DISCORD_VOICE_DEBUG === 'true',
+      process.env.DISCORD_VOICE_AUTO_LISTEN !== 'false'
     )
   : null;
 

@@ -36,6 +36,7 @@ export interface GameSettings {
   voiceMaxSessionMinutes: number;
   voiceMaxTurns: number;
   voiceIdleTimeoutSeconds: number;
+  voiceAutoCommitSilenceSeconds: number;
 }
 
 export interface GameState {

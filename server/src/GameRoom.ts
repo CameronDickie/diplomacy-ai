@@ -109,6 +109,7 @@ export class GameRoom {
         voiceMaxSessionMinutes: 10,
         voiceMaxTurns: 20,
         voiceIdleTimeoutSeconds: 60,
+        voiceAutoCommitSilenceSeconds: 3,
       },
       submittedPowers: [],
       lastAdjudicationResult: null,
@@ -183,7 +184,10 @@ export class GameRoom {
       next.voiceMaxTurns > 50 ||
       !Number.isInteger(next.voiceIdleTimeoutSeconds) ||
       next.voiceIdleTimeoutSeconds < 15 ||
-      next.voiceIdleTimeoutSeconds > 300
+      next.voiceIdleTimeoutSeconds > 300 ||
+      !Number.isFinite(next.voiceAutoCommitSilenceSeconds) ||
+      next.voiceAutoCommitSilenceSeconds < 1 ||
+      next.voiceAutoCommitSilenceSeconds > 10
     ) {
       return false;
     }
@@ -268,7 +272,7 @@ export class GameRoom {
       model: options.model ?? 'auto-hold-v0',
       persona: options.persona ?? null,
       realtimeModel: options.realtimeModel?.trim() || 'gpt-realtime-2',
-      voice: options.voice?.trim() || DEFAULT_VOICES[available],
+      voice: normalizeRealtimeVoice(options.voice, available),
       voiceInstructions: options.voiceInstructions?.trim() || null,
     };
     this.state.players.push(player);
@@ -423,6 +427,7 @@ export class GameRoom {
       player.persona ? `Persona: ${player.persona}` : '',
       player.voiceInstructions ?? '',
       'Negotiate naturally and strategically. Keep each spoken turn concise enough for live conversation.',
+      'Think silently before responding. Do not say you need a moment to think; give your substantive answer in the same spoken turn.',
       'Use full spoken territory names such as Rumania and Bulgaria, never board abbreviations.',
       'Do not claim that an agreement is mechanically binding.',
       `Private strategic summary: ${memory.strategicSummary || 'None yet.'}`,
@@ -1783,8 +1788,27 @@ const DEFAULT_VOICES: Record<Power, string> = {
   AUSTRIA: 'cedar',
   ENGLAND: 'marin',
   FRANCE: 'coral',
-  GERMANY: 'onyx',
+  GERMANY: 'echo',
   ITALY: 'verse',
   RUSSIA: 'ash',
   TURKEY: 'sage',
 };
+
+const SUPPORTED_REALTIME_VOICES = new Set([
+  'alloy',
+  'ash',
+  'ballad',
+  'coral',
+  'echo',
+  'sage',
+  'shimmer',
+  'verse',
+  'marin',
+  'cedar',
+]);
+
+function normalizeRealtimeVoice(voice: string | undefined, power: Power): string {
+  const requested = voice?.trim();
+  if (requested && SUPPORTED_REALTIME_VOICES.has(requested)) return requested;
+  return DEFAULT_VOICES[power];
+}

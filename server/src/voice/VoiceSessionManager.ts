@@ -57,6 +57,9 @@ interface ActiveVoiceSession {
   receivePackets: number;
   outputAudioMs: number;
   startedSpeaking: boolean;
+  userJoinedChannel: boolean;
+  presenceTimer: NodeJS.Timeout | null;
+  autoCommitTimer: NodeJS.Timeout | null;
   idleTimer: NodeJS.Timeout | null;
   durationTimer: NodeJS.Timeout | null;
   ignoreNextResponseDone: boolean;
@@ -71,8 +74,18 @@ export class VoiceSessionManager {
     private readonly gameManager: GameManager,
     private readonly links: DiscordLinkService,
     private readonly bots: DiscordBotManager,
-    readonly enabled: boolean
-  ) {}
+    readonly enabled: boolean,
+    private readonly debugEnabled = false,
+    private readonly autoListenEnabled = true
+  ) {
+    if (enabled) {
+      const cleanupTimer = setInterval(
+        () => void this.cleanupEmptyTemporaryChannels(),
+        60_000
+      );
+      cleanupTimer.unref?.();
+    }
+  }
 
   getState(playerId: string): VoiceSessionState {
     const session = this.sessionsByPlayerId.get(playerId);
@@ -170,21 +183,25 @@ export class VoiceSessionManager {
         adapterCreator: powerGuild.voiceAdapterCreator,
         daveEncryption: true,
         decryptionFailureTolerance: 100,
-        debug: true,
+        debug: this.debugEnabled,
         selfDeaf: false,
         selfMute: false,
       });
       connection.on('stateChange', (oldState, newState) => {
-        console.log(
-          `[voice ${power} provisioning] voice connection ${oldState.status} -> ${newState.status}`
-        );
+        if (this.debugEnabled) {
+          console.log(
+            `[voice ${power} provisioning] voice connection ${oldState.status} -> ${newState.status}`
+          );
+        }
         const networking = Reflect.get(newState, 'networking') as { once?: (event: 'close', listener: (code: number) => void) => void } | undefined;
         networking?.once?.('close', code => {
-          console.log(`[voice ${power} provisioning] networking closed with code ${code}`);
+          if (this.debugEnabled) {
+            console.log(`[voice ${power} provisioning] networking closed with code ${code}`);
+          }
         });
       });
       connection.on('debug', message => {
-        console.log(`[voice ${power} provisioning] ${message}`);
+        if (this.debugEnabled) console.log(`[voice ${power} provisioning] ${message}`);
       });
       connection.on('error', error => {
         console.warn(`[voice ${power} provisioning] ${error.message}`);
@@ -293,6 +310,9 @@ export class VoiceSessionManager {
         receivePackets: 0,
         outputAudioMs: 0,
         startedSpeaking: false,
+        userJoinedChannel: member.voice.channelId === channel.id,
+        presenceTimer: null,
+        autoCommitTimer: null,
         idleTimer: null,
         durationTimer: null,
         ignoreNextResponseDone: false,
@@ -307,13 +327,17 @@ export class VoiceSessionManager {
       this.sessionsByPlayerId.set(player.id, session);
       this.sessionsByPower.set(power, session);
       this.sessionsByPower.set(player.power, session);
+      this.startPresenceWatcher(session);
       session.durationTimer = setTimeout(
         () => void this.end(player.id),
         room.getState().settings.voiceMaxSessionMinutes * 60_000
       );
       this.resetIdleTimer(session);
       this.emit(session);
-      if (member.voice.channelId === channel.id) this.setStatus(session, 'READY');
+      if (member.voice.channelId === channel.id) {
+        this.setStatus(session, 'READY');
+        if (this.autoListenEnabled) void this.tryBeginAutoInput(session);
+      }
     } catch (error) {
       provisioningRealtime?.close();
       provisioningConnection?.destroy();
@@ -414,7 +438,9 @@ export class VoiceSessionManager {
       this.recordVoiceDebug(session, `commit without audio; ${diagnostics}`);
       session.state = {
         ...session.state,
-        error: `${reason} ${diagnostics}. Click Listen, make sure you are in the temporary channel and unmuted, speak for at least a moment, then click Done.`,
+        error: this.debugEnabled
+          ? `${reason} ${diagnostics}. Click Listen, make sure you are in the temporary channel and unmuted, speak for at least a moment, then click Done.`
+          : `${reason} Make sure you are in the temporary channel and unmuted, then speak for at least a moment.`,
       };
       this.setStatus(session, 'READY');
       this.resetIdleTimer(session);
@@ -444,6 +470,8 @@ export class VoiceSessionManager {
     session.ending = true;
     this.setStatus(session, 'ENDING');
     this.stopInput(session);
+    if (session.presenceTimer) clearInterval(session.presenceTimer);
+    this.clearAutoCommitTimer(session);
     if (session.idleTimer) clearTimeout(session.idleTimer);
     if (session.durationTimer) clearTimeout(session.durationTimer);
     session.realtime?.close();
@@ -499,6 +527,7 @@ export class VoiceSessionManager {
   }
 
   private stopInput(session: ActiveVoiceSession): void {
+    this.clearAutoCommitTimer(session);
     session.inputStream?.unpipe(session.decoder ?? undefined);
     if ('destroy' in (session.inputStream ?? {})) {
       (session.inputStream as NodeJS.ReadableStream & { destroy(): void }).destroy();
@@ -524,6 +553,83 @@ export class VoiceSessionManager {
       () => void this.end(session.player.id),
       session.room.getState().settings.voiceIdleTimeoutSeconds * 1000
     );
+  }
+
+  private startPresenceWatcher(session: ActiveVoiceSession): void {
+    if (session.presenceTimer || session.kind !== 'LLM') return;
+    session.presenceTimer = setInterval(
+      () => void this.syncVoicePresence(session),
+      1_000
+    );
+    session.presenceTimer.unref?.();
+  }
+
+  private async syncVoicePresence(session: ActiveVoiceSession): Promise<void> {
+    if (session.ending || session.kind !== 'LLM') return;
+    const coordinator = this.bots.getCoordinatorClient();
+    const guild = await coordinator?.guilds.fetch(session.channel.guildId).catch(() => null);
+    const member = await guild?.members.fetch(session.discordUserId).catch(() => null);
+    if (!member) return;
+
+    const inTemporaryChannel = member.voice.channelId === session.channel.id;
+    if (!inTemporaryChannel) {
+      if (
+        session.userJoinedChannel &&
+        ['WAITING_FOR_USER', 'READY', 'LISTENING', 'PROCESSING', 'SPEAKING', 'RECONCILING'].includes(session.state.status)
+      ) {
+        await this.end(session.player.id);
+      }
+      return;
+    }
+
+    session.userJoinedChannel = true;
+    if (session.state.status === 'WAITING_FOR_USER') {
+      this.setStatus(session, 'READY');
+      if (this.autoListenEnabled) await this.tryBeginAutoInput(session);
+    }
+  }
+
+  private async tryBeginAutoInput(session: ActiveVoiceSession): Promise<void> {
+    if (
+      !this.autoListenEnabled ||
+      session.ending ||
+      session.kind !== 'LLM' ||
+      !['WAITING_FOR_USER', 'READY'].includes(session.state.status)
+    ) {
+      return;
+    }
+    try {
+      await this.beginInput(session.player.id);
+    } catch (error) {
+      this.recordVoiceDebug(
+        session,
+        error instanceof Error ? `auto-listen skipped: ${error.message}` : 'auto-listen skipped'
+      );
+    }
+  }
+
+  private scheduleAutoCommit(session: ActiveVoiceSession): void {
+    if (!this.autoListenEnabled || session.kind !== 'LLM') return;
+    this.clearAutoCommitTimer(session);
+    const delayMs = session.room.getState().settings.voiceAutoCommitSilenceSeconds * 1000;
+    session.autoCommitTimer = setTimeout(() => {
+      if (session.state.status !== 'LISTENING' || session.inputAudioMs < 100) return;
+      try {
+        this.commitInput(session.player.id);
+      } catch (error) {
+        this.recordVoiceDebug(
+          session,
+          error instanceof Error ? `auto-commit failed: ${error.message}` : 'auto-commit failed'
+        );
+      }
+    }, delayMs);
+    session.autoCommitTimer.unref?.();
+  }
+
+  private clearAutoCommitTimer(session: ActiveVoiceSession): void {
+    if (!session.autoCommitTimer) return;
+    clearTimeout(session.autoCommitTimer);
+    session.autoCommitTimer = null;
   }
 
   private emit(session: ActiveVoiceSession): void {
@@ -656,6 +762,9 @@ export class VoiceSessionManager {
         receivePackets: 0,
         outputAudioMs: 0,
         startedSpeaking: false,
+        userJoinedChannel: true,
+        presenceTimer: null,
+        autoCommitTimer: null,
         idleTimer: null,
         durationTimer: null,
         ignoreNextResponseDone: false,
@@ -750,7 +859,33 @@ export class VoiceSessionManager {
       if (member.voice.channelId === channel.id) return;
       await member.voice.setChannel(channel, 'Diplomacy private voice session started');
     } catch (error) {
+      if (discordErrorCode(error) === 50013) {
+        console.info(
+          `Could not move Discord member ${member.id} into voice channel ${channel.id}: missing permissions. The user may be the server owner or above the coordinator bot role.`
+        );
+        return;
+      }
       console.warn(`Could not move Discord member ${member.id} into voice channel ${channel.id}:`, error);
+    }
+  }
+
+  private async cleanupEmptyTemporaryChannels(): Promise<void> {
+    const coordinator = this.bots.getCoordinatorClient();
+    const guildId = this.links.configuredGuildId;
+    if (!coordinator || !guildId) return;
+    const guild = await coordinator.guilds.fetch(guildId).catch(() => null);
+    if (!guild) return;
+    const channels = await guild.channels.fetch().catch(() => null);
+    if (!channels) return;
+    for (const channel of channels.values()) {
+      if (
+        channel?.type !== ChannelType.GuildVoice ||
+        !channel.name.startsWith('diplomacy-') ||
+        channel.members.size > 0
+      ) {
+        continue;
+      }
+      await this.tryDeleteProvisioningChannel(channel);
     }
   }
 
@@ -843,7 +978,10 @@ export class VoiceSessionManager {
     });
     connection.receiver.speaking.on('start', userId => {
       const target = userId === session.discordUserId ? 'target' : 'other';
-      if (target === 'target') session.startedSpeaking = true;
+      if (target === 'target') {
+        session.startedSpeaking = true;
+        this.clearAutoCommitTimer(session);
+      }
       this.recordVoiceDebug(
         session,
         `speaking start from ${target} ${maskDiscordId(userId)}; ${this.voiceReceiveSnapshot(session)}`
@@ -851,6 +989,7 @@ export class VoiceSessionManager {
     });
     connection.receiver.speaking.on('end', userId => {
       const target = userId === session.discordUserId ? 'target' : 'other';
+      if (target === 'target') this.scheduleAutoCommit(session);
       this.recordVoiceDebug(session, `speaking end from ${target} ${maskDiscordId(userId)}`);
     });
     connection.receiver.ssrcMap.on('create', data => {
@@ -878,6 +1017,7 @@ export class VoiceSessionManager {
     message: string,
     emit = true
   ): void {
+    if (!this.debugEnabled) return;
     const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
     const debug = [...session.state.debug, `${timestamp} ${message}`].slice(-10);
     session.state = { ...session.state, debug };
@@ -971,4 +1111,10 @@ function getReceiverEncryptionMode(connection: VoiceConnection): string {
 function maskDiscordId(discordUserId: string | undefined): string {
   if (!discordUserId) return 'unknown';
   return `...${discordUserId.slice(-4)}`;
+}
+
+function discordErrorCode(error: unknown): number | null {
+  if (!error || typeof error !== 'object' || !('code' in error)) return null;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'number' ? code : null;
 }

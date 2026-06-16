@@ -142,6 +142,12 @@ test('controller prompt requires spoken territory names in conversational output
   assert.match(CONTROLLER_SYSTEM_PROMPT, /full spoken territory names/);
   assert.match(CONTROLLER_SYSTEM_PROMPT, /Rumania and Bulgaria/);
   assert.match(CONTROLLER_SYSTEM_PROMPT, /Structured game actions.*exact territory identifiers/);
+  const room = new GameRoom();
+  assert.ok(room.addLlmPlayer({ power: 'GERMANY' }));
+  assert.match(
+    room.buildVoiceSessionInstructions('GERMANY', 'ENGLAND'),
+    /Think silently before responding/
+  );
 });
 
 test('players may choose an available power or request random assignment', () => {
@@ -163,11 +169,13 @@ test('host-configurable LLM negotiation count is validated and stored', () => {
     llmNegotiationMaxMessages: 8,
     llmNegotiationWarningAtMessages: 6,
     llmNegotiationPlannerModel: 'planner-model',
+    voiceAutoCommitSilenceSeconds: 3.5,
   }), true);
   assert.equal(room.getState().settings.llmNegotiationInitiators, 5);
   assert.equal(room.getState().settings.llmNegotiationMaxMessages, 8);
   assert.equal(room.getState().settings.llmNegotiationWarningAtMessages, 6);
   assert.equal(room.getState().settings.llmNegotiationPlannerModel, 'planner-model');
+  assert.equal(room.getState().settings.voiceAutoCommitSilenceSeconds, 3.5);
   assert.equal(room.updateLlmNegotiationInitiators(-1), false);
   assert.equal(room.updateLlmNegotiationInitiators(8), false);
   assert.equal(room.updateLlmNegotiationInitiators(1.5), false);
@@ -175,6 +183,7 @@ test('host-configurable LLM negotiation count is validated and stored', () => {
     llmNegotiationMaxMessages: 3,
     llmNegotiationWarningAtMessages: 4,
   }), false);
+  assert.equal(room.updateGameSettings({ voiceAutoCommitSilenceSeconds: Number.NaN }), false);
   assert.equal(room.getState().settings.llmNegotiationInitiators, 5);
 });
 

@@ -56,6 +56,7 @@ export interface UpdateGameSettingsPayload {
   voiceMaxSessionMinutes?: number;
   voiceMaxTurns?: number;
   voiceIdleTimeoutSeconds?: number;
+  voiceAutoCommitSilenceSeconds?: number;
 }
 
 export interface SubmitOrdersPayload {

@@ -50,6 +50,22 @@ connect successfully:
 DISCORD_VOICE_ENABLED=true
 ```
 
+Voice sessions auto-listen by default after the linked player joins the
+temporary voice channel, commit after the lobby-configured silence threshold,
+and end when the linked player leaves. Disable that behavior only when testing
+manual controls:
+
+```env
+DISCORD_VOICE_AUTO_LISTEN=false
+```
+
+Verbose Discord voice handshake and receive diagnostics are hidden by default.
+Enable them only while debugging:
+
+```env
+DISCORD_VOICE_DEBUG=true
+```
+
 The server uses the current DAVE-capable `@discordjs/voice` release,
 `prism-media`, and `opusscript`. Node.js 22.12 or newer is required.
 
@@ -79,8 +95,11 @@ version supports only one configured guild and game.
 5. The power bot streams the OpenAI Realtime response into Discord.
 6. Use **Interrupt response** or **End session** when needed.
 
-VAD is disabled. Audio is sent only between **Start listening** and **Done
-speaking**. Final human and assistant transcripts become private diplomatic
+OpenAI server-side VAD is disabled. In the default auto-listen mode, the
+browser still starts the session, but the server begins listening when the
+linked Discord account joins the temporary channel and commits after the player
+stops speaking. Manual **Listen** and **Done** controls remain available as a
+fallback. Final human and assistant transcripts become private diplomatic
 messages. Raw audio is not persisted.
 
 The host can configure session duration, turn count, and idle timeout in the

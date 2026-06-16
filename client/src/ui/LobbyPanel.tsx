@@ -14,7 +14,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
   const [llmModel, setLlmModel] = useState('gpt-5.5');
   const [llmPersona, setLlmPersona] = useState('');
   const [llmRealtimeModel, setLlmRealtimeModel] = useState('gpt-realtime-2');
-  const [llmVoice, setLlmVoice] = useState('marin');
+  const [llmVoice, setLlmVoice] = useState('');
   const [llmVoiceInstructions, setLlmVoiceInstructions] = useState('');
   const players = game.gameState?.players ?? [];
   const availablePowers = ALL_POWERS.filter(
@@ -185,6 +185,22 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                   })}
                 />
               </label>
+              <label>
+                Auto-commit silence seconds
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  step={0.5}
+                  value={game.gameState.settings.voiceAutoCommitSilenceSeconds}
+                  onChange={event => game.updateGameSettings({
+                    voiceAutoCommitSilenceSeconds: Number(event.target.value),
+                  })}
+                />
+              </label>
+              <p className="field-help">
+                Voice auto-listen commits a player's turn after this much silence.
+              </p>
               <h3>Next LLM seat</h3>
               <label>
                 Country
@@ -235,12 +251,17 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                 />
               </label>
               <label>
-                Voice
+                Voice override
                 <input
+                  placeholder="Auto by country"
                   value={llmVoice}
                   onChange={event => setLlmVoice(event.target.value)}
                 />
               </label>
+              <p className="field-help">
+                Leave blank to give each country a stable default voice. Supported overrides:
+                alloy, ash, ballad, coral, echo, sage, shimmer, verse, marin, cedar.
+              </p>
               <label>
                 Voice persona instructions
                 <textarea
@@ -259,7 +280,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                 model: llmModel,
                 persona: llmPersona || null,
                 realtimeModel: llmRealtimeModel,
-                voice: llmVoice,
+                voice: llmVoice.trim() || undefined,
                 voiceInstructions: llmVoiceInstructions || null,
               })}
               disabled={!isHost || missingCount === 0 || game.gameState.status !== 'LOBBY'}
@@ -274,7 +295,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                   model: llmModel,
                   persona: llmPersona || null,
                   realtimeModel: llmRealtimeModel,
-                  voice: llmVoice,
+                  voice: llmVoice.trim() || undefined,
                   voiceInstructions: llmVoiceInstructions || null,
                 })
               )}

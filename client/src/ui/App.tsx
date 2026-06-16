@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import type {
   GameState,
   Order,
@@ -27,6 +27,7 @@ export function App() {
   const [eventLogOpen, setEventLogOpen] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
   const [bottomDockOpen, setBottomDockOpen] = useState(false);
+  const [bottomDockHeight, setBottomDockHeight] = useState(300);
   const [seenChatMessages, setSeenChatMessages] = useState(0);
   const [replayReport, setReplayReport] = useState<PublicPhaseReport | null>(null);
   const [replayFrame, setReplayFrame] = useState(0);
@@ -41,6 +42,8 @@ export function App() {
     0,
     game.diplomaticMessages.length - seenChatMessages
   );
+  const isHost = Boolean(game.gameState && game.gameState.hostPlayerId === game.myPlayerId);
+  const hostEventLogOpen = isHost && eventLogOpen;
 
   useEffect(() => {
     setPendingOrders([]);
@@ -119,8 +122,30 @@ export function App() {
     game.submitOrders(pendingOrders);
   }
 
+  function startBottomDockResize(event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = bottomDockHeight;
+    const onMove = (moveEvent: PointerEvent) => {
+      const nextHeight = Math.min(
+        Math.max(180, startHeight + startY - moveEvent.clientY),
+        Math.max(220, window.innerHeight - 220)
+      );
+      setBottomDockHeight(nextHeight);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+
   return (
-    <div className={`app-shell ${bottomDockOpen ? '' : 'bottom-dock-collapsed'}`}>
+    <div
+      className={`app-shell ${bottomDockOpen ? '' : 'bottom-dock-collapsed'}`}
+      style={{ '--bottom-dock-height': `${bottomDockHeight}px` } as CSSProperties}
+    >
       <header className="topbar">
         <div>
           <h1>Diplomacy</h1>
@@ -219,12 +244,19 @@ export function App() {
         </aside>
       </main>
 
-      <section className={`bottom-dock ${bottomDockOpen ? '' : 'dock-collapsed'} ${eventLogOpen ? '' : 'log-collapsed'} ${chatOpen ? '' : 'chat-hidden'}`}>
+      <section className={`bottom-dock ${bottomDockOpen ? '' : 'dock-collapsed'} ${hostEventLogOpen ? '' : 'log-collapsed'} ${chatOpen ? '' : 'chat-hidden'}`}>
         {bottomDockOpen ? (
           <>
+            <div
+              className="bottom-dock-resizer"
+              onPointerDown={startBottomDockResize}
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize diplomacy panel"
+            />
             <div className="bottom-dock-toolbar">
               <button type="button" onClick={() => setBottomDockOpen(false)}>
-                Hide diplomacy/logs
+                Hide {isHost ? 'diplomacy/logs' : 'diplomacy'}
               </button>
               <button
                 type="button"
@@ -234,23 +266,25 @@ export function App() {
                 Diplomacy
                 {unreadChatMessages > 0 && <strong>{unreadChatMessages}</strong>}
               </button>
-              <button
-                type="button"
-                className={eventLogOpen ? 'selected' : ''}
-                onClick={() => setEventLogOpen(open => !open)}
-              >
-                Event log
-              </button>
+              {isHost && (
+                <button
+                  type="button"
+                  className={eventLogOpen ? 'selected' : ''}
+                  onClick={() => setEventLogOpen(open => !open)}
+                >
+                  Event log
+                </button>
+              )}
             </div>
             {chatOpen && (
               <div className="chat-dock">
                 <ChatPanel game={game} />
               </div>
             )}
-            {eventLogOpen && (
+            {hostEventLogOpen && (
               <EventLog
                 entries={game.logs}
-                open={eventLogOpen}
+                open={hostEventLogOpen}
                 onToggle={() => setEventLogOpen(open => !open)}
               />
             )}
@@ -261,7 +295,7 @@ export function App() {
             className="bottom-dock-restore"
             onClick={() => setBottomDockOpen(true)}
           >
-            Open diplomacy and logs
+            Open {isHost ? 'diplomacy and logs' : 'diplomacy'}
             {unreadChatMessages > 0 && <strong>{unreadChatMessages}</strong>}
           </button>
         )}
