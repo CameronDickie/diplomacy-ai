@@ -71,6 +71,7 @@ The server listens on `PORT` (default `3001`) and serves `client/dist`.
 `GET /healthz` is available for deployment health checks.
 
 Environment variables are documented in [.env.example](.env.example).
+Lightsail deployment is documented in [docs/deployment.md](docs/deployment.md).
 
 ## Architecture
 

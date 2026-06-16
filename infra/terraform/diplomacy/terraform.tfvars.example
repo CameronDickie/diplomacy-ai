@@ -1,0 +1,11 @@
+aws_region          = "us-east-2"
+site_domain         = "diplomacy.camerondickie.ca"
+hosted_zone_name    = "camerondickie.ca."
+instance_name       = "diplomacy"
+availability_zone   = "us-east-2a"
+bundle_id           = "small_3_0"
+blueprint_id        = "ubuntu_24_04"
+ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+app_dir             = "/srv/diplomacy"
+ssh_user            = "ubuntu"
+

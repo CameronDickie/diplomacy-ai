@@ -1,0 +1,8 @@
+{$SITE_DOMAIN} {
+	encode zstd gzip
+
+	header /assets/* Cache-Control "public, max-age=31536000, immutable"
+
+	reverse_proxy app:3001
+}
+
