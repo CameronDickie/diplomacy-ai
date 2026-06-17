@@ -59,6 +59,18 @@ export function OrderPanel(props: Props) {
     setDraftDirty(false);
   }, [selectedUnit?.id]);
 
+  useEffect(() => {
+    if (!selectedUnit) return;
+    if (
+      pendingOrders.some(order =>
+        order.unitTerritory === selectedUnit.territory &&
+        order.unitCoast === selectedUnit.coast
+      )
+    ) {
+      setDraftDirty(false);
+    }
+  }, [pendingOrders, selectedUnit]);
+
   const supportHoldUnits = useMemo(() => {
     if (!gameState || !selectedUnit) return [];
     const reachable = new Set(adjacentTerritories(selectedUnit));
@@ -67,9 +79,15 @@ export function OrderPanel(props: Props) {
     );
   }, [gameState, selectedUnit]);
   const supportMoveUnits = useMemo(
-    () => gameState?.units.filter(
-      unit => !unit.mustRetreat && unit.id !== selectedUnit?.id
-    ) ?? [],
+    () => {
+      if (!gameState || !selectedUnit) return [];
+      const supporterReach = new Set(adjacentTerritories(selectedUnit));
+      return gameState.units.filter(unit =>
+        !unit.mustRetreat &&
+        unit.id !== selectedUnit.id &&
+        adjacentTerritories(unit).some(destination => supporterReach.has(destination))
+      );
+    },
     [gameState, selectedUnit]
   );
 
@@ -86,6 +104,12 @@ export function OrderPanel(props: Props) {
   }
 
   const myUnits = gameState.units.filter(unit => unit.power === myPower && !unit.mustRetreat);
+  const orderedUnitKeys = new Set(
+    pendingOrders.map(order => orderKey(order.unitTerritory, order.unitCoast))
+  );
+  const unorderedUnits = myUnits.filter(
+    unit => !orderedUnitKeys.has(orderKey(unit.territory, unit.coast))
+  );
   const destinations = selectedUnit ? adjacentTerritories(selectedUnit) : [];
   const moveDestinations =
     viaConvoy && selectedUnit?.type === 'ARMY'
@@ -108,6 +132,10 @@ export function OrderPanel(props: Props) {
     gameState.status === 'IN_PROGRESS' &&
     gameState.phase === 'ORDERS' &&
     !gameState.submittedPowers.includes(myPower);
+  const canSubmitCompleteOrders =
+    canSubmitOrders &&
+    unorderedUnits.length === 0 &&
+    !draftDirty;
   const hasSubmittedOrders = gameState.submittedPowers.includes(myPower);
   const activePowers = new Set(
     gameState.units.filter(unit => !unit.mustRetreat).map(unit => unit.power)
@@ -181,15 +209,23 @@ export function OrderPanel(props: Props) {
         </div>
       )}
       <div className="unit-list">
-        {myUnits.map(unit => (
-          <button
-            className={selectedUnit?.id === unit.id ? 'unit-button selected' : 'unit-button'}
-            key={unit.id}
-            onClick={() => onSelectTerritory(unit.territory)}
-          >
-            {unitLabel(unit)}
-          </button>
-        ))}
+        {myUnits.map(unit => {
+          const ordered = orderedUnitKeys.has(orderKey(unit.territory, unit.coast));
+          return (
+            <button
+              className={[
+                'unit-button',
+                selectedUnit?.id === unit.id ? 'selected' : '',
+                ordered ? 'ordered' : 'unordered',
+              ].filter(Boolean).join(' ')}
+              key={unit.id}
+              onClick={() => onSelectTerritory(unit.territory)}
+            >
+              <span>{unitLabel(unit)}</span>
+              <em>{ordered ? 'queued' : 'needs order'}</em>
+            </button>
+          );
+        })}
       </div>
 
       {canSubmitOrders && selectedUnit && selectedUnit.power === myPower && (
@@ -320,6 +356,20 @@ export function OrderPanel(props: Props) {
 
       <div className="pending-list">
         <h3>Pending</h3>
+        {canSubmitOrders && unorderedUnits.length > 0 && (
+          <div className="order-submit-blocker" role="status">
+            <strong>Orders incomplete.</strong>
+            <span>
+              Set orders for {unorderedUnits.map(unit => unitLabel(unit)).join(', ')}.
+            </span>
+          </div>
+        )}
+        {canSubmitOrders && draftDirty && (
+          <div className="order-submit-blocker" role="status">
+            <strong>Draft not queued.</strong>
+            <span>Click Set Order or select another unit before submitting.</span>
+          </div>
+        )}
         {pendingOrders.map(order => (
           <p key={order.id}>
             {describeOrder(order)}
@@ -335,7 +385,20 @@ export function OrderPanel(props: Props) {
             </button>
           </p>
         ))}
-        <button className="primary" onClick={onSubmitOrders} disabled={!canSubmitOrders}>
+        <button
+          className="primary"
+          onClick={onSubmitOrders}
+          disabled={!canSubmitCompleteOrders}
+          title={
+            canSubmitCompleteOrders
+              ? undefined
+              : draftDirty
+                ? 'Queue or discard the current draft before submitting.'
+                : unorderedUnits.length > 0
+                  ? 'Every active unit needs a queued order before humans can submit.'
+                  : undefined
+          }
+        >
           {hasSubmittedOrders ? 'Orders Submitted' : 'Submit Orders'}
         </button>
       </div>
@@ -346,6 +409,17 @@ export function OrderPanel(props: Props) {
 function RetreatPanel({ gameState, myPower, onSubmitRetreats }: Props) {
   const retreats = gameState!.units.filter(unit => unit.power === myPower && unit.mustRetreat);
   const [choices, setChoices] = useState<Record<string, RetreatDestination | null>>({});
+  const [submitted, setSubmitted] = useState(false);
+  useEffect(() => {
+    setChoices(current => {
+      const next = { ...current };
+      for (const unit of retreats) {
+        if (!(unit.id in next)) next[unit.id] = defaultRetreat(unit);
+      }
+      return next;
+    });
+    setSubmitted(false);
+  }, [retreats.map(unit => unit.id).join('|')]);
   if (retreats.length === 0) return <p>No retreats required.</p>;
   return (
     <div className="order-builder">
@@ -360,7 +434,6 @@ function RetreatPanel({ gameState, myPower, onSubmitRetreats }: Props) {
               [unit.id]: parseRetreat(event.target.value),
             })}
           >
-            <option value="">Disband</option>
             {unit.retreatOptions.flatMap(option => {
               const coasts = unit.retreatCoasts[option] ?? [];
               if (coasts.length === 0) {
@@ -372,34 +445,48 @@ function RetreatPanel({ gameState, myPower, onSubmitRetreats }: Props) {
                 </option>
               ));
             })}
+            <option value="__DISBAND__">Disband</option>
           </select>
         </label>
       ))}
       <button
         className="primary"
-        onClick={() => onSubmitRetreats(Object.fromEntries(
-          retreats.map(unit => [unit.id, choices[unit.id] ?? null])
-        ))}
+        disabled={submitted}
+        onClick={() => {
+          setSubmitted(true);
+          onSubmitRetreats(Object.fromEntries(
+            retreats.map(unit => [unit.id, choices[unit.id] ?? null])
+          ));
+        }}
       >
-        Submit Retreats
+        {submitted ? 'Retreats Submitted' : 'Submit Retreats'}
       </button>
     </div>
   );
 }
 
 function serializeRetreat(destination: RetreatDestination | null | undefined): string {
-  if (!destination) return '';
+  if (!destination) return '__DISBAND__';
   return destination.coast
     ? `${destination.territory}|${destination.coast}`
     : destination.territory;
 }
 
 function parseRetreat(value: string): RetreatDestination | null {
-  if (!value) return null;
+  if (!value || value === '__DISBAND__') return null;
   const [territory, coast] = value.split('|');
   return {
     territory,
     coast: coast ? coast as Coast : null,
+  };
+}
+
+function defaultRetreat(unit: Unit): RetreatDestination | null {
+  const territory = unit.retreatOptions[0];
+  if (!territory) return null;
+  return {
+    territory,
+    coast: unit.retreatCoasts[territory]?.[0] ?? null,
   };
 }
 
@@ -416,6 +503,10 @@ function BuildPanel({ gameState, myPower, onSubmitBuilds }: Props) {
   const [territory, setTerritory] = useState<TerritoryId>('');
   const [unitType, setUnitType] = useState<UnitType>('ARMY');
   const [coast, setCoast] = useState<Coast | ''>('');
+  const [submitted, setSubmitted] = useState(false);
+  useEffect(() => {
+    setSubmitted(false);
+  }, [state.year, state.season, state.phase, power]);
   const remainingBuilds = Math.max(0, delta - builds.length);
   const requiredDisbands = Math.max(0, -delta);
   const remainingDisbands = Math.max(0, requiredDisbands - disbands.length);
@@ -543,15 +634,24 @@ function BuildPanel({ gameState, myPower, onSubmitBuilds }: Props) {
 
       <button
         className="primary"
-        disabled={delta < 0 && remainingDisbands !== 0}
-        onClick={() => onSubmitBuilds({ builds, disbands })}
+        disabled={submitted || (delta < 0 && remainingDisbands !== 0)}
+        onClick={() => {
+          setSubmitted(true);
+          onSubmitBuilds({ builds, disbands });
+        }}
       >
-        {delta > 0 && remainingBuilds > 0
+        {submitted
+          ? 'Adjustments Submitted'
+          : delta > 0 && remainingBuilds > 0
           ? `Submit and waive ${remainingBuilds}`
           : 'Submit Adjustments'}
       </button>
     </div>
   );
+}
+
+function orderKey(territory: TerritoryId, coast: Coast | null): string {
+  return `${territory}:${coast ?? ''}`;
 }
 
 function describeOrder(order: Order): string {

@@ -26,8 +26,8 @@ const INTERNAL_TO_SVG: Record<TerritoryId, string> = {
   NWG: 'nrg',
   NOR: 'nwy',
 };
-const MIN_ZOOM = 0.75;
-const MAX_ZOOM = 2.5;
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 3.5;
 const ZOOM_STEP = 0.25;
 const WHEEL_ZOOM_STEP = 0.1;
 
@@ -158,7 +158,14 @@ export function MapGraph({
     const supplyCenters = svg.querySelector<SVGGElement>('#supply-centers');
     if (supplyCenters) {
       supplyCenters.style.display = 'inline';
+      supplyCenters.style.visibility = 'hidden';
       supplyCenters.style.pointerEvents = 'none';
+    }
+    for (const group of Array.from(svg.querySelectorAll<SVGGElement>('g'))) {
+      if (group.getAttribute('inkscape:label') === 'supply-centers foreground copy') {
+        group.style.display = 'inline';
+        group.style.pointerEvents = 'none';
+      }
     }
     renderPendingSupplyControl(svg, pendingControl);
 

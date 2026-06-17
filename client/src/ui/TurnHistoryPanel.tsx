@@ -7,7 +7,8 @@ import type {
   PublicPhaseReport,
   RetreatResolution,
 } from '@diplomacy/shared';
-import { territoryName } from '../lib/game.js';
+import { ALL_POWERS } from '@diplomacy/shared';
+import { POWER_COLORS, territoryName } from '../lib/game.js';
 
 export function TurnHistoryPanel({
   reports,
@@ -90,8 +91,12 @@ function PhaseReport({
       {report.phase === 'ORDERS' && (
         <>
           <ReportSection title="Orders">
-            {report.resolvedOrders.map(order => (
-              <p className={`report-result result-${order.resolution.toLowerCase()}`} key={order.id}>
+            {[...report.resolvedOrders].sort(compareOrders).map(order => (
+              <p
+                className={`report-result result-${order.resolution.toLowerCase()}`}
+                key={order.id}
+                style={{ borderLeftColor: POWER_COLORS[order.power] }}
+              >
                 <strong>{order.power}</strong>
                 <span>{describeOrder(order)}</span>
                 <em>{resolutionLabel(order.resolution)}: {humanizeReason(order.reason)}</em>
@@ -157,6 +162,16 @@ function PhaseReport({
       )}
     </div>
   );
+}
+
+function compareOrders(left: Order, right: Order): number {
+  return powerRank(left.power) - powerRank(right.power) ||
+    left.unitTerritory.localeCompare(right.unitTerritory);
+}
+
+function powerRank(power: string): number {
+  const index = ALL_POWERS.indexOf(power as (typeof ALL_POWERS)[number]);
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
 }
 
 function ReportSection({

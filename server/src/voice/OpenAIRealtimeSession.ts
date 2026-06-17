@@ -6,6 +6,7 @@ interface RealtimeSessionCallbacks {
   onOutputTranscript: (transcript: string) => void;
   onResponseDone: () => void;
   onError: (message: string) => void;
+  onClose: (code: number, reason: string) => void;
 }
 
 export class OpenAIRealtimeSession {
@@ -49,8 +50,10 @@ export class OpenAIRealtimeSession {
     });
     socket.on('message', data => this.handleEvent(data.toString()));
     socket.on('error', error => this.callbacks.onError(error.message));
-    socket.on('close', (_code, reason) => {
-      if (reason.length > 0) this.callbacks.onError(reason.toString());
+    socket.on('close', (code, reason) => {
+      const text = reason.toString();
+      this.callbacks.onClose(code, text);
+      if (text.length > 0) this.callbacks.onError(text);
     });
     this.send({
       type: 'session.update',

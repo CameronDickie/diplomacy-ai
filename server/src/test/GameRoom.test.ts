@@ -632,6 +632,69 @@ test('conversation presence hides private pairings from uninvolved players', asy
   assert.equal(presenceBySocket.get('england-socket')?.at(-1)?.active, false);
 });
 
+test('LLM phase-decision diagnostics are delivered to the host only by default', async () => {
+  const llmStatusBySocket = new Map<string, unknown[]>();
+  const room = new GameRoom({
+    controllerFactory: ({ power }) => ({
+      power,
+      async requestDiplomaticInitiative(context) {
+        return {
+          toPower: null,
+          message: '',
+          strategicSummary: context.memory.strategicSummary,
+          agreements: context.memory.agreements,
+        };
+      },
+      async requestDiplomaticReply(context) {
+        return {
+          reply: 'Acknowledged.',
+          expectsReply: false,
+          strategicSummary: context.memory.strategicSummary,
+          agreements: context.memory.agreements,
+        };
+      },
+      async requestOrders() {
+        return { actions: [], strategicSummary: '', agreements: [] };
+      },
+      async requestRetreats() {
+        return { actions: {}, strategicSummary: '', agreements: [] };
+      },
+      async requestBuilds() {
+        return {
+          actions: { builds: [], disbands: [] },
+          strategicSummary: '',
+          agreements: [],
+        };
+      },
+    }),
+  });
+  room.setIO({
+    to(socketId: string) {
+      return {
+        emit(event: string, payload: unknown) {
+          if (event !== 'llm_status') return;
+          const events = llmStatusBySocket.get(socketId) ?? [];
+          events.push(payload);
+          llmStatusBySocket.set(socketId, events);
+        },
+      };
+    },
+  } as unknown as Parameters<GameRoom['setIO']>[0]);
+  assert.ok(room.addPlayer('host-socket', 'Host', 'FRANCE'));
+  assert.ok(room.addPlayer('england-socket', 'England', 'ENGLAND'));
+  for (const power of ['AUSTRIA', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY'] as Power[]) {
+    assert.ok(room.addLlmPlayer({ power, provider: 'OPENAI' }));
+  }
+  assert.equal(room.updateGameSettings({ llmNegotiationInitiators: 0 }), true);
+
+  assert.equal(await room.startGame(), true);
+  await room.submitOrders('FRANCE', []);
+  await room.submitOrders('ENGLAND', []);
+
+  assert.ok((llmStatusBySocket.get('host-socket')?.length ?? 0) > 0);
+  assert.equal(llmStatusBySocket.get('england-socket'), undefined);
+});
+
 test('an all-LLM room can resolve its opening phase without a human submission', async () => {
   const room = new GameRoom();
   for (const power of ALL_TEST_POWERS) {

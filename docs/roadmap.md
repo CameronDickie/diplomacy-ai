@@ -4,6 +4,9 @@ Detailed playtest-derived feature workstreams and acceptance criteria are kept
 in [playtest-feature-notebook.md](./playtest-feature-notebook.md).
 The next post-Discord playtest iteration is specified in
 [next-playtest-workstreams.md](./next-playtest-workstreams.md).
+The second longer-playtest iteration is tracked in
+[playtest-iter2-feature-notebook.md](./playtest-iter2-feature-notebook.md) and
+[playtest-iter2-work-queue.md](./playtest-iter2-work-queue.md).
 
 ## 1. Complete Rules Workflow
 

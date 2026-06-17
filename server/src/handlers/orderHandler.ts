@@ -52,10 +52,16 @@ export function attachOrderHandlers(
 
   socket.on('submit_retreats', async ({ gameId, retreats }) => {
     const room = gameManager.getRoom(gameId);
-    if (!room) return;
+    if (!room) {
+      socket.emit('error', { message: 'Game not found', code: 'GAME_NOT_FOUND' });
+      return;
+    }
 
     const player = room.getPlayerBySocket(socket.id);
-    if (!player) return;
+    if (!player) {
+      socket.emit('error', { message: 'Not in this game', code: 'NOT_IN_GAME' });
+      return;
+    }
 
     if (room.getState().status !== 'IN_PROGRESS') {
       socket.emit('error', { message: 'Game has not started', code: 'GAME_NOT_STARTED' });
@@ -86,10 +92,16 @@ export function attachOrderHandlers(
 
   socket.on('submit_builds', async ({ gameId, builds, disbands }) => {
     const room = gameManager.getRoom(gameId);
-    if (!room) return;
+    if (!room) {
+      socket.emit('error', { message: 'Game not found', code: 'GAME_NOT_FOUND' });
+      return;
+    }
 
     const player = room.getPlayerBySocket(socket.id);
-    if (!player) return;
+    if (!player) {
+      socket.emit('error', { message: 'Not in this game', code: 'NOT_IN_GAME' });
+      return;
+    }
 
     if (room.getState().status !== 'IN_PROGRESS') {
       socket.emit('error', { message: 'Game has not started', code: 'GAME_NOT_STARTED' });

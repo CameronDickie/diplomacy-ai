@@ -159,6 +159,18 @@ input, select, textarea { width: 100%; }
   overflow: hidden;
 }
 .power-card[open] { border-color: #46515a; }
+.power-card.submitted-card {
+  filter: saturate(0.65) brightness(0.82);
+}
+.power-card.voice-active-card,
+.power-card.conversation-active-card {
+  border-color: #78b7e7;
+  box-shadow: 0 0 0 1px rgba(120, 183, 231, 0.35), 0 0 18px rgba(120, 183, 231, 0.28);
+}
+.power-card.voice-idle-card {
+  border-color: #4b6f86;
+  box-shadow: 0 0 0 1px rgba(120, 183, 231, 0.18), 0 0 10px rgba(120, 183, 231, 0.12);
+}
 .power-card summary {
   align-items: center;
   cursor: pointer;
@@ -203,6 +215,21 @@ input, select, textarea { width: 100%; }
 .power-status-dot.conversing::after {
   animation: spin 1s linear infinite;
   border-color: #9ed0ff transparent #9ed0ff transparent;
+}
+.power-status-dot.voice-active::after,
+.power-status-dot.voice-idle::after {
+  border: 1px solid #9ed0ff;
+  border-radius: 50%;
+  content: "";
+  inset: -5px;
+  position: absolute;
+}
+.power-status-dot.voice-active::after {
+  animation: presence-pulse 1.1s ease-in-out infinite;
+  box-shadow: 0 0 12px #78b7e7;
+}
+.power-status-dot.voice-idle::after {
+  opacity: 0.45;
 }
 .power-status-dot.inactive { opacity: 0.35; }
 .power-card-body {
@@ -674,8 +701,31 @@ input, select, textarea { width: 100%; }
   filter: drop-shadow(0 0 5px #ff4f4f);
 }
 
-.unit-button { text-align: left; width: 100%; }
+.unit-button {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  text-align: left;
+  width: 100%;
+}
 .unit-button.selected { border-color: #bd9350; background: #2b2418; }
+.unit-button.ordered {
+  background: #18221d;
+  border-color: #31533b;
+  color: #a8cbb2;
+}
+.unit-button.unordered em {
+  color: #d7b778;
+}
+.unit-button.ordered em {
+  color: #7fb58e;
+}
+.unit-button em {
+  font-size: 10px;
+  font-style: normal;
+  text-transform: uppercase;
+}
 .order-builder {
   background: #1b2024;
   border: 1px solid #2d343a;
@@ -730,6 +780,20 @@ input, select, textarea { width: 100%; }
   font-size: 12px;
   line-height: 1.4;
   padding: 9px 10px;
+}
+.order-submit-blocker {
+  background: #302016;
+  border: 1px solid #765032;
+  border-radius: 7px;
+  color: #e2ba8c;
+  display: grid;
+  font-size: 11px;
+  gap: 3px;
+  line-height: 1.35;
+  padding: 7px 8px;
+}
+.order-submit-blocker strong {
+  color: #ffd39b;
 }
 .pending-list p {
   align-items: center;

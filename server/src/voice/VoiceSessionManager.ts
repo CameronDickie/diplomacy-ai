@@ -268,6 +268,20 @@ export class VoiceSessionManager {
             session.state.error = message;
             this.setStatus(session, 'FAILED');
           },
+          onClose: (code, reason) => {
+            const session = this.sessionsByPlayerId.get(player.id);
+            if (!session || session.id !== sessionId || session.ending) return;
+            const ageSeconds = session.state.startedAt
+              ? Math.round((Date.now() - Date.parse(session.state.startedAt)) / 1000)
+              : 0;
+            const detail =
+              `OpenAI realtime socket closed: code=${code}; reason=${reason || 'none'}; ` +
+              `age=${ageSeconds}s; model=${llm.realtimeModel}; voice=${llm.voice}; ` +
+              `in=${session.state.inputAudioMs}ms/${session.state.receivePackets}pkts; ` +
+              `out=${session.state.outputAudioMs}ms`;
+            this.recordVoiceDebug(session, detail);
+            if (code !== 1000) this.fail(session, detail);
+          },
         }
       );
       provisioningRealtime = realtime;

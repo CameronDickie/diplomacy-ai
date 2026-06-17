@@ -11,8 +11,14 @@ export function ChatPanel({ game }: { game: GameSocket }) {
   const messageListRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const recipients = useMemo(
-    () => game.gameState?.players.filter(player => player.power !== game.myPower) ?? [],
-    [game.gameState?.players, game.myPower]
+    () => {
+      const players = game.gameState?.players.filter(player => player.power !== game.myPower) ?? [];
+      return [...players].sort((left, right) =>
+        latestMessageTime(game, right.power) - latestMessageTime(game, left.power) ||
+        left.power.localeCompare(right.power)
+      );
+    },
+    [game]
   );
   const messages = useMemo(
     () => recipient
@@ -183,6 +189,16 @@ export function ChatPanel({ game }: { game: GameSocket }) {
       </div>
     </section>
   );
+}
+
+function latestMessageTime(game: GameSocket, power: Power): number {
+  const matches = game.diplomaticMessages
+    .filter(message =>
+      (message.fromPower === game.myPower && message.toPower === power) ||
+      (message.fromPower === power && message.toPower === game.myPower)
+    );
+  const latest = matches[matches.length - 1];
+  return latest ? Date.parse(latest.sentAt) || 0 : 0;
 }
 
 function presenceLabel(

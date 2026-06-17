@@ -1489,7 +1489,11 @@ export class GameRoom {
     status: 'IDLE' | 'THINKING' | 'RETRYING' | 'FALLBACK',
     purpose: LlmRunArtifact['purpose']
   ): void {
-    this.broadcast('llm_status', { power, status, purpose });
+    if (!this.io) return;
+    const hostSocketId = this.getSocketIdForPlayerId(this.state.hostPlayerId);
+    if (hostSocketId) {
+      this.io.to(hostSocketId).emit('llm_status', { power, status, purpose });
+    }
   }
 
   private deliverLlmStatus(
@@ -1691,7 +1695,11 @@ export class GameRoom {
         candidate.power === power && candidate.kind === 'HUMAN'
     );
     if (!player) return null;
-    return this.playerSessions.get(player.id)?.socketId ?? null;
+    return this.getSocketIdForPlayerId(player.id);
+  }
+
+  private getSocketIdForPlayerId(playerId: string): string | null {
+    return this.playerSessions.get(playerId)?.socketId ?? null;
   }
 
   private computeBuildCounts(): Record<Power, number> {

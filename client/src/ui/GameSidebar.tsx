@@ -80,10 +80,15 @@ function PowerList({ game }: { game: GameSocket }) {
             power,
             gameState.submittedPowers.includes(power),
             activePowers.has(power),
-            visibleConversation
+            visibleConversation,
+            game.voiceSession.power === power ? game.voiceSession.status : null
           );
           return (
-            <details className="power-card" key={power} open={power === game.myPower}>
+            <details
+              className={`power-card ${status.cardClassName}`}
+              key={power}
+              open={power === game.myPower}
+            >
               <summary>
                 <span className={`power-status-dot ${status.className}`} style={{ background: POWER_COLORS[power] }} />
                 <strong style={{ color: POWER_COLORS[power] }}>{power}</strong>
@@ -125,14 +130,23 @@ function powerStatus(
   power: Power,
   submitted: boolean,
   active: boolean,
-  visibleConversation: [Power, Power] | null
-): { label: string; className: string } {
-  if (visibleConversation?.includes(power)) {
-    return { label: 'conversing', className: 'conversing' };
+  visibleConversation: [Power, Power] | null,
+  voiceStatus: string | null
+): { label: string; className: string; cardClassName: string } {
+  if (voiceStatus && !['IDLE', 'ENDING'].includes(voiceStatus)) {
+    const listening = voiceStatus === 'LISTENING';
+    return {
+      label: listening ? 'voice listening' : 'voice open',
+      className: listening ? 'voice-active' : 'voice-idle',
+      cardClassName: listening ? 'voice-active-card' : 'voice-idle-card',
+    };
   }
-  if (!active) return { label: 'inactive', className: 'inactive' };
-  if (submitted) return { label: 'submitted', className: 'submitted' };
-  return { label: 'pending', className: 'pending' };
+  if (visibleConversation?.includes(power)) {
+    return { label: 'conversing', className: 'conversing', cardClassName: 'conversation-active-card' };
+  }
+  if (!active) return { label: 'inactive', className: 'inactive', cardClassName: '' };
+  if (submitted) return { label: 'submitted', className: 'submitted', cardClassName: 'submitted-card' };
+  return { label: 'pending', className: 'pending', cardClassName: '' };
 }
 
 function PowerVoiceControls({
