@@ -15,6 +15,7 @@
     "generate:board": "GOCACHE=$PWD/engine/.cache/go-build go -C engine run -buildvcs=false ./cmd/generate-board -out ../shared/src/constants/adjacency.generated.ts",
     "build": "npm run build:engine && npm run build -w shared && npm run build -w server && npm run build -w client",
     "check": "npm run build && npm test -w server",
+    "generate:auth-env": "node scripts/generate-auth-env.cjs",
     "start": "npm start -w server"
   },
   "overrides": {

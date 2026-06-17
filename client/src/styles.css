@@ -1181,6 +1181,70 @@ input, select, textarea { width: 100%; }
 }
 .chat-empty { color: #747d84; font-size: 11px; margin: auto; text-align: center; }
 
+.auth-shell {
+  align-items: center;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(197, 160, 89, 0.16), transparent 32%),
+    linear-gradient(135deg, #11161b, #080a0c);
+  display: flex;
+  min-height: 100vh;
+  justify-content: center;
+  padding: 24px;
+}
+.auth-card {
+  background: rgba(20, 24, 28, 0.94);
+  border: 1px solid #343b42;
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
+  max-width: 420px;
+  padding: 28px;
+  width: 100%;
+}
+.auth-card h1 {
+  color: #f1e3c5;
+  font-size: 32px;
+  letter-spacing: 0.04em;
+  margin: 0 0 6px;
+}
+.auth-card p {
+  color: #a6afb7;
+  line-height: 1.45;
+  margin: 0 0 18px;
+}
+.auth-form {
+  display: grid;
+  gap: 14px;
+}
+.auth-form label {
+  color: #d8c8ad;
+  display: grid;
+  font-size: 12px;
+  gap: 6px;
+  text-transform: uppercase;
+}
+.auth-form input {
+  background: #0d1115;
+  border: 1px solid #343b42;
+  border-radius: 8px;
+  color: #f1e3c5;
+  font-size: 15px;
+  padding: 10px 12px;
+}
+.auth-form button {
+  justify-self: start;
+}
+.auth-muted {
+  color: #a6afb7;
+}
+.auth-error {
+  background: rgba(196, 70, 70, 0.12);
+  border: 1px solid rgba(196, 70, 70, 0.4);
+  border-radius: 8px;
+  color: #f0a2a2 !important;
+  margin: 0 !important;
+  padding: 10px 12px;
+}
+
 @media (max-width: 1100px) {
   .app-shell { grid-template-rows: auto minmax(0, 1fr) 340px; }
   .workspace { grid-template-columns: 1fr; grid-template-rows: auto 520px auto; overflow: auto; overscroll-behavior: contain; }

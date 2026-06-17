@@ -6,6 +6,7 @@ import { loadEnvFile } from 'process';
 import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
+import { createAuthRouter, requireSiteAuth, verifyAuthCookieHeader } from './auth.js';
 import { GameManager } from './GameManager.js';
 import { attachHandlers } from './handlers/connectionHandler.js';
 import { DiplomacyService } from './diplomacy/DiplomacyService.js';
@@ -31,6 +32,7 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: {
     origin: configuredOrigins ?? ['http://localhost:5173', 'http://127.0.0.1:5173'],
     methods: ['GET', 'POST'],
+    credentials: true,
   },
 });
 
@@ -61,9 +63,14 @@ const voice = discordBots
     )
   : null;
 
+app.use(express.json());
+
 app.get('/healthz', (_request, response) => {
   response.json({ ok: true });
 });
+
+app.use('/api/auth', createAuthRouter());
+app.use('/api', requireSiteAuth);
 
 const clientDirectory = resolve(currentDirectory, '../../client/dist');
 if (existsSync(clientDirectory)) {
@@ -72,6 +79,15 @@ if (existsSync(clientDirectory)) {
     response.sendFile(resolve(clientDirectory, 'index.html'));
   });
 }
+
+io.use((socket, next) => {
+  const state = verifyAuthCookieHeader(socket.handshake.headers.cookie);
+  if (!state.authenticated) {
+    next(new Error(state.message));
+    return;
+  }
+  next();
+});
 
 io.on('connection', socket => {
   attachHandlers(socket, io, gameManager, {

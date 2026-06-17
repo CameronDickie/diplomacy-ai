@@ -23,6 +23,12 @@ const powerTokenNames = [
 const allowedNames = [
   'PORT',
   'CORS_ORIGINS',
+  'DIPLOMACY_AUTH_ENABLED',
+  'DIPLOMACY_AUTH_USERNAME',
+  'DIPLOMACY_AUTH_PASSWORD_SALT',
+  'DIPLOMACY_AUTH_PASSWORD_HASH',
+  'DIPLOMACY_AUTH_SESSION_SECRET',
+  'DIPLOMACY_AUTH_COOKIE_SECURE',
   'OPENAI_API_KEY',
   'DISCORD_GUILD_ID',
   'DISCORD_COORDINATOR_TOKEN',
@@ -34,6 +40,10 @@ const allowedNames = [
 
 const requiredNames = [
   'CORS_ORIGINS',
+  'DIPLOMACY_AUTH_USERNAME',
+  'DIPLOMACY_AUTH_PASSWORD_SALT',
+  'DIPLOMACY_AUTH_PASSWORD_HASH',
+  'DIPLOMACY_AUTH_SESSION_SECRET',
   'OPENAI_API_KEY',
   'DISCORD_GUILD_ID',
   'DISCORD_COORDINATOR_TOKEN',
@@ -90,6 +100,7 @@ if (voiceEnabled) {
 }
 
 if (!values.get('PORT')) values.set('PORT', '3001');
+if (!values.get('DIPLOMACY_AUTH_ENABLED')) values.set('DIPLOMACY_AUTH_ENABLED', 'true');
 if (!values.get('DISCORD_VOICE_ENABLED')) values.set('DISCORD_VOICE_ENABLED', 'false');
 if (!values.get('DISCORD_VOICE_DEBUG')) values.set('DISCORD_VOICE_DEBUG', 'false');
 if (!values.get('DISCORD_VOICE_AUTO_LISTEN')) values.set('DISCORD_VOICE_AUTO_LISTEN', 'true');
@@ -104,4 +115,3 @@ for (const name of allowedNames) {
 fs.mkdirSync(path.dirname(destination), { recursive: true });
 fs.writeFileSync(destination, `${output.join('\n')}\n`, { mode: 0o600 });
 console.log(`Rendered ${output.length} production variables to ${destination}`);
-

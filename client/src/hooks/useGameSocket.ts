@@ -97,7 +97,9 @@ export function useGameSocket() {
   }
 
   useEffect(() => {
-    const nextSocket = io(import.meta.env.VITE_SERVER_URL || undefined) as AppSocket;
+    const nextSocket = io(import.meta.env.VITE_SERVER_URL || undefined, {
+      withCredentials: true,
+    }) as AppSocket;
     setSocket(nextSocket);
 
     nextSocket.on('connect', () => {

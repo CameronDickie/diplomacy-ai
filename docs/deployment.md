@@ -31,10 +31,21 @@ Minimum production values:
 
 ```bash
 CORS_ORIGINS=https://diplomacy.camerondickie.ca
+DIPLOMACY_AUTH_ENABLED=true
+DIPLOMACY_AUTH_USERNAME=...
+DIPLOMACY_AUTH_PASSWORD_SALT=...
+DIPLOMACY_AUTH_PASSWORD_HASH=...
+DIPLOMACY_AUTH_SESSION_SECRET=...
 OPENAI_API_KEY=...
 DISCORD_GUILD_ID=...
 DISCORD_COORDINATOR_TOKEN=...
 DISCORD_VOICE_ENABLED=false
+```
+
+Generate the auth values locally:
+
+```bash
+npm run generate:auth-env
 ```
 
 For Discord voice, set `DISCORD_VOICE_ENABLED=true` and provide all seven power
@@ -135,4 +146,3 @@ Persist:
 
 Do not persist active voice sessions. Add import/export support around the
 existing turn-history JSON so ephemeral games can be backfilled later.
-
