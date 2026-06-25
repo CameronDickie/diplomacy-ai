@@ -2,16 +2,18 @@ import type { useGameSocket } from '../hooks/useGameSocket.js';
 import type { LlmProviderId, Power } from '@diplomacy/shared';
 import { ALL_POWERS } from '@diplomacy/shared';
 import { useState } from 'react';
+import { useAuth } from '../hooks/useAuth.js';
 
 type GameSocket = ReturnType<typeof useGameSocket>;
 
 export function LobbyPanel({ game }: { game: GameSocket }) {
+  const auth = useAuth();
   const [name, setName] = useState('Dev Player');
   const [joinCode, setJoinCode] = useState('');
   const [preferredPower, setPreferredPower] = useState<Power | 'RANDOM'>('RANDOM');
   const [llmPower, setLlmPower] = useState<Power | 'RANDOM'>('RANDOM');
-  const [llmProvider, setLlmProvider] = useState<LlmProviderId>('OPENAI');
-  const [llmModel, setLlmModel] = useState('gpt-5.5');
+  const [llmProvider, setLlmProvider] = useState<LlmProviderId>('STUB');
+  const [llmModel, setLlmModel] = useState('auto-hold-v0');
   const [llmPersona, setLlmPersona] = useState('');
   const [llmRealtimeModel, setLlmRealtimeModel] = useState('gpt-realtime-2');
   const [llmVoice, setLlmVoice] = useState('');
@@ -22,6 +24,8 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
   );
   const missingCount = Math.max(0, 7 - players.length);
   const isHost = game.gameState?.hostPlayerId === game.myPlayerId;
+  const aiControlsLocked = !auth.authenticated;
+  const canEditLobbyAi = Boolean(isHost && game.gameState?.status === 'LOBBY' && !aiControlsLocked);
 
   return (
     <section className="card">
@@ -65,10 +69,16 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
           {isHost && game.gameState.status === 'LOBBY' && (
             <div className="llm-config">
               <h3>Automated diplomacy</h3>
+              {aiControlsLocked && (
+                <p className="setup-lock-notice">
+                  Sign in to configure AI seats, model selection, negotiation, or voice.
+                </p>
+              )}
               <label>
                 LLM conversations per order phase
                 <select
                   value={game.gameState.settings.llmNegotiationInitiators}
+                  disabled={aiControlsLocked}
                   onChange={event =>
                     game.updateGameSettings({
                       llmNegotiationInitiators: Number(event.target.value),
@@ -88,6 +98,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                 <input
                   placeholder="Use each seat's model"
                   value={game.gameState.settings.llmNegotiationPlannerModel}
+                  disabled={aiControlsLocked}
                   onChange={event => game.updateGameSettings({
                     llmNegotiationPlannerModel: event.target.value,
                   })}
@@ -101,6 +112,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                 Message warning
                 <select
                   value={game.gameState.settings.llmNegotiationWarningAtMessages}
+                  disabled={aiControlsLocked}
                   onChange={event => game.updateGameSettings({
                     llmNegotiationWarningAtMessages: Number(event.target.value),
                   })}
@@ -115,6 +127,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                 Hard message cap
                 <select
                   value={game.gameState.settings.llmNegotiationMaxMessages}
+                  disabled={aiControlsLocked}
                   onChange={event => {
                     const max = Number(event.target.value);
                     game.updateGameSettings({
@@ -139,6 +152,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                 <input
                   type="checkbox"
                   checked={game.gameState.settings.publicLlmConversationPresence}
+                  disabled={aiControlsLocked}
                   onChange={event => game.updateGameSettings({
                     publicLlmConversationPresence: event.target.checked,
                   })}
@@ -156,6 +170,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                   min={1}
                   max={30}
                   value={game.gameState.settings.voiceMaxSessionMinutes}
+                  disabled={aiControlsLocked}
                   onChange={event => game.updateGameSettings({
                     voiceMaxSessionMinutes: Number(event.target.value),
                   })}
@@ -168,6 +183,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                   min={1}
                   max={50}
                   value={game.gameState.settings.voiceMaxTurns}
+                  disabled={aiControlsLocked}
                   onChange={event => game.updateGameSettings({
                     voiceMaxTurns: Number(event.target.value),
                   })}
@@ -180,6 +196,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                   min={15}
                   max={300}
                   value={game.gameState.settings.voiceIdleTimeoutSeconds}
+                  disabled={aiControlsLocked}
                   onChange={event => game.updateGameSettings({
                     voiceIdleTimeoutSeconds: Number(event.target.value),
                   })}
@@ -193,6 +210,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                   max={10}
                   step={0.5}
                   value={game.gameState.settings.voiceAutoCommitSilenceSeconds}
+                  disabled={aiControlsLocked}
                   onChange={event => game.updateGameSettings({
                     voiceAutoCommitSilenceSeconds: Number(event.target.value),
                   })}
@@ -206,6 +224,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                 Country
                 <select
                   value={llmPower}
+                  disabled={aiControlsLocked}
                   onChange={event => setLlmPower(event.target.value as Power | 'RANDOM')}
                 >
                   <option value="RANDOM">Next available</option>
@@ -218,20 +237,23 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                 Provider
                 <select
                   value={llmProvider}
+                  disabled={aiControlsLocked}
                   onChange={event => {
                     const provider = event.target.value as LlmProviderId;
+                    if (provider === 'OPENAI' && !auth.authenticated) return;
                     setLlmProvider(provider);
                     setLlmModel(provider === 'OPENAI' ? 'gpt-5.5' : 'auto-hold-v0');
                   }}
                 >
                   <option value="STUB">Stub (auto-hold)</option>
-                  <option value="OPENAI">OpenAI</option>
+                  <option value="OPENAI" disabled={!auth.authenticated}>OpenAI</option>
                 </select>
               </label>
               <label>
                 Model
                 <input
                   value={llmModel}
+                  disabled={aiControlsLocked}
                   onChange={event => setLlmModel(event.target.value)}
                 />
               </label>
@@ -240,6 +262,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                 <input
                   placeholder="Optional diplomatic style"
                   value={llmPersona}
+                  disabled={aiControlsLocked}
                   onChange={event => setLlmPersona(event.target.value)}
                 />
               </label>
@@ -247,6 +270,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                 Realtime voice model
                 <input
                   value={llmRealtimeModel}
+                  disabled={aiControlsLocked}
                   onChange={event => setLlmRealtimeModel(event.target.value)}
                 />
               </label>
@@ -255,6 +279,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                 <input
                   placeholder="Auto by country"
                   value={llmVoice}
+                  disabled={aiControlsLocked}
                   onChange={event => setLlmVoice(event.target.value)}
                 />
               </label>
@@ -267,6 +292,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                 <textarea
                   placeholder="Optional spoken style and pacing"
                   value={llmVoiceInstructions}
+                  disabled={aiControlsLocked}
                   onChange={event => setLlmVoiceInstructions(event.target.value)}
                 />
               </label>
@@ -283,7 +309,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                 voice: llmVoice.trim() || undefined,
                 voiceInstructions: llmVoiceInstructions || null,
               })}
-              disabled={!isHost || missingCount === 0 || game.gameState.status !== 'LOBBY'}
+              disabled={!canEditLobbyAi || missingCount === 0}
             >
               Add LLM
             </button>
@@ -299,7 +325,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                   voiceInstructions: llmVoiceInstructions || null,
                 })
               )}
-              disabled={!isHost || missingCount === 0 || game.gameState.status !== 'LOBBY'}
+              disabled={!canEditLobbyAi || missingCount === 0}
             >
               Fill LLMs
             </button>

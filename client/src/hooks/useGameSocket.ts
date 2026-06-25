@@ -259,7 +259,14 @@ export function useGameSocket() {
     });
     nextSocket.on('error', payload => log('error', payload.code, payload.message));
 
+    const reconnectAfterAuth = () => {
+      nextSocket.disconnect();
+      nextSocket.connect();
+    };
+    window.addEventListener('diplomacy-auth-changed', reconnectAfterAuth);
+
     return () => {
+      window.removeEventListener('diplomacy-auth-changed', reconnectAfterAuth);
       nextSocket.disconnect();
     };
   }, []);

@@ -80,16 +80,8 @@ if (existsSync(clientDirectory)) {
   });
 }
 
-io.use((socket, next) => {
-  const state = verifyAuthCookieHeader(socket.handshake.headers.cookie);
-  if (!state.authenticated) {
-    next(new Error(state.message));
-    return;
-  }
-  next();
-});
-
 io.on('connection', socket => {
+  socket.data.authenticated = verifyAuthCookieHeader(socket.handshake.headers.cookie).authenticated;
   attachHandlers(socket, io, gameManager, {
     diplomacy,
     discordLinks,

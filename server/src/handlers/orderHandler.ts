@@ -1,6 +1,7 @@
 import type { Server, Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
 import type { GameManager } from '../GameManager.js';
+import { requireRoomAccess } from './authz.js';
 
 export function attachOrderHandlers(
   socket: Socket<ClientToServerEvents, ServerToClientEvents>,
@@ -15,6 +16,7 @@ export function attachOrderHandlers(
       socket.emit('error', { message: 'Game not found', code: 'GAME_NOT_FOUND' });
       return;
     }
+    if (!requireRoomAccess(socket, room)) return;
 
     const player = room.getPlayerBySocket(socket.id);
     if (!player) {
@@ -56,6 +58,7 @@ export function attachOrderHandlers(
       socket.emit('error', { message: 'Game not found', code: 'GAME_NOT_FOUND' });
       return;
     }
+    if (!requireRoomAccess(socket, room)) return;
 
     const player = room.getPlayerBySocket(socket.id);
     if (!player) {
@@ -96,6 +99,7 @@ export function attachOrderHandlers(
       socket.emit('error', { message: 'Game not found', code: 'GAME_NOT_FOUND' });
       return;
     }
+    if (!requireRoomAccess(socket, room)) return;
 
     const player = room.getPlayerBySocket(socket.id);
     if (!player) {

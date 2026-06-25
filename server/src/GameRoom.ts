@@ -93,6 +93,7 @@ export class GameRoom {
 
     return {
       gameId: this.gameId,
+      accessMode: 'PUBLIC',
       hostPlayerId: '',
       year: 1901,
       season: 'SPRING',
@@ -104,7 +105,7 @@ export class GameRoom {
         llmNegotiationInitiators: 2,
         llmNegotiationMaxMessages: 6,
         llmNegotiationWarningAtMessages: 4,
-        llmNegotiationPlannerModel: 'gpt-5.4-mini',
+        llmNegotiationPlannerModel: '',
         publicLlmConversationPresence: false,
         voiceMaxSessionMinutes: 10,
         voiceMaxTurns: 20,
@@ -155,6 +156,17 @@ export class GameRoom {
 
   isHost(socketId: string): boolean {
     return this.getPlayerBySocket(socketId)?.id === this.state.hostPlayerId;
+  }
+
+  requiresAuthenticatedAccess(): boolean {
+    return (
+      this.state.accessMode === 'AUTHENTICATED_AI' ||
+      this.state.players.some(player => player.kind === 'LLM')
+    );
+  }
+
+  enableAuthenticatedAiAccess(): void {
+    this.state.accessMode = 'AUTHENTICATED_AI';
   }
 
   updateLlmNegotiationInitiators(count: number): boolean {
@@ -276,6 +288,7 @@ export class GameRoom {
       voiceInstructions: options.voiceInstructions?.trim() || null,
     };
     this.state.players.push(player);
+    this.enableAuthenticatedAiAccess();
     this.llmMemories.set(available, {
       power: available,
       revision: 0,

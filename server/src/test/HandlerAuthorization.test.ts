@@ -25,8 +25,11 @@ interface EmittedEvent {
 class FakeSocket {
   readonly handlers = new Map<string, Handler>();
   readonly emitted: EmittedEvent[] = [];
+  readonly data: { authenticated?: boolean } = {};
 
-  constructor(readonly id: string) {}
+  constructor(readonly id: string, authenticated = false) {
+    this.data.authenticated = authenticated;
+  }
 
   on(event: string, handler: Handler): void {
     this.handlers.set(event, handler);
@@ -66,6 +69,68 @@ test('non-host players cannot mutate host-only game setup', async () => {
   await invoke(guest, 'start_game', { gameId: room.gameId });
   assertLastError(guest, 'HOST_REQUIRED');
   assert.equal(room.getState().status, 'LOBBY');
+});
+
+test('unauthenticated hosts cannot enable authenticated AI features', async () => {
+  const manager = new GameManager();
+  const room = manager.createGame();
+  assert.ok(room.addPlayer('host-socket', 'Host', 'AUSTRIA'));
+
+  const host = socketWithGameHandlers('host-socket', manager);
+
+  await invoke(host, 'add_llm_player', {
+    gameId: room.gameId,
+    power: 'ENGLAND',
+    provider: 'OPENAI',
+    model: 'gpt-5.5',
+  });
+  assertLastError(host, 'AUTH_REQUIRED');
+  assert.equal(room.getState().players.some(player => player.power === 'ENGLAND'), false);
+  assert.equal(room.getState().accessMode, 'PUBLIC');
+
+  await invoke(host, 'update_game_settings', {
+    gameId: room.gameId,
+    llmNegotiationPlannerModel: 'gpt-5.4-mini',
+  });
+  assertLastError(host, 'AUTH_REQUIRED');
+  assert.equal(room.getState().settings.llmNegotiationPlannerModel, '');
+  assert.equal(room.getState().accessMode, 'PUBLIC');
+});
+
+test('authenticated hosts can enable AI and lock the room behind auth', async () => {
+  const manager = new GameManager();
+  const room = manager.createGame();
+  assert.ok(room.addPlayer('host-socket', 'Host', 'AUSTRIA'));
+
+  const host = socketWithGameHandlers('host-socket', manager, true);
+  await invoke(host, 'add_llm_player', {
+    gameId: room.gameId,
+    power: 'ENGLAND',
+    provider: 'OPENAI',
+    model: 'gpt-5.5',
+  });
+
+  assert.equal(room.getState().players.some(player => player.power === 'ENGLAND'), true);
+  assert.equal(room.getState().accessMode, 'AUTHENTICATED_AI');
+
+  const guest = socketWithGameHandlers('guest-socket', manager);
+  await invoke(guest, 'join_game', {
+    gameId: room.gameId,
+    playerName: 'Guest',
+    preferredPower: 'FRANCE',
+  });
+  assertLastError(guest, 'AUTH_REQUIRED');
+  assert.equal(room.getState().players.some(player => player.power === 'FRANCE'), false);
+});
+
+test('authenticated AI rooms reject unauthenticated play events', async () => {
+  const manager = GameManagerWithStartedRoom();
+  const room = manager.getRooms()[0];
+  room.enableAuthenticatedAiAccess();
+
+  const france = socketWithOrderHandlers('france-socket', manager);
+  await invoke(france, 'submit_orders', { gameId: room.gameId, orders: [] });
+  assertLastError(france, 'AUTH_REQUIRED');
 });
 
 test('order handlers bind submissions to the socket owner power', async () => {
@@ -134,8 +199,8 @@ test('Discord browser handlers authorize by the linked socket seat', async () =>
   assertLastError(outsider, 'NOT_IN_GAME');
 });
 
-function socketWithGameHandlers(id: string, manager: GameManager): FakeSocket {
-  const socket = new FakeSocket(id);
+function socketWithGameHandlers(id: string, manager: GameManager, authenticated = false): FakeSocket {
+  const socket = new FakeSocket(id, authenticated);
   attachGameHandlers(socket as unknown as Socket<ClientToServerEvents, ServerToClientEvents>, fakeIO(), manager);
   return socket;
 }

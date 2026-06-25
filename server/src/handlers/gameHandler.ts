@@ -1,6 +1,11 @@
 import type { Server, Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
 import type { GameManager } from '../GameManager.js';
+import {
+  requireAuthenticatedAi,
+  requireRoomAccess,
+  settingsRequireAuthenticatedAi,
+} from './authz.js';
 
 export function attachGameHandlers(
   socket: Socket<ClientToServerEvents, ServerToClientEvents>,
@@ -60,6 +65,7 @@ export function attachGameHandlers(
       socket.emit('join_error', { message: `Game ${normalizedGameId} not found`, code: 'GAME_NOT_FOUND' });
       return;
     }
+    if (!requireRoomAccess(socket, room)) return;
     if (room.getState().status !== 'LOBBY') {
       socket.emit('join_error', { message: 'This game has already started', code: 'GAME_ALREADY_STARTED' });
       return;
@@ -106,6 +112,7 @@ export function attachGameHandlers(
       socket.emit('resume_error', { message: 'Game no longer exists on this server', code: 'GAME_NOT_FOUND' });
       return;
     }
+    if (!requireRoomAccess(socket, room)) return;
     const player = room.resumePlayer(socket.id, sessionToken);
     if (!player) {
       socket.emit('resume_error', { message: 'The saved player session is invalid', code: 'INVALID_SESSION' });
@@ -140,6 +147,7 @@ export function attachGameHandlers(
       socket.emit('error', { message: `Game ${gameId} not found`, code: 'GAME_NOT_FOUND' });
       return;
     }
+    if (!requireRoomAccess(socket, room)) return;
 
     if (!room.getPlayerBySocket(socket.id)) {
       socket.emit('error', { message: 'Not in this game', code: 'NOT_IN_GAME' });
@@ -155,6 +163,8 @@ export function attachGameHandlers(
       socket.emit('error', { message: 'Cannot add players after game start', code: 'GAME_ALREADY_STARTED' });
       return;
     }
+
+    if (!requireAuthenticatedAi(socket)) return;
 
     const player = room.addLlmPlayer({
       power,
@@ -183,10 +193,13 @@ export function attachGameHandlers(
       socket.emit('error', { message: `Game ${gameId} not found`, code: 'GAME_NOT_FOUND' });
       return;
     }
+    if (!requireRoomAccess(socket, room)) return;
     if (!room.isHost(socket.id)) {
       socket.emit('error', { message: 'Only the host can change game settings', code: 'HOST_REQUIRED' });
       return;
     }
+    const enablesAuthenticatedAi = settingsRequireAuthenticatedAi(settings);
+    if (enablesAuthenticatedAi && !requireAuthenticatedAi(socket)) return;
     if (!room.updateGameSettings(settings)) {
       socket.emit('error', {
         message: 'Invalid game settings or the game has already started',
@@ -194,6 +207,7 @@ export function attachGameHandlers(
       });
       return;
     }
+    if (enablesAuthenticatedAi) room.enableAuthenticatedAiAccess();
     room.broadcast('game_state_sync', { gameState: room.getState() });
   });
 
@@ -203,6 +217,8 @@ export function attachGameHandlers(
       socket.emit('error', { message: `Game ${gameId} not found`, code: 'GAME_NOT_FOUND' });
       return;
     }
+
+    if (!requireRoomAccess(socket, room)) return;
 
     if (!room.getPlayerBySocket(socket.id)) {
       socket.emit('error', { message: 'Not in this game', code: 'NOT_IN_GAME' });

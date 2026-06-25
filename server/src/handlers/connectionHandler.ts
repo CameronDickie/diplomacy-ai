@@ -9,6 +9,7 @@ import type { DiplomacyService } from '../diplomacy/DiplomacyService.js';
 import type { DiscordLinkService } from '../discord/DiscordLinkService.js';
 import type { DiscordBotManager } from '../discord/DiscordBotManager.js';
 import type { VoiceSessionManager } from '../voice/VoiceSessionManager.js';
+import { requireRoomAccess } from './authz.js';
 
 export function attachHandlers(
   socket: Socket<ClientToServerEvents, ServerToClientEvents>,
@@ -50,12 +51,14 @@ export function attachHandlers(
   socket.on('request_state', () => {
     const room = gameManager.getRoomBySocket(socket.id);
     if (!room) return;
+    if (!requireRoomAccess(socket, room)) return;
     socket.emit('game_state_sync', { gameState: room.getState() });
   });
 
   socket.on('request_phase_history', ({ gameId }) => {
     const room = gameManager.getRoom(gameId);
     if (!room || !room.hasSocket(socket.id)) return;
+    if (!requireRoomAccess(socket, room)) return;
     socket.emit('phase_history', { reports: room.getPhaseHistory() });
   });
 }

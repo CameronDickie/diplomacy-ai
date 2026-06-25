@@ -4,6 +4,8 @@ import type { Unit } from './unit.js';
 import type { AdjudicationResult } from './order.js';
 import type { LlmProviderId } from './llm.js';
 
+export type GameAccessMode = 'PUBLIC' | 'AUTHENTICATED_AI';
+
 interface BasePlayer {
   id: string;
   name: string;
@@ -41,6 +43,7 @@ export interface GameSettings {
 
 export interface GameState {
   gameId: string;
+  accessMode: GameAccessMode;
   hostPlayerId: string;
   year: number;
   season: Season;

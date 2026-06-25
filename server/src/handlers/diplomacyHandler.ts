@@ -2,6 +2,7 @@ import type { Server, Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
 import type { GameManager } from '../GameManager.js';
 import type { DiplomacyService } from '../diplomacy/DiplomacyService.js';
+import { requireRoomAccess } from './authz.js';
 
 export function attachDiplomacyHandlers(
   socket: Socket<ClientToServerEvents, ServerToClientEvents>,
@@ -22,6 +23,7 @@ export function attachDiplomacyHandlers(
       socket.emit('error', { message: 'Game not found', code: 'GAME_NOT_FOUND' });
       return;
     }
+    if (!requireRoomAccess(socket, room)) return;
 
     const sender = room.getPlayerBySocket(socket.id);
     if (!sender) {
@@ -58,6 +60,7 @@ export function attachDiplomacyHandlers(
   socket.on('request_diplomacy_history', ({ gameId }) => {
     const room = gameManager.getRoom(gameId.trim().toUpperCase());
     if (!room) return;
+    if (!requireRoomAccess(socket, room)) return;
 
     const player = room.getPlayerBySocket(socket.id);
     if (!player) return;

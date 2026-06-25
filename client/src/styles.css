@@ -97,6 +97,16 @@ input, select, textarea { width: 100%; }
   gap: 9px;
   padding: 10px;
 }
+.setup-lock-notice {
+  background: #2b2418;
+  border: 1px solid #6b542d;
+  border-radius: 8px;
+  color: #e2c98c;
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 0;
+  padding: 8px 10px;
+}
 .stat-row { align-items: center; display: flex; justify-content: space-between; }
 .stat-row span { color: #a3aaa4; }
 .supply-card { gap: 8px; }
@@ -1243,6 +1253,31 @@ input, select, textarea { width: 100%; }
   color: #f0a2a2 !important;
   margin: 0 !important;
   padding: 10px 12px;
+}
+.auth-popover {
+  background: rgba(20, 24, 28, 0.96);
+  border: 1px solid #343b42;
+  border-radius: 8px;
+  bottom: 16px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.42);
+  padding: 14px;
+  position: fixed;
+  right: 16px;
+  width: min(320px, calc(100vw - 32px));
+  z-index: 40;
+}
+.auth-popover h2 {
+  color: #f1e3c5;
+  font-size: 15px;
+  letter-spacing: 0;
+  margin: 0 0 10px;
+}
+.auth-popover .auth-form {
+  gap: 10px;
+}
+.auth-popover .auth-form input {
+  font-size: 14px;
+  padding: 8px 10px;
 }
 
 @media (max-width: 1100px) {

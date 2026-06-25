@@ -4,6 +4,7 @@ import type { GameManager } from '../GameManager.js';
 import type { DiscordBotManager } from '../discord/DiscordBotManager.js';
 import type { DiscordLinkService } from '../discord/DiscordLinkService.js';
 import type { VoiceSessionManager } from '../voice/VoiceSessionManager.js';
+import { requireRoomAccess } from './authz.js';
 
 export function attachDiscordHandlers(
   socket: Socket<ClientToServerEvents, ServerToClientEvents>,
@@ -109,6 +110,7 @@ function withPlayer(
     socket.emit('error', { message: 'Not in this game', code: 'NOT_IN_GAME' });
     return;
   }
+  if (!requireRoomAccess(socket, room)) return;
   action(room, player);
 }
 
@@ -128,6 +130,7 @@ async function withPlayerAsync(
     socket.emit('error', { message: 'Not in this game', code: 'NOT_IN_GAME' });
     return;
   }
+  if (!requireRoomAccess(socket, room)) return;
   try {
     await action(room, player);
   } catch (error) {
