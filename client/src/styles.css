@@ -508,6 +508,51 @@ input, select, textarea { width: 100%; }
   height: 16px;
   width: 16px;
 }
+.map-order-menu {
+  background: rgba(20, 24, 28, 0.96);
+  border: 1px solid #4d5a63;
+  border-radius: 8px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.38);
+  color: #e6d9c3;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  position: fixed;
+  width: 220px;
+  z-index: 8;
+}
+.map-order-menu header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+.map-order-menu header strong {
+  color: #fff4df;
+  font-size: 12px;
+}
+.map-order-menu header button {
+  font-size: 10px;
+  padding: 3px 6px;
+  width: auto;
+}
+.map-order-menu p {
+  color: #aeb7be;
+  font-size: 11px;
+  margin: 0;
+}
+.map-order-menu > div {
+  display: grid;
+  gap: 6px;
+}
+.map-order-menu > div button {
+  justify-content: center;
+  padding: 7px 9px;
+}
+.map-order-menu em {
+  color: #d4bd91;
+  font-size: 11px;
+  font-style: normal;
+}
 .order-legend span { align-items: center; display: flex; gap: 7px; }
 .order-legend i { display: inline-block; height: 12px; position: relative; width: 28px; }
 .legend-hold {
@@ -549,6 +594,12 @@ input, select, textarea { width: 100%; }
   width: 100%;
 }
 .map-viewport.dragging { cursor: grabbing; }
+.map-viewport.order-targeting {
+  cursor: crosshair;
+}
+.map-viewport.order-targeting.dragging {
+  cursor: crosshair;
+}
 .map-canvas {
   min-height: 620px;
   min-width: 700px;
@@ -569,12 +620,21 @@ input, select, textarea { width: 100%; }
   cursor: pointer;
   transition: fill-opacity 120ms ease, filter 120ms ease;
 }
+.map-viewport.order-targeting .province-shape {
+  cursor: not-allowed;
+}
+.map-viewport.order-targeting .province-shape.valid-target,
+.map-viewport.order-targeting .province-shape.selected {
+  cursor: pointer;
+}
 .map-viewport #names,
 .map-viewport #supply-centers,
 .map-viewport #pending-supply-control,
-.map-viewport #units,
 .map-viewport #orders {
   pointer-events: none;
+}
+.map-viewport #units {
+  pointer-events: auto;
 }
 .map-viewport .pending-control-marker {
   fill: none;
@@ -591,13 +651,37 @@ input, select, textarea { width: 100%; }
   stroke-width: 2.6px !important;
 }
 .map-viewport .province-shape:hover {
-  fill-opacity: 0.78 !important;
-  filter: brightness(1.15);
+  fill-opacity: 0.92 !important;
+  filter: brightness(1.38) saturate(1.22);
+  stroke: #fff0b8 !important;
+  stroke-width: 4px !important;
 }
 .map-viewport .province-shape.valid-target {
-  filter: brightness(1.22) saturate(1.2);
+  filter: brightness(1.42) saturate(1.38);
   stroke: #f4d47a !important;
-  stroke-width: 4px !important;
+  stroke-dasharray: 10 4;
+  stroke-width: 7px !important;
+}
+.map-viewport.order-targeting .province-shape.valid-target {
+  fill: color-mix(in srgb, var(--active-power-color) 58%, #ffffff 8%) !important;
+  fill-opacity: 0.88 !important;
+  stroke: color-mix(in srgb, var(--active-power-color) 72%, #ffffff 28%) !important;
+  stroke-width: 8px !important;
+}
+.map-viewport.order-targeting .province-shape.valid-target:hover,
+.map-viewport.order-targeting .province-shape.hovered-valid-target {
+  fill: color-mix(in srgb, var(--active-power-color) 72%, #ffffff 16%) !important;
+  fill-opacity: 0.95 !important;
+  filter: brightness(1.5) saturate(1.5);
+}
+.map-viewport.order-targeting .province-shape.invalid-target:hover,
+.map-viewport.order-targeting .province-shape.hovered-invalid-target {
+  fill: color-mix(in srgb, var(--active-power-inverse) 35%, transparent) !important;
+  fill-opacity: 0.72 !important;
+  filter: brightness(0.92) saturate(1.25);
+  stroke: var(--active-power-inverse) !important;
+  stroke-dasharray: 3 5;
+  stroke-width: 3px !important;
 }
 .map-viewport .province-shape.selected {
   filter: brightness(1.28);
@@ -617,12 +701,14 @@ input, select, textarea { width: 100%; }
   .map-viewport .province-shape.replay-standoff { animation: none; }
 }
 .map-viewport .unit-marker {
-  pointer-events: none;
+  cursor: pointer;
+  pointer-events: auto;
 }
 .map-viewport .unit-marker rect {
   fill: var(--unit-color);
   stroke: #15191c;
   stroke-width: 3px;
+  transition: filter 140ms ease, height 140ms ease, width 140ms ease, x 140ms ease, y 140ms ease;
 }
 .map-viewport .unit-marker text {
   dominant-baseline: middle;
@@ -638,6 +724,17 @@ input, select, textarea { width: 100%; }
 .map-viewport .unit-marker.must-retreat rect {
   stroke: #ff2929;
   stroke-width: 6px;
+}
+.map-viewport .unit-marker:hover rect {
+  filter: brightness(1.12);
+}
+.map-viewport .unit-marker.selected rect {
+  filter: brightness(1.18) drop-shadow(0 0 5px rgba(255, 244, 210, 0.85));
+  stroke: #fff3c4;
+  stroke-width: 4px;
+}
+.map-viewport .unit-marker.selected text {
+  font-size: 21px;
 }
 .map-viewport .order-path {
   fill: none;

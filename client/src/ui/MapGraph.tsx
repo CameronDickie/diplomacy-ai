@@ -5,12 +5,14 @@ import { POWER_COLORS, TERRITORY_BY_ID, territoryName } from '../lib/game.js';
 interface Props {
   gameState: GameState | null;
   selectedTerritory: TerritoryId | null;
+  selectedUnit: Unit | null;
   validTargets: TerritoryId[];
   pendingOrders: Order[];
   replayStandoffs?: TerritoryId[];
   unitAnimationFrom?: Unit[];
   unitAnimationKey?: string | null;
-  onSelectTerritory: (territory: TerritoryId) => void;
+  onSelectTerritory: (territory: TerritoryId, point?: { x: number; y: number }) => void;
+  onClearSelection: () => void;
 }
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -30,16 +32,19 @@ const MIN_ZOOM = 1;
 const MAX_ZOOM = 3.5;
 const ZOOM_STEP = 0.25;
 const WHEEL_ZOOM_STEP = 0.1;
+const SELECTED_UNIT_ZOOM = 2.15;
 
 export function MapGraph({
   gameState,
   selectedTerritory,
+  selectedUnit,
   validTargets,
   pendingOrders,
   replayStandoffs = [],
   unitAnimationFrom,
   unitAnimationKey,
   onSelectTerritory,
+  onClearSelection,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
@@ -49,12 +54,15 @@ export function MapGraph({
     scrollLeft: number;
     scrollTop: number;
     moved: boolean;
+    clickTerritory: TerritoryId | null;
   } | null>(null);
-  const suppressClickRef = useRef(false);
   const consumedAnimationKeyRef = useRef<string | null>(null);
+  const centeredUnitIdRef = useRef<string | null>(null);
   const [markup, setMarkup] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
+  const [hoveredTerritory, setHoveredTerritory] = useState<TerritoryId | null>(null);
+  const orderTargeting = Boolean(selectedUnit);
   const pendingControlCount = gameState
     ? pendingSupplyControl(gameState).length
     : 0;
@@ -80,6 +88,15 @@ export function MapGraph({
     if (!container || !svg || !markup) return;
 
     svg.classList.add('diplomacy-map');
+    svg.classList.toggle('order-targeting', orderTargeting);
+    if (selectedUnit) {
+      const activeColor = POWER_COLORS[selectedUnit.power];
+      svg.style.setProperty('--active-power-color', activeColor);
+      svg.style.setProperty('--active-power-inverse', inverseHexColor(activeColor));
+    } else {
+      svg.style.removeProperty('--active-power-color');
+      svg.style.removeProperty('--active-power-inverse');
+    }
     svg.removeAttribute('width');
     svg.removeAttribute('height');
     svg.setAttribute('role', 'img');
@@ -102,6 +119,7 @@ export function MapGraph({
     const dynamicPatterns = resetDynamicPatterns(svg);
     if (provinces) {
       provinces.style.display = 'inline';
+      provinces.style.pointerEvents = 'auto';
       for (const shape of Array.from(provinces.children)) {
         if (!(shape instanceof SVGElement) || !shape.id) continue;
         if (shape.id.includes('/')) {
@@ -129,9 +147,22 @@ export function MapGraph({
           : color;
 
         shape.dataset.territory = territory;
+        shape.style.pointerEvents = 'auto';
         shape.classList.add('province-shape');
         shape.classList.toggle('selected', territory === selectedTerritory);
         shape.classList.toggle('valid-target', validTargets.includes(territory));
+        shape.classList.toggle(
+          'invalid-target',
+          orderTargeting && territory !== selectedTerritory && !validTargets.includes(territory)
+        );
+        shape.classList.toggle(
+          'hovered-valid-target',
+          orderTargeting && territory === hoveredTerritory && validTargets.includes(territory)
+        );
+        shape.classList.toggle(
+          'hovered-invalid-target',
+          orderTargeting && territory === hoveredTerritory && territory !== selectedTerritory && !validTargets.includes(territory)
+        );
         shape.classList.toggle('replay-standoff', replayStandoffs.includes(territory));
         shape.classList.toggle('controlled-supply', Boolean(territoryState?.owner && definition.isSupplyCenter));
         shape.classList.toggle('controlled-non-supply', Boolean(territoryState?.owner && !definition.isSupplyCenter));
@@ -184,37 +215,115 @@ export function MapGraph({
     renderUnits(
       svg,
       gameState?.units ?? [],
+      selectedUnit?.id ?? null,
       shouldAnimateUnits ? unitAnimationFrom : undefined
     );
     if (shouldAnimateUnits) consumedAnimationKeyRef.current = unitAnimationKey ?? null;
     renderOrders(svg, pendingOrders);
 
-    const handleClick = (event: Event) => {
-      if (suppressClickRef.current) {
+    const handleKeyDown = (event: Event) => {
+      if (!(event instanceof KeyboardEvent)) return;
+      if (event.key === 'Escape') {
         event.preventDefault();
-        event.stopPropagation();
-        suppressClickRef.current = false;
+        onClearSelection();
         return;
       }
       const target = event.target;
       if (!(target instanceof Element)) return;
-      const province = target.closest<SVGElement>('[data-territory]');
-      const territory = province?.dataset.territory;
-      if (territory) onSelectTerritory(territory);
+      if (['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp'].includes(event.key)) {
+        const current = target.closest<SVGElement>('.unit-marker[data-territory]');
+        if (!current) return;
+        const markers = Array.from(svg.querySelectorAll<SVGElement>('.unit-marker[data-territory]'));
+        const index = markers.indexOf(current);
+        if (index < 0) return;
+        const direction = ['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1;
+        markers[(index + direction + markers.length) % markers.length]?.focus();
+        event.preventDefault();
+        return;
+      }
+      if (!['Enter', ' '].includes(event.key)) return;
+      const marker = target.closest<SVGElement>('.unit-marker[data-territory]');
+      const territory = marker?.dataset.territory;
+      if (!territory) return;
+      event.preventDefault();
+      onSelectTerritory(territory);
     };
-    svg.addEventListener('click', handleClick);
-    return () => svg.removeEventListener('click', handleClick);
+    svg.addEventListener('keydown', handleKeyDown);
+    return () => {
+      svg.removeEventListener('keydown', handleKeyDown);
+    };
   }, [
     gameState,
     markup,
+    onClearSelection,
     onSelectTerritory,
+    orderTargeting,
+    hoveredTerritory,
     pendingOrders,
     replayStandoffs,
     selectedTerritory,
+    selectedUnit?.id,
+    selectedUnit?.power,
     unitAnimationFrom,
     unitAnimationKey,
     validTargets,
   ]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const svg = container?.querySelector('svg');
+    if (!container || !(svg instanceof SVGSVGElement) || !selectedUnit || !markup) return;
+    if (centeredUnitIdRef.current === selectedUnit.id) return;
+
+    const center = territoryCenter(svg, selectedUnit.territory, selectedUnit.coast);
+    if (!center) return;
+    centeredUnitIdRef.current = selectedUnit.id;
+    const nextZoom = Math.max(zoom, SELECTED_UNIT_ZOOM);
+    setZoom(nextZoom);
+    centerMapOnPoint(container, svg, center);
+  }, [markup, selectedUnit, zoom]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleNativeWheel = (event: WheelEvent) => {
+      if (event.deltaY === 0) return;
+      event.preventDefault();
+
+      const nextZoom = clampZoom(
+        zoom + (event.deltaY < 0 ? WHEEL_ZOOM_STEP : -WHEEL_ZOOM_STEP)
+      );
+      if (nextZoom === zoom) return;
+
+      const bounds = container.getBoundingClientRect();
+      const pointerX = event.clientX - bounds.left;
+      const pointerY = event.clientY - bounds.top;
+      const contentX = container.scrollLeft + pointerX;
+      const contentY = container.scrollTop + pointerY;
+      const ratio = nextZoom / zoom;
+
+      setZoom(nextZoom);
+      requestAnimationFrame(() => {
+        container.scrollLeft = contentX * ratio - pointerX;
+        container.scrollTop = contentY * ratio - pointerY;
+      });
+    };
+
+    container.addEventListener('wheel', handleNativeWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleNativeWheel);
+  }, [zoom]);
+
+  useEffect(() => {
+    if (!orderTargeting) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onClearSelection();
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [onClearSelection, orderTargeting]);
 
   if (loadError) {
     return <div className="map-message">Map unavailable: {loadError}</div>;
@@ -227,34 +336,14 @@ export function MapGraph({
     setZoom(current => clampZoom(current + delta));
   }
 
-  function handleWheel(event: React.WheelEvent<HTMLDivElement>) {
-    const container = containerRef.current;
-    if (!container || event.deltaY === 0) return;
-    event.preventDefault();
-
-    const nextZoom = clampZoom(
-      zoom + (event.deltaY < 0 ? WHEEL_ZOOM_STEP : -WHEEL_ZOOM_STEP)
-    );
-    if (nextZoom === zoom) return;
-
-    const bounds = container.getBoundingClientRect();
-    const pointerX = event.clientX - bounds.left;
-    const pointerY = event.clientY - bounds.top;
-    const contentX = container.scrollLeft + pointerX;
-    const contentY = container.scrollTop + pointerY;
-    const ratio = nextZoom / zoom;
-
-    setZoom(nextZoom);
-    requestAnimationFrame(() => {
-      container.scrollLeft = contentX * ratio - pointerX;
-      container.scrollTop = contentY * ratio - pointerY;
-    });
-  }
-
   function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     const container = containerRef.current;
     if (!container) return;
+    const clickTerritory =
+      territoryFromClientPoint(event.clientX, event.clientY) ??
+      nearestTerritoryFromClientPoint(container, event.clientX, event.clientY) ??
+      territoryFromEventTarget(event.target);
     dragRef.current = {
       pointerId: event.pointerId,
       x: event.clientX,
@@ -262,14 +351,24 @@ export function MapGraph({
       scrollLeft: container.scrollLeft,
       scrollTop: container.scrollTop,
       moved: false,
+      clickTerritory,
     };
+    if (orderTargeting) return;
     container.setPointerCapture(event.pointerId);
   }
 
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
-    const drag = dragRef.current;
     const container = containerRef.current;
-    if (!drag || !container || drag.pointerId !== event.pointerId) return;
+    if (!container) return;
+    if (orderTargeting) {
+      setHoveredTerritory(
+        territoryFromClientPoint(event.clientX, event.clientY) ??
+        nearestTerritoryFromClientPoint(container, event.clientX, event.clientY)
+      );
+      return;
+    }
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
     const dx = event.clientX - drag.x;
     const dy = event.clientY - drag.y;
     if (!drag.moved && Math.hypot(dx, dy) > 4) {
@@ -285,12 +384,22 @@ export function MapGraph({
     const drag = dragRef.current;
     const container = containerRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
-    suppressClickRef.current = drag.moved;
     dragRef.current = null;
     container?.classList.remove('dragging');
     if (container?.hasPointerCapture(event.pointerId)) {
       container.releasePointerCapture(event.pointerId);
     }
+    if (!drag.moved) {
+      const territory =
+        territoryFromClientPoint(event.clientX, event.clientY) ??
+        (container ? nearestTerritoryFromClientPoint(container, event.clientX, event.clientY) : null) ??
+        drag.clickTerritory;
+      if (territory) onSelectTerritory(territory, { x: event.clientX, y: event.clientY });
+    }
+  }
+
+  function handlePointerLeave(): void {
+    setHoveredTerritory(null);
   }
 
   return (
@@ -330,13 +439,13 @@ export function MapGraph({
         </div>
       )}
       <div
-        className="map-viewport"
+        className={`map-viewport ${orderTargeting ? 'order-targeting' : ''}`}
         ref={containerRef}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerEnd}
         onPointerCancel={handlePointerEnd}
-        onWheel={handleWheel}
+        onPointerLeave={handlePointerLeave}
       >
         <div
           className="map-canvas"
@@ -438,10 +547,12 @@ function createControlPattern(
 function renderUnits(
   svg: SVGSVGElement,
   units: Unit[],
+  selectedUnitId: string | null,
   animationFrom?: Unit[]
 ): void {
   const layer = svg.querySelector<SVGGElement>('#units');
   if (!layer) return;
+  layer.style.pointerEvents = 'auto';
   layer.replaceChildren();
 
   for (const unit of units) {
@@ -454,8 +565,14 @@ function renderUnits(
 
     const marker = document.createElementNS(SVG_NAMESPACE, 'g');
     marker.classList.add('unit-marker');
+    marker.classList.toggle('selected', unit.id === selectedUnitId);
     if (unit.mustRetreat) marker.classList.add('must-retreat');
+    marker.dataset.territory = unit.territory;
+    marker.dataset.unitId = unit.id;
     marker.setAttribute('transform', `translate(${x} ${y})`);
+    marker.setAttribute('tabindex', '0');
+    marker.setAttribute('focusable', 'true');
+    marker.setAttribute('role', 'button');
     marker.style.setProperty('--unit-color', POWER_COLORS[unit.power]);
     marker.setAttribute(
       'aria-label',
@@ -463,11 +580,12 @@ function renderUnits(
     );
 
     const body = document.createElementNS(SVG_NAMESPACE, 'rect');
-    body.setAttribute('x', '-18');
-    body.setAttribute('y', '-13');
-    body.setAttribute('width', '36');
-    body.setAttribute('height', '26');
-    body.setAttribute('rx', unit.type === 'FLEET' ? '13' : '5');
+    const selected = unit.id === selectedUnitId;
+    body.setAttribute('x', selected ? '-24' : '-18');
+    body.setAttribute('y', selected ? '-18' : '-13');
+    body.setAttribute('width', selected ? '48' : '36');
+    body.setAttribute('height', selected ? '36' : '26');
+    body.setAttribute('rx', unit.type === 'FLEET' ? (selected ? '18' : '13') : (selected ? '7' : '5'));
 
     const label = document.createElementNS(SVG_NAMESPACE, 'text');
     label.setAttribute('x', '0');
@@ -688,6 +806,26 @@ function territoryCenter(
   };
 }
 
+function centerMapOnPoint(
+  container: HTMLDivElement,
+  svg: SVGSVGElement,
+  point: Point
+): void {
+  const viewBox = svg.viewBox.baseVal;
+  if (!viewBox || viewBox.width === 0 || viewBox.height === 0) return;
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const contentWidth = container.scrollWidth;
+      const contentHeight = container.scrollHeight;
+      const xRatio = (point.x - viewBox.x) / viewBox.width;
+      const yRatio = (point.y - viewBox.y) / viewBox.height;
+      container.scrollLeft = contentWidth * xRatio - container.clientWidth / 2;
+      container.scrollTop = contentHeight * yRatio - container.clientHeight / 2;
+    });
+  });
+}
+
 function shortenLine(
   source: Point,
   target: Point,
@@ -723,6 +861,58 @@ function unitAnchor(unit: Unit): string {
 
 function toInternalTerritory(svgId: string): TerritoryId {
   return SVG_TO_INTERNAL[svgId] ?? svgId.toUpperCase();
+}
+
+function territoryFromEventTarget(target: EventTarget | null): TerritoryId | null {
+  if (!(target instanceof Element)) return null;
+  return target.closest<SVGElement>('[data-territory]')?.dataset.territory as TerritoryId | undefined ?? null;
+}
+
+function territoryFromClientPoint(clientX: number, clientY: number): TerritoryId | null {
+  for (const element of document.elementsFromPoint(clientX, clientY)) {
+    const territory = territoryFromEventTarget(element);
+    if (territory) return territory;
+  }
+  return null;
+}
+
+function nearestTerritoryFromClientPoint(
+  container: HTMLDivElement,
+  clientX: number,
+  clientY: number
+): TerritoryId | null {
+  const svg = container.querySelector('svg');
+  if (!(svg instanceof SVGSVGElement)) return null;
+  const screenMatrix = svg.getScreenCTM();
+  if (!screenMatrix) return null;
+
+  const point = svg.createSVGPoint();
+  point.x = clientX;
+  point.y = clientY;
+  const svgPoint = point.matrixTransform(screenMatrix.inverse());
+
+  let nearest: { territory: TerritoryId; distance: number } | null = null;
+  for (const shape of Array.from(svg.querySelectorAll<SVGElement>('.province-shape[data-territory]'))) {
+    const territory = shape.dataset.territory as TerritoryId | undefined;
+    if (!territory) continue;
+    const center = territoryCenter(svg, territory, null);
+    if (!center) continue;
+    const distance = Math.hypot(center.x - svgPoint.x, center.y - svgPoint.y);
+    if (!nearest || distance < nearest.distance) nearest = { territory, distance };
+  }
+
+  return nearest?.territory ?? null;
+}
+
+function inverseHexColor(hex: string): string {
+  const normalized = hex.replace('#', '');
+  if (!/^[0-9a-f]{6}$/i.test(normalized)) return '#ffffff';
+  const red = 255 - Number.parseInt(normalized.slice(0, 2), 16);
+  const green = 255 - Number.parseInt(normalized.slice(2, 4), 16);
+  const blue = 255 - Number.parseInt(normalized.slice(4, 6), 16);
+  return `#${[red, green, blue]
+    .map(channel => channel.toString(16).padStart(2, '0'))
+    .join('')}`;
 }
 
 function clampZoom(zoom: number): number {

@@ -34,3 +34,94 @@ export function adjacentTerritories(unit: Unit): TerritoryId[] {
   if (unit.coast) return entry.fleet[unit.coast] ?? [];
   return [...new Set(Object.values(entry.fleet).flat())];
 }
+
+export function convoyDestinations(unit: Unit, units: Unit[]): TerritoryId[] {
+  if (unit.type !== 'ARMY' || TERRITORY_BY_ID[unit.territory]?.type !== 'COASTAL') return [];
+
+  const fleetSeas = new Set(
+    convoyFleets(unit, units).map(candidate => candidate.territory)
+  );
+  if (fleetSeas.size === 0) return [];
+
+  const queue = fleetNeighbors(unit.territory).filter(territory => fleetSeas.has(territory));
+  const reachableSeas = new Set<TerritoryId>(queue);
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const sea = queue[index];
+    for (const neighbor of fleetNeighbors(sea)) {
+      if (!fleetSeas.has(neighbor) || reachableSeas.has(neighbor)) continue;
+      reachableSeas.add(neighbor);
+      queue.push(neighbor);
+    }
+  }
+
+  const destinations = new Set<TerritoryId>();
+  for (const sea of reachableSeas) {
+    for (const neighbor of fleetNeighbors(sea)) {
+      if (
+        neighbor !== unit.territory &&
+        TERRITORY_BY_ID[neighbor]?.type === 'COASTAL'
+      ) {
+        destinations.add(neighbor);
+      }
+    }
+  }
+  return [...destinations].sort();
+}
+
+export function convoyRoute(unit: Unit, units: Unit[], destination: TerritoryId): Unit[] {
+  if (
+    unit.type !== 'ARMY' ||
+    TERRITORY_BY_ID[unit.territory]?.type !== 'COASTAL' ||
+    TERRITORY_BY_ID[destination]?.type !== 'COASTAL' ||
+    destination === unit.territory
+  ) {
+    return [];
+  }
+
+  const fleetBySea = new Map(
+    convoyFleets(unit, units).map(fleet => [fleet.territory, fleet])
+  );
+  const queue = fleetNeighbors(unit.territory).filter(territory => fleetBySea.has(territory));
+  const previous = new Map<TerritoryId, TerritoryId | null>(
+    queue.map(territory => [territory, null])
+  );
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const sea = queue[index];
+    if (fleetNeighbors(sea).includes(destination)) {
+      const route: Unit[] = [];
+      let current: TerritoryId | null = sea;
+      while (current) {
+        const fleet = fleetBySea.get(current);
+        if (fleet) route.unshift(fleet);
+        current = previous.get(current) ?? null;
+      }
+      return route;
+    }
+
+    for (const neighbor of fleetNeighbors(sea)) {
+      if (!fleetBySea.has(neighbor) || previous.has(neighbor)) continue;
+      previous.set(neighbor, sea);
+      queue.push(neighbor);
+    }
+  }
+
+  return [];
+}
+
+function convoyFleets(unit: Unit, units: Unit[]): Unit[] {
+  return units.filter(candidate =>
+    candidate.type === 'FLEET' &&
+    candidate.power === unit.power &&
+    !candidate.mustRetreat &&
+    TERRITORY_BY_ID[candidate.territory]?.type === 'SEA'
+  );
+}
+
+function fleetNeighbors(territory: TerritoryId): TerritoryId[] {
+  const fleet = ADJACENCY[territory]?.fleet;
+  if (!fleet) return [];
+  if (Array.isArray(fleet)) return fleet;
+  return [...new Set(Object.values(fleet).flat())];
+}
