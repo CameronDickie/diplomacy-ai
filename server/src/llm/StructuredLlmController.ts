@@ -50,13 +50,18 @@ export class StructuredLlmController implements PowerController {
   constructor(
     readonly power: Power,
     private readonly model: string,
-    private readonly provider: LlmProvider
+    private readonly provider: LlmProvider,
+    private readonly runtime: {
+      timeoutMs?: number;
+      maxOutputTokens?: number;
+    } = {}
   ) {}
 
   async requestDiplomaticInitiative(
     context: ControllerContext,
     eligiblePowers: Power[],
-    validationErrors: string[] = []
+    validationErrors: string[] = [],
+    options: { allowHumanTargets?: boolean } = {}
   ): Promise<DiplomaticInitiativeDecision> {
     const result = await this.provider.completeJson<{
       toPower: Power | null;
@@ -66,13 +71,19 @@ export class StructuredLlmController implements PowerController {
       agreements: AgreementOutput[];
     }>({
       model: this.model,
+      timeoutMs: this.runtime.timeoutMs,
+      maxOutputTokens: this.runtime.maxOutputTokens,
       system: CONTROLLER_SYSTEM_PROMPT,
       prompt: [
         buildControllerPrompt(context, 'DIPLOMACY', validationErrors),
-        `You may initiate one brief private conversation with one of these LLM powers: ${eligiblePowers.join(', ')}.`,
+        options.allowHumanTargets
+          ? `You may initiate one brief private conversation with one of these powers: ${eligiblePowers.join(', ')}.`
+          : `You may initiate one brief private conversation with one of these LLM powers: ${eligiblePowers.join(', ')}.`,
         'Choose the most strategically relevant recipient. Set toPower to null and message to an empty string if no outreach is useful.',
         'Set expectsReply to true only when the other power needs to answer before you can finalize your orders.',
-        'Do not contact human powers in this autonomous negotiation round.',
+        options.allowHumanTargets
+          ? 'Human players may ignore outreach. Be concise and make the strategic reason to reply clear.'
+          : 'Do not contact human powers in this autonomous negotiation round.',
       ].join('\n'),
       schemaName: 'diplomacy_initiative',
       schema: diplomacyInitiativeSchema(eligiblePowers),
@@ -97,6 +108,8 @@ export class StructuredLlmController implements PowerController {
       agreements: AgreementOutput[];
     }>({
       model: this.model,
+      timeoutMs: this.runtime.timeoutMs,
+      maxOutputTokens: this.runtime.maxOutputTokens,
       system: CONTROLLER_SYSTEM_PROMPT,
       prompt: [
         buildControllerPrompt(context, 'DIPLOMACY', validationErrors),
@@ -123,6 +136,8 @@ export class StructuredLlmController implements PowerController {
       agreements: AgreementOutput[];
     }>({
       model: this.model,
+      timeoutMs: this.runtime.timeoutMs,
+      maxOutputTokens: this.runtime.maxOutputTokens,
       system: CONTROLLER_SYSTEM_PROMPT,
       prompt: [
         buildControllerPrompt(context, 'DIPLOMACY'),
@@ -151,20 +166,30 @@ export class StructuredLlmController implements PowerController {
     const result = await this.provider.completeJson<{
       strategicSummary: string;
       agreements: AgreementOutput[];
+      selectedSuggestionId: string | null;
       actions: OrderOutput[];
     }>({
       model: this.model,
+      timeoutMs: this.runtime.timeoutMs,
+      maxOutputTokens: this.runtime.maxOutputTokens,
       system: CONTROLLER_SYSTEM_PROMPT,
       prompt: buildControllerPrompt(context, 'ORDERS', validationErrors),
       schemaName: 'diplomacy_orders',
       schema: ordersSchema,
     });
+    const selectedSuggestion = result.value.selectedSuggestionId
+      ? context.moveSuggestions?.find(
+          suggestion => suggestion.id === result.value.selectedSuggestionId
+        )
+      : undefined;
     return {
-      actions: result.value.actions.map(action => ({
-        id: randomUUID(),
-        power: this.power,
-        ...action,
-      })),
+      actions: selectedSuggestion
+        ? selectedSuggestion.orders.map(order => ({ ...order, id: randomUUID() }))
+        : result.value.actions.map(action => ({
+            id: randomUUID(),
+            power: this.power,
+            ...action,
+          })),
       strategicSummary: result.value.strategicSummary,
       agreements: toAgreements(result.value.agreements, context),
       usage: result.usage,
@@ -181,6 +206,8 @@ export class StructuredLlmController implements PowerController {
       actions: Array<{ unitId: string; territory: TerritoryId | null; coast: Coast | null }>;
     }>({
       model: this.model,
+      timeoutMs: this.runtime.timeoutMs,
+      maxOutputTokens: this.runtime.maxOutputTokens,
       system: CONTROLLER_SYSTEM_PROMPT,
       prompt: buildControllerPrompt(context, 'RETREATS', validationErrors),
       schemaName: 'diplomacy_retreats',
@@ -210,6 +237,8 @@ export class StructuredLlmController implements PowerController {
       disbands: string[];
     }>({
       model: this.model,
+      timeoutMs: this.runtime.timeoutMs,
+      maxOutputTokens: this.runtime.maxOutputTokens,
       system: CONTROLLER_SYSTEM_PROMPT,
       prompt: buildControllerPrompt(context, 'BUILDS', validationErrors),
       schemaName: 'diplomacy_builds',
@@ -300,9 +329,10 @@ function conversationInstruction(context: DiplomaticConversationContext): string
 const ordersSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['strategicSummary', 'agreements', 'actions'],
+  required: ['strategicSummary', 'agreements', 'selectedSuggestionId', 'actions'],
   properties: {
     ...commonDecisionProperties,
+    selectedSuggestionId: { type: ['string', 'null'] },
     actions: {
       type: 'array',
       items: {

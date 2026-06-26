@@ -21,6 +21,8 @@ export class OpenAIProvider implements LlmProvider {
 
   async completeJson<T>(request: {
     model: string;
+    timeoutMs?: number;
+    maxOutputTokens?: number;
     system: string;
     prompt: string;
     schemaName: string;
@@ -47,8 +49,9 @@ export class OpenAIProvider implements LlmProvider {
             schema: request.schema,
           },
         },
+        max_output_tokens: request.maxOutputTokens,
       }),
-      signal: AbortSignal.timeout(90_000),
+      signal: AbortSignal.timeout(request.timeoutMs ?? 90_000),
     });
 
     const payload = await response.json() as OpenAIResponse;

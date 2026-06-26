@@ -241,12 +241,16 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                   onChange={event => {
                     const provider = event.target.value as LlmProviderId;
                     if (provider === 'OPENAI' && !auth.authenticated) return;
+                    if (provider === 'GEMINI' && !auth.authenticated) return;
                     setLlmProvider(provider);
-                    setLlmModel(provider === 'OPENAI' ? 'gpt-5.5' : 'auto-hold-v0');
+                    setLlmModel(provider === 'OPENAI'
+                      ? 'gpt-5.4-mini'
+                      : provider === 'GEMINI' ? 'gemini-3.1-flash-lite' : 'auto-hold-v0');
                   }}
                 >
                   <option value="STUB">Stub (auto-hold)</option>
                   <option value="OPENAI" disabled={!auth.authenticated}>OpenAI</option>
+                  <option value="GEMINI" disabled={!auth.authenticated}>Gemini</option>
                 </select>
               </label>
               <label>

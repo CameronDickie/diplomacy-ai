@@ -82,7 +82,7 @@ test('unauthenticated hosts cannot enable authenticated AI features', async () =
     gameId: room.gameId,
     power: 'ENGLAND',
     provider: 'OPENAI',
-    model: 'gpt-5.5',
+    model: 'gpt-5.4-mini',
   });
   assertLastError(host, 'AUTH_REQUIRED');
   assert.equal(room.getState().players.some(player => player.power === 'ENGLAND'), false);
@@ -107,7 +107,7 @@ test('authenticated hosts can enable AI and lock the room behind auth', async ()
     gameId: room.gameId,
     power: 'ENGLAND',
     provider: 'OPENAI',
-    model: 'gpt-5.5',
+    model: 'gpt-5.4-mini',
   });
 
   assert.equal(room.getState().players.some(player => player.power === 'ENGLAND'), true);
@@ -121,6 +121,23 @@ test('authenticated hosts can enable AI and lock the room behind auth', async ()
   });
   assertLastError(guest, 'AUTH_REQUIRED');
   assert.equal(room.getState().players.some(player => player.power === 'FRANCE'), false);
+});
+
+test('authenticated hosts cannot select disallowed paid models', async () => {
+  const manager = new GameManager();
+  const room = manager.createGame();
+  assert.ok(room.addPlayer('host-socket', 'Host', 'AUSTRIA'));
+
+  const host = socketWithGameHandlers('host-socket', manager, true);
+  await invoke(host, 'add_llm_player', {
+    gameId: room.gameId,
+    power: 'ENGLAND',
+    provider: 'OPENAI',
+    model: 'gpt-5.5',
+  });
+
+  assertLastError(host, 'INVALID_LLM_MODEL');
+  assert.equal(room.getState().players.some(player => player.power === 'ENGLAND'), false);
 });
 
 test('authenticated AI rooms reject unauthenticated play events', async () => {

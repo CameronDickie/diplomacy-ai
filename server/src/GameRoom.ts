@@ -18,6 +18,7 @@ import type {
   LlmPlayer,
   LlmRunArtifact,
   LlmProviderId,
+  LlmModelRole,
   GameSettings,
   PublicBoardSnapshot,
   PublicPhaseReport,
@@ -25,6 +26,7 @@ import type {
   AdjustmentResolution,
   DiplomacyTransportSource,
   TerritoryId,
+  LlmOutreachRequest,
 } from '@diplomacy/shared';
 import {
   ALL_POWERS,
@@ -42,6 +44,16 @@ import type {
 } from './llm/PowerController.js';
 import { createPowerController } from './llm/createPowerController.js';
 import { PROMPT_VERSION } from './llm/PromptBuilder.js';
+import { suggestMoveOrderSets } from './llm/MoveSuggestionEngine.js';
+import {
+  buildLlmRuntimePolicy,
+  estimateLlmCostUsd,
+  isModelAllowed,
+  isModelAllowedForAnyPaidProvider,
+  isProviderAllowed,
+  resolveLlmModel,
+  type LlmRuntimePolicy,
+} from './llm/policy.js';
 
 export class GameRoom {
   readonly gameId: string;
@@ -54,6 +66,7 @@ export class GameRoom {
   private phaseHistory: PublicPhaseReport[] = [];
   private llmMemories = new Map<Power, LlmDiplomacyMemory>();
   private llmRunArtifacts: LlmRunArtifact[] = [];
+  private llmOutreachRequests: LlmOutreachRequest[] = [];
   private llmQueues = new Map<Power, Promise<unknown>>();
   private diplomacyParticipantLocks = new Map<Power, Promise<unknown>>();
   private voiceLocks = new Map<Power, Promise<void>>();
@@ -67,10 +80,19 @@ export class GameRoom {
   private ordersCompletion: Promise<void> | null = null;
   private retreatsCompletion: Promise<void> | null = null;
   private buildsCompletion: Promise<void> | null = null;
+  private turnStartPlanning: Promise<void> | null = null;
+  private turnStartPlanningCompletedFor = new Set<string>();
+  private estimatedLlmSpendUsd = 0;
   private io?: Server<ClientToServerEvents, ServerToClientEvents>;
   private readonly controllerFactory: PowerControllerFactory;
+  private readonly llmPolicy: LlmRuntimePolicy;
+  private readonly enforceLlmPolicy: boolean;
 
-  constructor(options: { controllerFactory?: PowerControllerFactory } = {}) {
+  constructor(options: {
+    controllerFactory?: PowerControllerFactory;
+    llmPolicy?: LlmRuntimePolicy;
+    enforceLlmPolicy?: boolean;
+  } = {}) {
     this.gameId = randomUUID().slice(0, 8).toUpperCase();
     this.controllerFactory = options.controllerFactory ?? (controllerOptions =>
       createPowerController({
@@ -78,6 +100,8 @@ export class GameRoom {
         provider: controllerOptions.provider as LlmProviderId,
       })
     );
+    this.llmPolicy = options.llmPolicy ?? buildLlmRuntimePolicy();
+    this.enforceLlmPolicy = options.enforceLlmPolicy ?? !options.controllerFactory;
     this.state = this.buildInitialState();
   }
 
@@ -169,6 +193,31 @@ export class GameRoom {
     this.state.accessMode = 'AUTHENTICATED_AI';
   }
 
+  validateLlmPlayerOptions(options: {
+    provider?: LlmProviderId;
+    model?: string;
+  }): { ok: true } | { ok: false; code: string; message: string } {
+    if (!this.enforceLlmPolicy) return { ok: true };
+    const provider = options.provider ?? 'STUB';
+    if (!isProviderAllowed(this.llmPolicy, provider)) {
+      return {
+        ok: false,
+        code: 'AI_PROVIDER_NOT_ALLOWED',
+        message: `${provider} is not allowed by this server`,
+      };
+    }
+    if (provider === 'STUB') return { ok: true };
+    const model = options.model?.trim() || this.llmPolicy.defaultModels[provider]?.ORDERS;
+    if (!model || !isModelAllowed(this.llmPolicy, provider, model)) {
+      return {
+        ok: false,
+        code: 'INVALID_LLM_MODEL',
+        message: `${provider} model ${model || '(default)'} is not allowed by this server`,
+      };
+    }
+    return { ok: true };
+  }
+
   updateLlmNegotiationInitiators(count: number): boolean {
     return this.updateGameSettings({ llmNegotiationInitiators: count });
   }
@@ -200,6 +249,13 @@ export class GameRoom {
       !Number.isFinite(next.voiceAutoCommitSilenceSeconds) ||
       next.voiceAutoCommitSilenceSeconds < 1 ||
       next.voiceAutoCommitSilenceSeconds > 10
+    ) {
+      return false;
+    }
+    if (
+      this.enforceLlmPolicy &&
+      next.llmNegotiationPlannerModel.trim() &&
+      !isModelAllowedForAnyPaidProvider(this.llmPolicy, next.llmNegotiationPlannerModel)
     ) {
       return false;
     }
@@ -268,6 +324,11 @@ export class GameRoom {
     voice?: string;
     voiceInstructions?: string | null;
   } = {}): Player | null {
+    const validation = this.validateLlmPlayerOptions({
+      provider: options.provider,
+      model: options.model,
+    });
+    if (!validation.ok) return null;
     const availablePowers = this.getAvailablePowers();
     const requestedPower = options.power ?? 'RANDOM';
     const available = requestedPower === 'RANDOM'
@@ -281,7 +342,7 @@ export class GameRoom {
       name: options.name?.trim() || `${available} Bot`,
       power: available,
       provider: options.provider ?? 'STUB',
-      model: options.model ?? 'auto-hold-v0',
+      model: options.model?.trim() || this.defaultSeatModel(options.provider ?? 'STUB'),
       persona: options.persona ?? null,
       realtimeModel: options.realtimeModel?.trim() || 'gpt-realtime-2',
       voice: normalizeRealtimeVoice(options.voice, available),
@@ -304,6 +365,11 @@ export class GameRoom {
   getAvailablePowers(): Power[] {
     const assignedPowers = new Set(this.state.players.map(player => player.power));
     return ALL_POWERS.filter(power => !assignedPowers.has(power));
+  }
+
+  private defaultSeatModel(provider: LlmProviderId): string {
+    if (provider === 'STUB') return 'auto-hold-v0';
+    return this.llmPolicy.defaultModels[provider]?.ORDERS ?? 'auto-hold-v0';
   }
 
   validateDiplomaticMessage(fromPower: Power, toPower: Power, body: string): string | null {
@@ -340,6 +406,7 @@ export class GameRoom {
     );
     const messages = [message];
     this.deliverDiplomaticMessage(message);
+    this.markOpenOutreachReplied(fromPower, toPower);
     const recipient = this.state.players.find(player => player.power === toPower);
 
     if (recipient?.kind === 'LLM') {
@@ -452,12 +519,14 @@ export class GameRoom {
   async reconcileVoiceMemory(power: Power): Promise<void> {
     const player = this.getLlmPlayer(power);
     if (!player) throw new Error(`${power} is not an LLM power`);
-    const controller = this.controllerFor(player);
+    const model = this.resolveControllerModel(player, 'MEMORY');
+    const controller = this.controllerFor(player, 'MEMORY', model);
     if (!controller.reconcileDiplomaticMemory) return;
 
     const started = Date.now();
-    const artifact = this.createRunArtifact(player, 'DIPLOMACY');
+    const artifact = this.createRunArtifact(player, 'DIPLOMACY', 'MEMORY', model);
     this.recordRunStatus(artifact, 'THINKING');
+    if (!this.canSpendForLlmRun(artifact)) return;
     try {
       const decision = await controller.reconcileDiplomaticMemory(
         this.controllerContext(player)
@@ -466,8 +535,7 @@ export class GameRoom {
       this.completeRunArtifact(artifact, decision, {
         kind: 'VOICE_MEMORY_RECONCILIATION',
       });
-      artifact.inputTokens = decision.usage?.inputTokens ?? null;
-      artifact.outputTokens = decision.usage?.outputTokens ?? null;
+      this.recordRunUsage(artifact, decision.usage);
       artifact.latencyMs = Date.now() - started;
       this.recordRunStatus(artifact, 'COMPLETE');
       this.llmRunArtifacts.push(artifact);
@@ -499,6 +567,14 @@ export class GameRoom {
   getLlmRunArtifacts(power?: Power): LlmRunArtifact[] {
     return structuredClone(
       this.llmRunArtifacts.filter(artifact => !power || artifact.power === power)
+    );
+  }
+
+  getLlmOutreachRequests(power?: Power): LlmOutreachRequest[] {
+    return structuredClone(
+      this.llmOutreachRequests.filter(request =>
+        !power || request.fromPower === power || request.toPower === power
+      )
     );
   }
 
@@ -538,6 +614,7 @@ export class GameRoom {
   async startGame(): Promise<boolean> {
     if (this.state.status !== 'LOBBY' || !this.canStart()) return false;
     this.state.status = 'IN_PROGRESS';
+    this.scheduleTurnStartPlanning();
     await this.completeOrdersPhaseIfReady();
     return true;
   }
@@ -556,6 +633,7 @@ export class GameRoom {
     if (this.state.phase !== 'ORDERS') return;
     if (this.state.submittedPowers.includes(power)) return;
 
+    this.markOpenOutreachIgnored(power);
     this.pendingOrders.set(power, orders);
     this.state.submittedPowers = [...this.state.submittedPowers, power];
 
@@ -740,6 +818,7 @@ export class GameRoom {
     const reportYear = this.state.year;
     const reportSeason = this.state.season;
     const before = this.publicBoardSnapshot();
+    this.expireOpenOutreachForCurrentPhase();
     const allOrders = Array.from(this.pendingOrders.values()).flat();
     const adjudication = adjudicateWithGodip(this.state, allOrders);
     const result = adjudication.result;
@@ -913,6 +992,7 @@ export class GameRoom {
       this.state.season = 'FALL';
       this.state.phase = 'ORDERS';
       this.broadcast('game_state_sync', { gameState: this.state });
+      this.scheduleTurnStartPlanning();
       return;
     }
 
@@ -973,7 +1053,11 @@ export class GameRoom {
       const llmPlayers = this.getLlmPlayers().filter(
         player => activePowers.includes(player.power) && !this.pendingOrders.has(player.power)
       );
-      await this.runLlmNegotiationRound(llmPlayers);
+      const phaseKey = this.currentOrdersPhaseKey();
+      if (this.turnStartPlanning) await this.turnStartPlanning;
+      if (!this.turnStartPlanningCompletedFor.has(phaseKey)) {
+        await this.runLlmNegotiationRound(llmPlayers);
+      }
       await Promise.all(llmPlayers.map(async player => {
         const decision = await this.generatePhaseDecision(
           player,
@@ -1037,6 +1121,107 @@ export class GameRoom {
     }));
   }
 
+  private scheduleTurnStartPlanning(): void {
+    if (this.state.status !== 'IN_PROGRESS' || this.state.phase !== 'ORDERS') return;
+    const phaseKey = this.currentOrdersPhaseKey();
+    if (this.turnStartPlanning || this.turnStartPlanningCompletedFor.has(phaseKey)) return;
+    const conversationalPlayers = this.getLlmPlayers()
+      .filter(player => player.provider !== 'STUB')
+      .filter(player => this.state.units.some(unit => unit.power === player.power && !unit.mustRetreat));
+    if (conversationalPlayers.length === 0) {
+      this.turnStartPlanningCompletedFor.add(phaseKey);
+      return;
+    }
+    this.turnStartPlanning = this.runTurnStartLlmPlanning(phaseKey, conversationalPlayers)
+      .finally(() => {
+        if (this.turnStartPlanningCompletedFor.has(phaseKey)) this.turnStartPlanning = null;
+      });
+  }
+
+  private async runTurnStartLlmPlanning(
+    phaseKey: string,
+    players: LlmPlayer[]
+  ): Promise<void> {
+    try {
+      const configuredInitiators = this.state.settings.llmNegotiationInitiators;
+      if (configuredInitiators === 0) return;
+      const sortedPlayers = [...players].sort(
+        (left, right) => ALL_POWERS.indexOf(left.power) - ALL_POWERS.indexOf(right.power)
+      );
+      const seasonOffset = this.state.season === 'FALL' ? 1 : 0;
+      const startIndex = (this.state.year * 2 + seasonOffset) % sortedPlayers.length;
+      const initiators = Array.from(
+        { length: Math.min(configuredInitiators, sortedPlayers.length) },
+        (_, index) => sortedPlayers[(startIndex + index) % sortedPlayers.length]
+      );
+
+      const initiatives = await Promise.all(initiators.map(async initiator => {
+        const eligiblePowers = this.state.players
+          .map(player => player.power)
+          .filter(power => power !== initiator.power);
+        const initiative = await this.generateDiplomaticInitiative(
+          initiator,
+          eligiblePowers,
+          true
+        );
+        return { initiator, initiative };
+      }));
+
+      await Promise.all(initiatives.map(({ initiator, initiative }) => {
+        if (!initiative.toPower) return Promise.resolve();
+        const recipient = this.state.players.find(player => player.power === initiative.toPower);
+        if (recipient?.kind === 'HUMAN') {
+          this.deliverTurnStartHumanOutreach(
+            initiator.power,
+            recipient.power,
+            initiative.message
+          );
+          return Promise.resolve();
+        }
+        return this.runSerializedDiplomacy(
+          [initiator.power, initiative.toPower],
+          this.state.settings.llmNegotiationMaxMessages,
+          0,
+          conversationId => this.runAutonomousConversation(
+            initiator,
+            initiative.toPower!,
+            initiative.message,
+            initiative.expectsReply,
+            conversationId
+          )
+        );
+      }));
+    } catch (error) {
+      console.warn(
+        `Turn-start LLM planning failed for ${this.gameId}:`,
+        error instanceof Error ? error.message : error
+      );
+    } finally {
+      this.turnStartPlanningCompletedFor.add(phaseKey);
+    }
+  }
+
+  private deliverTurnStartHumanOutreach(
+    fromPower: Power,
+    toPower: Power,
+    body: string
+  ): void {
+    const message = this.createDiplomaticMessage(fromPower, toPower, body, true);
+    this.deliverDiplomaticMessage(message);
+    this.llmOutreachRequests.push({
+      id: randomUUID(),
+      fromPower,
+      toPower,
+      messageId: message.id,
+      year: message.year,
+      season: message.season,
+      phase: message.phase,
+      status: 'OPEN',
+      createdAt: message.sentAt,
+      resolvedAt: null,
+    });
+  }
+
   private async runAutonomousConversation(
     initiator: LlmPlayer,
     recipientPower: Power,
@@ -1091,15 +1276,24 @@ export class GameRoom {
 
   private async generateDiplomaticInitiative(
     player: LlmPlayer,
-    eligiblePowers: Power[]
+    eligiblePowers: Power[],
+    allowHumanTargets = false
   ): Promise<{ toPower: Power | null; message: string; expectsReply: boolean }> {
     const started = Date.now();
     const plannerModel =
       this.state.settings.llmNegotiationPlannerModel || player.model;
-    const artifact = this.createRunArtifact(player, 'DIPLOMACY', plannerModel);
+    const model = this.resolveControllerModel(player, 'DIPLOMACY_INITIATIVE', plannerModel);
+    const artifact = this.createRunArtifact(
+      player,
+      'DIPLOMACY',
+      'DIPLOMACY_INITIATIVE',
+      model
+    );
     let errors: string[] = [];
 
-    for (let attempt = 0; attempt < 2; attempt++) {
+    if (!this.canSpendForLlmRun(artifact)) return { toPower: null, message: '', expectsReply: false };
+
+    for (let attempt = 0; attempt < this.maxLlmAttempts(); attempt++) {
       this.recordRunStatus(artifact, attempt === 0 ? 'THINKING' : 'RETRYING');
       this.broadcastLlmStatus(
         player.power,
@@ -1107,10 +1301,15 @@ export class GameRoom {
         'DIPLOMACY'
       );
       try {
-        const decision = await this.controllerFor(player, plannerModel).requestDiplomaticInitiative(
+        const decision = await this.controllerFor(
+          player,
+          'DIPLOMACY_INITIATIVE',
+          model
+        ).requestDiplomaticInitiative(
           this.controllerContext(player),
           eligiblePowers,
-          errors
+          errors,
+          { allowHumanTargets }
         );
         const message = decision.message.trim();
         errors = [];
@@ -1132,8 +1331,7 @@ export class GameRoom {
             message,
             expectsReply: decision.expectsReply ?? true,
           });
-          artifact.inputTokens = decision.usage?.inputTokens ?? null;
-          artifact.outputTokens = decision.usage?.outputTokens ?? null;
+          this.recordRunUsage(artifact, decision.usage);
           artifact.retryCount = attempt;
           artifact.latencyMs = Date.now() - started;
           this.recordRunStatus(artifact, 'COMPLETE');
@@ -1150,7 +1348,7 @@ export class GameRoom {
       }
     }
 
-    artifact.retryCount = 1;
+    artifact.retryCount = Math.max(0, this.maxLlmAttempts() - 1);
     artifact.validationErrors = errors;
     artifact.fallbackReason = errors.join('; ') || 'Invalid diplomatic initiative';
     artifact.latencyMs = Date.now() - started;
@@ -1248,21 +1446,24 @@ export class GameRoom {
     fallback: () => T
   ): Promise<T> {
     const started = Date.now();
-    const artifact = this.createRunArtifact(player, purpose);
+    const modelRole = purpose as LlmModelRole;
+    const model = this.resolveControllerModel(player, modelRole);
+    const artifact = this.createRunArtifact(player, purpose, modelRole, model);
     let errors: string[] = [];
 
-    for (let attempt = 0; attempt < 2; attempt++) {
+    if (!this.canSpendForLlmRun(artifact)) return fallback();
+
+    for (let attempt = 0; attempt < this.maxLlmAttempts(); attempt++) {
       this.recordRunStatus(artifact, attempt === 0 ? 'THINKING' : 'RETRYING');
       this.broadcastLlmStatus(player.power, attempt === 0 ? 'THINKING' : 'RETRYING', purpose);
       try {
-        const controller = this.controllerFor(player);
+        const controller = this.controllerFor(player, modelRole, model);
         const decision = await request(controller, errors);
         errors = validate(decision.actions);
         if (errors.length === 0) {
           this.applyControllerMemory(player.power, decision);
           this.completeRunArtifact(artifact, decision, decision.actions);
-          artifact.inputTokens = decision.usage?.inputTokens ?? null;
-          artifact.outputTokens = decision.usage?.outputTokens ?? null;
+          this.recordRunUsage(artifact, decision.usage);
           artifact.retryCount = attempt;
           artifact.validationErrors = [];
           artifact.latencyMs = Date.now() - started;
@@ -1276,7 +1477,7 @@ export class GameRoom {
       }
     }
 
-    artifact.retryCount = 1;
+    artifact.retryCount = Math.max(0, this.maxLlmAttempts() - 1);
     artifact.validationErrors = errors;
     artifact.fallbackReason = errors.join('; ') || 'Invalid controller output';
     artifact.latencyMs = Date.now() - started;
@@ -1299,10 +1500,23 @@ export class GameRoom {
     broadcastStatus = false
   ): Promise<{ reply: string; expectsReply: boolean }> {
     const started = Date.now();
-    const artifact = this.createRunArtifact(player, 'DIPLOMACY');
+    const model = this.resolveControllerModel(player, 'DIPLOMACY_REPLY');
+    const artifact = this.createRunArtifact(
+      player,
+      'DIPLOMACY',
+      'DIPLOMACY_REPLY',
+      model
+    );
     let errors: string[] = [];
 
-    for (let attempt = 0; attempt < 2; attempt++) {
+    if (!this.canSpendForLlmRun(artifact)) {
+      return {
+        reply: 'Message received. I will consider this in my next phase decision.',
+        expectsReply: false,
+      };
+    }
+
+    for (let attempt = 0; attempt < this.maxLlmAttempts(); attempt++) {
       const status = attempt === 0 ? 'THINKING' : 'RETRYING';
       this.recordRunStatus(artifact, status);
       if (broadcastStatus) {
@@ -1316,7 +1530,11 @@ export class GameRoom {
         );
       }
       try {
-        const decision = await this.controllerFor(player).requestDiplomaticReply(
+        const decision = await this.controllerFor(
+          player,
+          'DIPLOMACY_REPLY',
+          model
+        ).requestDiplomaticReply(
           this.controllerContext(player),
           incomingMessage,
           conversation,
@@ -1332,8 +1550,7 @@ export class GameRoom {
             reply,
             expectsReply: decision.expectsReply ?? false,
           });
-          artifact.inputTokens = decision.usage?.inputTokens ?? null;
-          artifact.outputTokens = decision.usage?.outputTokens ?? null;
+          this.recordRunUsage(artifact, decision.usage);
           artifact.retryCount = attempt;
           artifact.latencyMs = Date.now() - started;
           this.recordRunStatus(artifact, 'COMPLETE');
@@ -1355,7 +1572,7 @@ export class GameRoom {
       }
     }
 
-    artifact.retryCount = 1;
+    artifact.retryCount = Math.max(0, this.maxLlmAttempts() - 1);
     artifact.validationErrors = errors;
     artifact.fallbackReason = errors.join('; ') || 'Invalid diplomatic reply';
     artifact.latencyMs = Date.now() - started;
@@ -1408,11 +1625,140 @@ export class GameRoom {
     };
   }
 
-  private controllerFor(player: LlmPlayer, model = player.model): PowerController {
+  private resolveControllerModel(
+    player: LlmPlayer,
+    modelRole: LlmModelRole,
+    requestedModel = player.model
+  ): string {
+    if (!this.enforceLlmPolicy) return requestedModel || player.model;
+    return resolveLlmModel({
+      policy: this.llmPolicy,
+      provider: player.provider,
+      requestedModel,
+      role: modelRole,
+    });
+  }
+
+  private maxLlmAttempts(): number {
+    return this.enforceLlmPolicy ? this.llmPolicy.maxRetries + 1 : 2;
+  }
+
+  private canSpendForLlmRun(artifact: LlmRunArtifact): boolean {
+    if (!this.enforceLlmPolicy || artifact.provider === 'STUB') return true;
+    if (this.estimatedLlmSpendUsd < this.llmPolicy.maxGameSpendUsd) return true;
+    artifact.fallbackReason = `Estimated LLM spend cap reached (${this.llmPolicy.maxGameSpendUsd} USD)`;
+    artifact.latencyMs = 0;
+    this.recordRunStatus(artifact, 'FALLBACK');
+    this.recordRunStatus(artifact, 'COMPLETE');
+    this.llmRunArtifacts.push(artifact);
+    this.broadcastLlmStatus(artifact.power, 'FALLBACK', artifact.purpose);
+    this.broadcastLlmStatus(artifact.power, 'IDLE', artifact.purpose);
+    return false;
+  }
+
+  private recordRunUsage(
+    artifact: LlmRunArtifact,
+    usage?: {
+      inputTokens: number | null;
+      outputTokens: number | null;
+    }
+  ): void {
+    artifact.inputTokens = usage?.inputTokens ?? null;
+    artifact.outputTokens = usage?.outputTokens ?? null;
+    artifact.estimatedCostUsd = estimateLlmCostUsd({
+      provider: artifact.provider,
+      model: artifact.model,
+      inputTokens: artifact.inputTokens,
+      outputTokens: artifact.outputTokens,
+    });
+    if (artifact.estimatedCostUsd !== null) {
+      this.estimatedLlmSpendUsd += artifact.estimatedCostUsd;
+    }
+  }
+
+  private currentOrdersPhaseKey(): string {
+    return `${this.state.year}-${this.state.season}-${this.state.phase}`;
+  }
+
+  private markOpenOutreachReplied(fromPower: Power, toPower: Power): void {
+    const now = new Date().toISOString();
+    let changed = false;
+    for (const request of this.llmOutreachRequests) {
+      if (
+        request.status === 'OPEN' &&
+        request.fromPower === toPower &&
+        request.toPower === fromPower &&
+        request.year === this.state.year &&
+        request.season === this.state.season &&
+        request.phase === this.state.phase
+      ) {
+        request.status = 'REPLIED';
+        request.resolvedAt = now;
+        changed = true;
+      }
+    }
+    if (changed) this.refreshLlmDiplomacyContexts();
+  }
+
+  private markOpenOutreachIgnored(power: Power): void {
+    const now = new Date().toISOString();
+    let changed = false;
+    for (const request of this.llmOutreachRequests) {
+      if (
+        request.status === 'OPEN' &&
+        request.toPower === power &&
+        request.year === this.state.year &&
+        request.season === this.state.season &&
+        request.phase === this.state.phase
+      ) {
+        request.status = 'IGNORED';
+        request.resolvedAt = now;
+        changed = true;
+      }
+    }
+    if (changed) this.refreshLlmDiplomacyContexts();
+  }
+
+  private expireOpenOutreachForCurrentPhase(): void {
+    const now = new Date().toISOString();
+    let changed = false;
+    for (const request of this.llmOutreachRequests) {
+      if (
+        request.status === 'OPEN' &&
+        request.year === this.state.year &&
+        request.season === this.state.season &&
+        request.phase === this.state.phase
+      ) {
+        request.status = 'EXPIRED';
+        request.resolvedAt = now;
+        changed = true;
+      }
+    }
+    if (changed) this.refreshLlmDiplomacyContexts();
+  }
+
+  private refreshLlmDiplomacyContexts(): void {
+    for (const power of this.llmMemories.keys()) {
+      const memory = this.llmMemories.get(power);
+      if (!memory) continue;
+      memory.diplomaticContext = this.buildPrivateDiplomaticContext(power);
+      memory.updatedAt = new Date().toISOString();
+      memory.revision++;
+    }
+  }
+
+  private controllerFor(
+    player: LlmPlayer,
+    modelRole: LlmModelRole,
+    model = this.resolveControllerModel(player, modelRole)
+  ): PowerController {
     return this.controllerFactory({
       power: player.power,
       provider: player.provider,
       model,
+      modelRole,
+      timeoutMs: this.llmPolicy.requestTimeoutMs,
+      maxOutputTokens: this.llmPolicy.maxOutputTokens,
     });
   }
 
@@ -1425,6 +1771,9 @@ export class GameRoom {
       persona: player.persona,
       messages: this.getDiplomaticMessages(player.power),
       memory: this.getLlmDiplomacyMemory(player.power)!,
+      moveSuggestions: this.state.phase === 'ORDERS'
+        ? suggestMoveOrderSets(this.state, player.power)
+        : [],
     };
   }
 
@@ -1443,7 +1792,8 @@ export class GameRoom {
   private createRunArtifact(
     player: LlmPlayer,
     purpose: LlmRunArtifact['purpose'],
-    model = player.model
+    modelRole: LlmModelRole,
+    model = this.resolveControllerModel(player, modelRole)
   ): LlmRunArtifact {
     const context = this.controllerContext(player);
     return {
@@ -1453,6 +1803,7 @@ export class GameRoom {
       season: this.state.season,
       phase: this.state.phase,
       purpose,
+      modelRole,
       provider: player.provider,
       model,
       promptVersion: PROMPT_VERSION,
@@ -1463,6 +1814,7 @@ export class GameRoom {
       validationErrors: [],
       inputTokens: null,
       outputTokens: null,
+      estimatedCostUsd: null,
       contextMessageIds: context.messages.map(message => message.id),
       memoryRevisionBefore: context.memory.revision,
       strategicSummary: null,
@@ -1692,14 +2044,25 @@ export class GameRoom {
         ...(memory.messageIdsByPower[otherPower] ?? []),
         message.id,
       ];
-      memory.diplomaticContext = this.diplomaticMessages
-        .filter(candidate => candidate.fromPower === power || candidate.toPower === power)
-        .map(candidate =>
-          `[${candidate.year} ${candidate.season} ${candidate.phase}] ` +
-          `${candidate.fromPower} -> ${candidate.toPower}: ${candidate.body}`
-        )
-        .join('\n');
+      memory.diplomaticContext = this.buildPrivateDiplomaticContext(power);
     }
+  }
+
+  private buildPrivateDiplomaticContext(power: Power): string {
+    const messageLines = this.diplomaticMessages
+      .filter(candidate => candidate.fromPower === power || candidate.toPower === power)
+      .map(candidate =>
+        `[${candidate.year} ${candidate.season} ${candidate.phase}] ` +
+        `${candidate.fromPower} -> ${candidate.toPower}: ${candidate.body}`
+      );
+    const outreachLines = this.llmOutreachRequests
+      .filter(request => request.fromPower === power || request.toPower === power)
+      .filter(request => request.status !== 'OPEN')
+      .map(request =>
+        `[${request.year} ${request.season} ${request.phase}] ` +
+        `Outreach ${request.fromPower} -> ${request.toPower} was ${request.status.toLowerCase()}.`
+      );
+    return [...messageLines, ...outreachLines].join('\n');
   }
 
   private getSocketIdForPower(power: Power): string | null {
@@ -1787,6 +2150,7 @@ export class GameRoom {
     this.state.season = 'SPRING';
     this.state.phase = 'ORDERS';
     this.broadcast('game_state_sync', { gameState: this.state });
+    this.scheduleTurnStartPlanning();
   }
 
   broadcast<Ev extends keyof ServerToClientEvents>(

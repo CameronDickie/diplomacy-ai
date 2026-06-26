@@ -9,6 +9,7 @@ import type {
 } from '@diplomacy/shared';
 import type { PowerController } from '../llm/PowerController.js';
 import { CONTROLLER_SYSTEM_PROMPT } from '../llm/PromptBuilder.js';
+import { buildLlmRuntimePolicy } from '../llm/policy.js';
 import { GameRoom } from '../GameRoom.js';
 
 test('human sessions resume without exposing socket IDs', () => {
@@ -168,13 +169,13 @@ test('host-configurable LLM negotiation count is validated and stored', () => {
     llmNegotiationInitiators: 5,
     llmNegotiationMaxMessages: 8,
     llmNegotiationWarningAtMessages: 6,
-    llmNegotiationPlannerModel: 'planner-model',
+    llmNegotiationPlannerModel: 'gpt-5.4-mini',
     voiceAutoCommitSilenceSeconds: 3.5,
   }), true);
   assert.equal(room.getState().settings.llmNegotiationInitiators, 5);
   assert.equal(room.getState().settings.llmNegotiationMaxMessages, 8);
   assert.equal(room.getState().settings.llmNegotiationWarningAtMessages, 6);
-  assert.equal(room.getState().settings.llmNegotiationPlannerModel, 'planner-model');
+  assert.equal(room.getState().settings.llmNegotiationPlannerModel, 'gpt-5.4-mini');
   assert.equal(room.getState().settings.voiceAutoCommitSilenceSeconds, 3.5);
   assert.equal(room.updateLlmNegotiationInitiators(-1), false);
   assert.equal(room.updateLlmNegotiationInitiators(8), false);
@@ -285,10 +286,15 @@ test('configured LLMs initiate bounded negotiations before automated orders', as
       power,
       async requestDiplomaticInitiative(context, eligiblePowers) {
         initiatives.push(power);
+        const target = eligiblePowers.find(candidate =>
+          context.state.players.some(player =>
+            player.power === candidate && player.kind === 'LLM'
+          )
+        ) ?? null;
         return {
-          toPower: eligiblePowers[0] ?? null,
-          message: eligiblePowers.length > 0
-            ? `I want to coordinate with ${eligiblePowers[0]}.`
+          toPower: target,
+          message: target
+            ? `I want to coordinate with ${target}.`
             : '',
           strategicSummary: context.memory.strategicSummary,
           agreements: context.memory.agreements,
@@ -344,15 +350,17 @@ test('configured LLMs initiate bounded negotiations before automated orders', as
   assert.equal(await room.startGame(), true);
   await room.submitOrders('AUSTRIA', []);
 
-  assert.equal(initiatives.length, 4);
-  assert.equal(replies.length, 4);
-  assert.equal(
-    room.getLlmRunArtifacts().filter(artifact => artifact.purpose === 'DIPLOMACY').length,
-    8
+  assert.ok(initiatives.length >= 4);
+  assert.ok(replies.length >= 4);
+  const springDiplomacyArtifacts = room.getLlmRunArtifacts().filter(
+    artifact =>
+      artifact.purpose === 'DIPLOMACY' &&
+      artifact.year === 1901 &&
+      artifact.season === 'SPRING'
   );
+  assert.equal(springDiplomacyArtifacts.length, 8);
   assert.ok(
-    room.getLlmRunArtifacts()
-      .filter(artifact => artifact.purpose === 'DIPLOMACY')
+    springDiplomacyArtifacts
       .every(artifact =>
         artifact.strategicSummary !== null &&
         artifact.structuredDecision !== null &&
@@ -377,9 +385,14 @@ test('autonomous conversations continue by consent and stop at the hard cap', as
       power,
       async requestDiplomaticInitiative(context, eligiblePowers) {
         modelsByPurpose.push(model);
+        const target = eligiblePowers.find(candidate =>
+          context.state.players.some(player =>
+            player.power === candidate && player.kind === 'LLM'
+          )
+        ) ?? null;
         return {
-          toPower: eligiblePowers[0] ?? null,
-          message: 'Please coordinate this phase with me.',
+          toPower: target,
+          message: target ? 'Please coordinate this phase with me.' : '',
           expectsReply: true,
           strategicSummary: context.memory.strategicSummary,
           agreements: context.memory.agreements,
@@ -442,11 +455,240 @@ test('autonomous conversations continue by consent and stop at the hard cap', as
 
   assert.deepEqual(replyMessageNumbers, [2, 3, 4]);
   assert.equal(
-    room.getLlmRunArtifacts().filter(artifact => artifact.purpose === 'DIPLOMACY').length,
+    room.getLlmRunArtifacts().filter(artifact =>
+      artifact.purpose === 'DIPLOMACY' &&
+      artifact.year === 1901 &&
+      artifact.season === 'SPRING'
+    ).length,
     4
   );
   assert.ok(modelsByPurpose.includes('planner-model'));
   assert.ok(modelsByPurpose.includes('decision-model'));
+});
+
+test('turn-start outreach to a human is remembered when ignored', async () => {
+  let englandSawIgnoredOutreach = false;
+  const room = new GameRoom({
+    controllerFactory: ({ power }) => ({
+      power,
+      async requestDiplomaticInitiative(context, eligiblePowers) {
+        return {
+          toPower: eligiblePowers.includes('AUSTRIA') ? 'AUSTRIA' : null,
+          message: eligiblePowers.includes('AUSTRIA')
+            ? 'Austria, we should speak before orders are final.'
+            : '',
+          expectsReply: true,
+          strategicSummary: context.memory.strategicSummary,
+          agreements: context.memory.agreements,
+        };
+      },
+      async requestDiplomaticReply(context) {
+        return {
+          reply: 'Acknowledged.',
+          expectsReply: false,
+          strategicSummary: context.memory.strategicSummary,
+          agreements: context.memory.agreements,
+        };
+      },
+      async requestOrders(context) {
+        if (power === 'ENGLAND') {
+          englandSawIgnoredOutreach = /Outreach ENGLAND -> AUSTRIA was ignored/i
+            .test(context.memory.diplomaticContext);
+        }
+        return {
+          actions: context.state.units
+            .filter(unit => unit.power === power && !unit.mustRetreat)
+            .map(unit => ({
+              id: `${power}-${unit.id}`,
+              power,
+              unitTerritory: unit.territory,
+              unitCoast: unit.coast,
+              type: 'HOLD' as const,
+              targetTerritory: null,
+              targetCoast: null,
+              supportedUnit: null,
+              supportedDestination: null,
+            })),
+          strategicSummary: context.memory.strategicSummary,
+          agreements: context.memory.agreements,
+        };
+      },
+      async requestRetreats() {
+        return { actions: {}, strategicSummary: '', agreements: [] };
+      },
+      async requestBuilds() {
+        return {
+          actions: { builds: [], disbands: [] },
+          strategicSummary: '',
+          agreements: [],
+        };
+      },
+    }),
+  });
+
+  assert.ok(room.addPlayer('austria-socket', 'Austria', 'AUSTRIA'));
+  assert.ok(room.addLlmPlayer({ power: 'ENGLAND', provider: 'OPENAI', model: 'test-model' }));
+  for (const power of ['FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY'] as Power[]) {
+    assert.ok(room.addLlmPlayer({ power }));
+  }
+
+  assert.equal(await room.startGame(), true);
+  await waitFor(() => room.getLlmOutreachRequests('AUSTRIA').length === 1);
+  await room.submitOrders('AUSTRIA', []);
+
+  const request = room.getLlmOutreachRequests('AUSTRIA')[0];
+  assert.equal(request.status, 'IGNORED');
+  assert.equal(englandSawIgnoredOutreach, true);
+});
+
+test('order controllers receive deterministic tactical move suggestions', async () => {
+  let sawMoveSuggestion = false;
+  const room = new GameRoom({
+    controllerFactory: ({ power }) => ({
+      power,
+      async requestDiplomaticInitiative(context) {
+        return {
+          toPower: null,
+          message: '',
+          strategicSummary: context.memory.strategicSummary,
+          agreements: context.memory.agreements,
+        };
+      },
+      async requestDiplomaticReply(context) {
+        return {
+          reply: 'Acknowledged.',
+          strategicSummary: context.memory.strategicSummary,
+          agreements: context.memory.agreements,
+        };
+      },
+      async requestOrders(context) {
+        if (power === 'ENGLAND') {
+          sawMoveSuggestion = Boolean(
+            context.moveSuggestions?.some(suggestion =>
+              suggestion.id.includes('move') &&
+              suggestion.orders.some(order => order.type === 'MOVE')
+            )
+          );
+        }
+        return {
+          actions: context.state.units
+            .filter(unit => unit.power === power && !unit.mustRetreat)
+            .map(unit => ({
+              id: `${power}-${unit.id}`,
+              power,
+              unitTerritory: unit.territory,
+              unitCoast: unit.coast,
+              type: 'HOLD' as const,
+              targetTerritory: null,
+              targetCoast: null,
+              supportedUnit: null,
+              supportedDestination: null,
+            })),
+          strategicSummary: '',
+          agreements: [],
+        };
+      },
+      async requestRetreats() {
+        return { actions: {}, strategicSummary: '', agreements: [] };
+      },
+      async requestBuilds() {
+        return {
+          actions: { builds: [], disbands: [] },
+          strategicSummary: '',
+          agreements: [],
+        };
+      },
+    }),
+  });
+
+  assert.ok(room.addPlayer('austria-socket', 'Austria', 'AUSTRIA'));
+  for (const power of ['ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY'] as Power[]) {
+    assert.ok(room.addLlmPlayer({ power }));
+  }
+
+  assert.equal(await room.startGame(), true);
+  await room.submitOrders('AUSTRIA', []);
+
+  assert.equal(sawMoveSuggestion, true);
+});
+
+test('LLM artifacts record model role and estimated cost', async () => {
+  const room = new GameRoom({
+    enforceLlmPolicy: true,
+    llmPolicy: buildLlmRuntimePolicy({
+      LLM_ALLOWED_PROVIDERS: 'STUB,OPENAI',
+      LLM_ALLOWED_MODELS_OPENAI: 'gpt-5.4-mini',
+      LLM_MAX_GAME_COST_USD: '1',
+    }),
+    controllerFactory: ({ power }) => ({
+      power,
+      async requestDiplomaticInitiative(context) {
+        return {
+          toPower: null,
+          message: '',
+          strategicSummary: context.memory.strategicSummary,
+          agreements: context.memory.agreements,
+        };
+      },
+      async requestDiplomaticReply(context) {
+        return {
+          reply: 'Acknowledged.',
+          strategicSummary: context.memory.strategicSummary,
+          agreements: context.memory.agreements,
+        };
+      },
+      async requestOrders(context) {
+        return {
+          actions: context.state.units
+            .filter(unit => unit.power === power && !unit.mustRetreat)
+            .map(unit => ({
+              id: `${power}-${unit.id}`,
+              power,
+              unitTerritory: unit.territory,
+              unitCoast: unit.coast,
+              type: 'HOLD' as const,
+              targetTerritory: null,
+              targetCoast: null,
+              supportedUnit: null,
+              supportedDestination: null,
+            })),
+          strategicSummary: '',
+          agreements: [],
+          usage: { inputTokens: 1_000, outputTokens: 1_000 },
+        };
+      },
+      async requestRetreats() {
+        return { actions: {}, strategicSummary: '', agreements: [] };
+      },
+      async requestBuilds() {
+        return {
+          actions: { builds: [], disbands: [] },
+          strategicSummary: '',
+          agreements: [],
+        };
+      },
+    }),
+  });
+
+  assert.ok(room.addPlayer('austria-socket', 'Austria', 'AUSTRIA'));
+  assert.ok(room.addLlmPlayer({ power: 'ENGLAND', provider: 'OPENAI', model: 'gpt-5.4-mini' }));
+  for (const power of ['FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY'] as Power[]) {
+    assert.ok(room.addLlmPlayer({ power }));
+  }
+  assert.equal(room.updateLlmNegotiationInitiators(0), true);
+
+  assert.equal(await room.startGame(), true);
+  await room.submitOrders('AUSTRIA', []);
+
+  const artifact = room.getLlmRunArtifacts('ENGLAND').find(
+    candidate => candidate.purpose === 'ORDERS'
+  );
+  assert.ok(artifact);
+  assert.equal(artifact.modelRole, 'ORDERS');
+  assert.equal(artifact.model, 'gpt-5.4-mini');
+  assert.equal(artifact.inputTokens, 1_000);
+  assert.equal(artifact.outputTokens, 1_000);
+  assert.ok((artifact.estimatedCostUsd ?? 0) > 0);
 });
 
 test('LLM diplomatic replies can run concurrently for disjoint powers', async () => {
@@ -991,6 +1233,19 @@ function humanRoom(): GameRoom {
     assert.ok(room.addPlayer(`socket-${index}`, power, power));
   }
   return room;
+}
+
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 500
+): Promise<void> {
+  const started = Date.now();
+  while (!predicate()) {
+    if (Date.now() - started > timeoutMs) {
+      assert.fail('Timed out waiting for condition');
+    }
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
 }
 
 function testUnit(

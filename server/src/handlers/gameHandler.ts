@@ -166,6 +166,15 @@ export function attachGameHandlers(
 
     if (!requireAuthenticatedAi(socket)) return;
 
+    const validation = room.validateLlmPlayerOptions({ provider, model });
+    if (!validation.ok) {
+      socket.emit('error', {
+        message: validation.message,
+        code: validation.code,
+      });
+      return;
+    }
+
     const player = room.addLlmPlayer({
       power,
       name,

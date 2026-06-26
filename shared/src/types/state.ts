@@ -41,6 +41,19 @@ export interface GameSettings {
   voiceAutoCommitSilenceSeconds: number;
 }
 
+export interface LlmOutreachRequest {
+  id: string;
+  fromPower: Power;
+  toPower: Power;
+  messageId: string;
+  year: number;
+  season: Season;
+  phase: Phase;
+  status: 'OPEN' | 'REPLIED' | 'IGNORED' | 'EXPIRED';
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
 export interface GameState {
   gameId: string;
   accessMode: GameAccessMode;

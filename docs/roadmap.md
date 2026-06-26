@@ -79,11 +79,12 @@ The second longer-playtest iteration is tracked in
 - Require schema-constrained phase decisions and diplomatic replies. Validate
   ownership, completeness, action shape, and known rule constraints before
   accepting output.
-- Trigger final LLM decisions only after all active human powers submit, so the
-  latest negotiations are considered.
-- Run a bounded autonomous negotiation round after human submission. A
-  host-configured number of rotating LLM initiators use an optional cheaper
-  planner model to select a relevant recipient and open a conversation.
+- Schedule bounded LLM planning when an orders phase begins, while keeping final
+  LLM decisions after all active human powers submit so the latest negotiations
+  are considered.
+- A host-configured number of rotating LLM initiators use cheaper role-specific
+  planner models to select a relevant human or LLM recipient and open a
+  conversation.
 - Let each structured opening and reply state whether another answer is
   required. Warn the models at a configured message count and enforce a
   server-side hard cap regardless of model output.
@@ -92,9 +93,11 @@ The second longer-playtest iteration is tracked in
 - Serialize message handling per LLM power and update its shared memory after
   every inbound and outbound message.
 - Add provider adapters incrementally. Keep model identifiers configurable per
-  seat so quality and cost tiers can be changed without orchestration changes.
-- Record private model artifacts including prompt version, structured response,
-  validation failures, retry count, fallback reason, latency, and token usage.
+  seat but resolved through server-owned model roles, allowlists, and budgets so
+  quality and cost tiers can be changed without orchestration changes.
+- Record private model artifacts including prompt version, model role,
+  structured response, validation failures, retry count, fallback reason,
+  latency, token usage, and estimated cost.
 - Add evaluation fixtures for action legality, agreement recall, cross-channel
   consistency, fallback rate, latency, and cost.
 - Add a durable all-LLM simulation runner with pause/resume, per-game token and

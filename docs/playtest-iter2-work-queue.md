@@ -286,7 +286,7 @@ Done when:
 ### I2-12: Turn-Start LLM Planning Spike
 
 **Type:** Polish  
-**Status:** Deferred until after first deployment/playtest.  
+**Status:** Initial implementation completed; live playtest tuning remains.  
 **Depends on:** I2-11 and current conversation locks  
 **Primary risk:** changing lifecycle timing can destabilize phase progression
 
@@ -294,10 +294,10 @@ Prototype turn-start LLM planning without moving final order generation.
 
 Tasks:
 
-- [ ] Add a short planning pass at the beginning of eligible phases.
-- [ ] Store desired conversation targets and whether a reply is needed.
-- [ ] Queue requests through the existing conversation scheduler.
-- [ ] Keep final LLM order decisions at resolution time.
+- [x] Add a short planning pass at the beginning of eligible phases.
+- [x] Store desired conversation targets and whether a reply is needed.
+- [x] Queue requests through the existing conversation scheduler.
+- [x] Keep final LLM order decisions at resolution time.
 
 Done when:
 

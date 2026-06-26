@@ -51,6 +51,12 @@ export function buildControllerPrompt(
     actionContext: {
       ownUnits,
       movementOptions,
+      moveSuggestions: context.moveSuggestions?.map(suggestion => ({
+        id: suggestion.id,
+        score: suggestion.score,
+        rationale: suggestion.rationale,
+        orders: suggestion.orders,
+      })) ?? [],
       territoryNames: Object.fromEntries(
         TERRITORIES.map(territory => [territory.id, territory.name])
       ),
@@ -67,4 +73,5 @@ export const CONTROLLER_SYSTEM_PROMPT = [
   'The strategicSummary must be concise and suitable for private memory in a later turn.',
   'In diplomatic replies and strategic summaries, always use full spoken territory names such as Rumania and Bulgaria, never abbreviations such as RUM or BUL.',
   'Structured game actions must still use the exact territory identifiers from the supplied state.',
+  'For order decisions, prefer a supplied moveSuggestion by returning its selectedSuggestionId when it matches your strategic intent; otherwise set selectedSuggestionId to null and provide explicit actions.',
 ].join(' ');

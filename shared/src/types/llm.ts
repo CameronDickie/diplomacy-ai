@@ -1,7 +1,21 @@
 import type { Phase, Power, Season } from './game.js';
 import type { PublicBoardSnapshot } from './history.js';
 
-export type LlmProviderId = 'STUB' | 'OPENAI' | 'ANTHROPIC' | 'OPENROUTER' | 'OLLAMA';
+export type LlmProviderId =
+  | 'STUB'
+  | 'OPENAI'
+  | 'GEMINI'
+  | 'ANTHROPIC'
+  | 'OPENROUTER'
+  | 'OLLAMA';
+
+export type LlmModelRole =
+  | 'DIPLOMACY_INITIATIVE'
+  | 'DIPLOMACY_REPLY'
+  | 'ORDERS'
+  | 'RETREATS'
+  | 'BUILDS'
+  | 'MEMORY';
 
 export type LlmRunStatus = 'IDLE' | 'THINKING' | 'RETRYING' | 'FALLBACK';
 export type LlmJournalStatus =
@@ -30,6 +44,7 @@ export interface LlmRunArtifact {
   season: Season;
   phase: Phase;
   purpose: 'DIPLOMACY' | 'ORDERS' | 'RETREATS' | 'BUILDS';
+  modelRole: LlmModelRole;
   provider: LlmProviderId;
   model: string;
   promptVersion: string;
@@ -40,6 +55,7 @@ export interface LlmRunArtifact {
   validationErrors: string[];
   inputTokens: number | null;
   outputTokens: number | null;
+  estimatedCostUsd: number | null;
   contextMessageIds: string[];
   memoryRevisionBefore: number;
   strategicSummary: string | null;

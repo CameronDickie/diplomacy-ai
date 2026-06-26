@@ -52,14 +52,17 @@ must return structured intent, which is validated by the server and adjudicated
 by the rules engine. Provider prompts and responses should be stored as private
 turn artifacts, separate from public game state.
 
-Automated phase decisions run after all active human powers submit, ensuring the
-latest private negotiations are included. Invalid provider output is retried
-once with validation feedback and then replaced by a deterministic fallback so
-a provider outage cannot stall the game.
+Turn-start planning is scheduled when an orders phase begins. A host-configured
+number of rotating provider-backed LLM powers may use a cheaper role-specific
+planner model to choose a relevant human or LLM recipient and open a private
+conversation. Human-targeted outreach is delivered as a normal private message
+and tracked server-side as replied, ignored, or expired. LLM-to-LLM openings use
+the existing bounded conversation loop. Final automated phase decisions still
+run after all active human powers submit, ensuring the latest private
+negotiations and ignored outreach outcomes are included. Invalid provider output
+is retried with validation feedback up to the configured retry limit and then
+replaced by a deterministic fallback so a provider outage cannot stall the game.
 
-Before final order generation, a host-configured number of rotating
-provider-backed LLM powers may each use an optional cheaper planner model to
-choose the most strategically relevant LLM recipient and open a conversation.
 Each structured opening and reply states whether another answer is required.
 The server alternates speakers only while that flag remains true, warns models
 at a configurable message count, and always terminates at a hard message cap.
@@ -80,9 +83,11 @@ metadata, and lifecycle statuses. These artifacts intentionally exclude hidden
 chain-of-thought. They remain server-private until observer/research roles and
 their authorization rules are implemented.
 
-The current provider implementations are the deterministic stub and OpenAI
-structured output; other provider identifiers remain reserved for later
-adapters.
+The current provider implementations are the deterministic stub, OpenAI
+structured output, and Gemini structured output. Provider and model selection is
+resolved through server-owned role defaults, allowlists, timeouts, retry limits,
+output-token limits, and per-game estimated spend caps before any paid request
+is made.
 
 An all-LLM room can resolve its opening phase without a human submission, but
 continuous simulation requires a separate background game runner. That runner

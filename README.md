@@ -38,9 +38,12 @@ npm run dev
 
 Open `http://localhost:5173`. Vite proxies Socket.IO to port `3001`.
 
-LLM seats use the local stub controller unless the host selects `OPENAI`.
-OpenAI-backed seats require `OPENAI_API_KEY` in the server environment. Model
-identifiers are entered per seat and are not hard-coded by the controller.
+LLM seats use the local stub controller unless the host selects a paid provider
+such as `OPENAI` or `GEMINI`. Paid seats require the corresponding server
+secret (`OPENAI_API_KEY` or `GEMINI_API_KEY`) and must pass the server-side
+provider/model allowlist. Model identifiers entered per seat are treated as
+requests; the server resolves them through role-specific defaults and spend
+guards before making provider calls.
 
 ## Discord
 

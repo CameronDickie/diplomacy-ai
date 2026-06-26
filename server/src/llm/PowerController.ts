@@ -3,11 +3,13 @@ import type {
   DiplomaticMessage,
   GameState,
   LlmDiplomacyMemory,
+  LlmModelRole,
   Order,
   Power,
   RetreatDestination,
   SubmitBuildsPayload,
 } from '@diplomacy/shared';
+import type { MoveSuggestion } from './MoveSuggestionEngine.js';
 
 export interface ControllerContext {
   state: GameState;
@@ -15,6 +17,7 @@ export interface ControllerContext {
   persona: string | null;
   messages: DiplomaticMessage[];
   memory: LlmDiplomacyMemory;
+  moveSuggestions?: MoveSuggestion[];
 }
 
 export interface ControllerDecision<T> {
@@ -70,7 +73,8 @@ export interface PowerController {
   requestDiplomaticInitiative(
     context: ControllerContext,
     eligiblePowers: Power[],
-    validationErrors?: string[]
+    validationErrors?: string[],
+    options?: { allowHumanTargets?: boolean }
   ): Promise<DiplomaticInitiativeDecision>;
   requestDiplomaticReply(
     context: ControllerContext,
@@ -107,6 +111,8 @@ export interface LlmProvider {
   readonly id: string;
   completeJson<T>(request: {
     model: string;
+    timeoutMs?: number;
+    maxOutputTokens?: number;
     system: string;
     prompt: string;
     schemaName: string;
@@ -118,4 +124,7 @@ export type PowerControllerFactory = (options: {
   power: Power;
   provider: string;
   model: string;
+  modelRole?: LlmModelRole;
+  timeoutMs?: number;
+  maxOutputTokens?: number;
 }) => PowerController;
