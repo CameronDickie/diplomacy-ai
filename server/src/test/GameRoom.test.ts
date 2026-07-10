@@ -566,7 +566,7 @@ test('order controllers receive deterministic tactical move suggestions', async 
           sawMoveSuggestion = Boolean(
             context.moveSuggestions?.some(suggestion =>
               suggestion.id.includes('move') &&
-              suggestion.orders.some(order => order.type === 'MOVE')
+              suggestion.orderIds.some(orderId => orderId.includes('|MOVE|'))
             )
           );
         }
@@ -689,6 +689,10 @@ test('LLM artifacts record model role and estimated cost', async () => {
   assert.equal(artifact.inputTokens, 1_000);
   assert.equal(artifact.outputTokens, 1_000);
   assert.ok((artifact.estimatedCostUsd ?? 0) > 0);
+  assert.equal(artifact.boardContextVersion, 'standard-board-v1');
+  assert.ok((artifact.legalOrderCount ?? 0) > 0);
+  assert.equal(artifact.selectedLegalOrderIds.length, 3);
+  assert.ok(artifact.selectedLegalOrderIds.every(id => id.endsWith('|HOLD')));
 });
 
 test('LLM diplomatic replies can run concurrently for disjoint powers', async () => {

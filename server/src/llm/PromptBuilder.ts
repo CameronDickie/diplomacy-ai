@@ -1,11 +1,6 @@
 import type { ControllerContext } from './PowerController.js';
-import {
-  getArmyAdjacency,
-  getFleetAdjacency,
-  TERRITORIES,
-} from '@diplomacy/shared';
 
-export const PROMPT_VERSION = 'diplomacy-controller-v2';
+export const PROMPT_VERSION = 'diplomacy-controller-v3';
 
 export function buildControllerPrompt(
   context: ControllerContext,
@@ -13,18 +8,10 @@ export function buildControllerPrompt(
   validationErrors: string[] = []
 ): string {
   const ownUnits = context.state.units.filter(unit => unit.power === context.power);
-  const movementOptions = Object.fromEntries(
-    ownUnits
-      .filter(unit => !unit.mustRetreat)
-      .map(unit => [
-        unit.territory,
-        unit.type === 'ARMY'
-          ? getArmyAdjacency(unit.territory)
-          : getFleetAdjacency(unit.territory, unit.coast),
-      ])
-  );
 
   return JSON.stringify({
+    rulesReference: context.boardContext.rulesReference,
+    boardContextVersion: context.boardContext.version,
     purpose,
     power: context.power,
     persona: context.persona,
@@ -34,8 +21,7 @@ export function buildControllerPrompt(
       phase: context.state.phase,
     },
     publicState: {
-      units: context.state.units,
-      territories: context.state.territories,
+      boardPosition: context.boardContext.position,
       players: context.state.players.map(player => ({
         name: player.name,
         power: player.power,
@@ -50,16 +36,21 @@ export function buildControllerPrompt(
     },
     actionContext: {
       ownUnits,
-      movementOptions,
-      moveSuggestions: context.moveSuggestions?.map(suggestion => ({
-        id: suggestion.id,
-        score: suggestion.score,
-        rationale: suggestion.rationale,
-        orders: suggestion.orders,
-      })) ?? [],
-      territoryNames: Object.fromEntries(
-        TERRITORIES.map(territory => [territory.id, territory.name])
-      ),
+      legalOrders: purpose === 'ORDERS'
+        ? context.legalOrders.map(option => ({
+            id: option.id,
+            unitTerritory: option.unitTerritory,
+            description: option.description,
+          }))
+        : [],
+      moveSuggestions: purpose === 'ORDERS'
+        ? context.moveSuggestions?.map(suggestion => ({
+            id: suggestion.id,
+            score: suggestion.score,
+            rationale: suggestion.rationale,
+            orderIds: suggestion.orderIds,
+          })) ?? []
+        : [],
     },
     validationErrors,
   });
@@ -73,5 +64,6 @@ export const CONTROLLER_SYSTEM_PROMPT = [
   'The strategicSummary must be concise and suitable for private memory in a later turn.',
   'In diplomatic replies and strategic summaries, always use full spoken territory names such as Rumania and Bulgaria, never abbreviations such as RUM or BUL.',
   'Structured game actions must still use the exact territory identifiers from the supplied state.',
-  'For order decisions, prefer a supplied moveSuggestion by returning its selectedSuggestionId when it matches your strategic intent; otherwise set selectedSuggestionId to null and provide explicit actions.',
+  'For order decisions, choose either one supplied moveSuggestion ID or exactly one supplied legal order ID per active unit.',
+  'Never invent an order or territory relationship that is not present in the supplied board context.',
 ].join(' ');

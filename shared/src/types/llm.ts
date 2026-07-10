@@ -48,6 +48,9 @@ export interface LlmRunArtifact {
   provider: LlmProviderId;
   model: string;
   promptVersion: string;
+  boardContextVersion: string;
+  legalOrderCount: number | null;
+  selectedLegalOrderIds: string[];
   startedAt: string;
   latencyMs: number;
   retryCount: number;

@@ -31,11 +31,14 @@ import type {
 import {
   ALL_POWERS,
   TERRITORY_MAP,
-  getArmyAdjacency,
-  getFleetAdjacency,
 } from '@diplomacy/shared';
 import { buildInitialTerritories, STARTING_UNITS } from '@diplomacy/shared';
-import { adjudicateWithGodip } from './adjudication/GodipAdjudicator.js';
+import {
+  adjudicateWithGodip,
+  legalOrderId,
+  listLegalOrdersWithGodip,
+  type LegalOrderOption,
+} from './adjudication/GodipAdjudicator.js';
 import type {
   ControllerContext,
   ControllerDecision,
@@ -45,6 +48,10 @@ import type {
 import { createPowerController } from './llm/createPowerController.js';
 import { PROMPT_VERSION } from './llm/PromptBuilder.js';
 import { suggestMoveOrderSets } from './llm/MoveSuggestionEngine.js';
+import {
+  BOARD_CONTEXT_VERSION,
+  buildLlmBoardContext,
+} from './llm/BoardContext.js';
 import {
   buildLlmRuntimePolicy,
   estimateLlmCostUsd,
@@ -66,6 +73,7 @@ export class GameRoom {
   private phaseHistory: PublicPhaseReport[] = [];
   private llmMemories = new Map<Power, LlmDiplomacyMemory>();
   private llmRunArtifacts: LlmRunArtifact[] = [];
+  private legalOrderCache = new Map<string, LegalOrderOption[]>();
   private llmOutreachRequests: LlmOutreachRequest[] = [];
   private llmQueues = new Map<Power, Promise<unknown>>();
   private diplomacyParticipantLocks = new Map<Power, Promise<unknown>>();
@@ -684,40 +692,18 @@ export class GameRoom {
       errors.push(`Exactly ${units.length} orders are required`);
     }
 
-    for (const unit of units) {
-      const order = orders.find(candidate => candidate.unitTerritory === unit.territory);
-      if (!order) {
-        errors.push(`Missing order for ${unit.territory}`);
-        continue;
-      }
-      const adjacency = unit.type === 'ARMY'
-        ? getArmyAdjacency(unit.territory)
-        : getFleetAdjacency(unit.territory, unit.coast);
-      if (order.type === 'MOVE' && (!order.targetTerritory || !adjacency.includes(order.targetTerritory))) {
-        errors.push(`${unit.territory} cannot move to ${order.targetTerritory ?? 'null'}`);
-      }
-      if (order.type === 'HOLD' && (
-        order.targetTerritory ||
-        order.supportedUnit ||
-        order.supportedDestination
-      )) {
-        errors.push(`Hold order for ${unit.territory} contains unexpected targets`);
-      }
-      if (
-        (order.type === 'SUPPORT_HOLD' || order.type === 'SUPPORT_MOVE') &&
-        !order.supportedUnit
-      ) {
-        errors.push(`Support order for ${unit.territory} requires a supported unit`);
-      }
-      if (
-        order.type === 'SUPPORT_MOVE' &&
-        (!order.supportedDestination || !adjacency.includes(order.supportedDestination))
-      ) {
-        errors.push(`Support from ${unit.territory} cannot reach the supported destination`);
-      }
-      if (order.type === 'CONVOY' && unit.type !== 'FLEET') {
-        errors.push(`Only fleets may convoy from ${unit.territory}`);
-      }
+    let legalIds: Set<string>;
+    try {
+      legalIds = new Set(this.getLegalOrders(power).map(option => option.id));
+    } catch (error) {
+      errors.push(`Unable to generate authoritative legal orders: ${
+        error instanceof Error ? error.message : String(error)
+      }`);
+      return [...new Set(errors)];
+    }
+    for (const order of orders) {
+      const id = legalOrderId(order);
+      if (!legalIds.has(id)) errors.push(`${id} is not a legal order`);
     }
     return [...new Set(errors)];
   }
@@ -1063,7 +1049,7 @@ export class GameRoom {
           player,
           'ORDERS',
           (controller, errors) =>
-            controller.requestOrders(this.controllerContext(player), errors),
+            controller.requestOrders(this.controllerContext(player, true), errors),
           actions => this.validateAutomatedOrders(player.power, actions),
           () => this.createHoldOrders(player.power)
         );
@@ -1762,19 +1748,36 @@ export class GameRoom {
     });
   }
 
-  private controllerContext(player: LlmPlayer): ControllerContext {
+  private controllerContext(
+    player: LlmPlayer,
+    includeLegalOrders = false
+  ): ControllerContext {
     const memory = this.llmMemories.get(player.power);
     if (!memory) throw new Error(`Missing LLM memory for ${player.power}`);
+    const legalOrders = includeLegalOrders && this.state.phase === 'ORDERS'
+      ? this.getLegalOrders(player.power)
+      : [];
     return {
       state: this.state,
       power: player.power,
       persona: player.persona,
       messages: this.getDiplomaticMessages(player.power),
       memory: this.getLlmDiplomacyMemory(player.power)!,
-      moveSuggestions: this.state.phase === 'ORDERS'
-        ? suggestMoveOrderSets(this.state, player.power)
+      boardContext: buildLlmBoardContext(this.state),
+      legalOrders,
+      moveSuggestions: includeLegalOrders && this.state.phase === 'ORDERS'
+        ? suggestMoveOrderSets(this.state, player.power, legalOrders)
         : [],
     };
+  }
+
+  private getLegalOrders(power: Power): LegalOrderOption[] {
+    const key = `${this.currentOrdersPhaseKey()}:${power}`;
+    const cached = this.legalOrderCache.get(key);
+    if (cached) return cached;
+    const legalOrders = listLegalOrdersWithGodip(this.state, power);
+    this.legalOrderCache.set(key, legalOrders);
+    return legalOrders;
   }
 
   private applyControllerMemory(
@@ -1795,7 +1798,9 @@ export class GameRoom {
     modelRole: LlmModelRole,
     model = this.resolveControllerModel(player, modelRole)
   ): LlmRunArtifact {
-    const context = this.controllerContext(player);
+    const memory = this.getLlmDiplomacyMemory(player.power);
+    if (!memory) throw new Error(`Missing LLM memory for ${player.power}`);
+    const messages = this.getDiplomaticMessages(player.power);
     return {
       id: randomUUID(),
       power: player.power,
@@ -1807,6 +1812,9 @@ export class GameRoom {
       provider: player.provider,
       model,
       promptVersion: PROMPT_VERSION,
+      boardContextVersion: BOARD_CONTEXT_VERSION,
+      legalOrderCount: null,
+      selectedLegalOrderIds: [],
       startedAt: new Date().toISOString(),
       latencyMs: 0,
       retryCount: 0,
@@ -1815,11 +1823,11 @@ export class GameRoom {
       inputTokens: null,
       outputTokens: null,
       estimatedCostUsd: null,
-      contextMessageIds: context.messages.map(message => message.id),
-      memoryRevisionBefore: context.memory.revision,
+      contextMessageIds: messages.map(message => message.id),
+      memoryRevisionBefore: memory.revision,
       strategicSummary: null,
-      agreementsBefore: structuredClone(context.memory.agreements),
-      agreementsAfter: structuredClone(context.memory.agreements),
+      agreementsBefore: structuredClone(memory.agreements),
+      agreementsAfter: structuredClone(memory.agreements),
       structuredDecision: null,
       boardSnapshot: this.publicBoardSnapshot(),
       statusHistory: [{
@@ -1837,6 +1845,15 @@ export class GameRoom {
     artifact.strategicSummary = decision.strategicSummary.trim();
     artifact.agreementsAfter = structuredClone(decision.agreements);
     artifact.structuredDecision = structuredClone(structuredDecision);
+    if (artifact.purpose === 'ORDERS' && Array.isArray(structuredDecision)) {
+      const orders = structuredDecision as Order[];
+      artifact.selectedLegalOrderIds = orders.map(legalOrderId).sort();
+      try {
+        artifact.legalOrderCount = this.getLegalOrders(artifact.power).length;
+      } catch {
+        artifact.legalOrderCount = null;
+      }
+    }
   }
 
   private recordRunStatus(

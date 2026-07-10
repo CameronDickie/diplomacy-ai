@@ -10,6 +10,8 @@ import type {
   SubmitBuildsPayload,
 } from '@diplomacy/shared';
 import type { MoveSuggestion } from './MoveSuggestionEngine.js';
+import type { LegalOrderOption } from '../adjudication/GodipAdjudicator.js';
+import type { LlmBoardContext } from './BoardContext.js';
 
 export interface ControllerContext {
   state: GameState;
@@ -17,6 +19,8 @@ export interface ControllerContext {
   persona: string | null;
   messages: DiplomaticMessage[];
   memory: LlmDiplomacyMemory;
+  boardContext: LlmBoardContext;
+  legalOrders: LegalOrderOption[];
   moveSuggestions?: MoveSuggestion[];
 }
 

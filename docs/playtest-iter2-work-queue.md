@@ -346,6 +346,28 @@ Done when:
 
 - A message can be associated with the board state at send time.
 
+### I2-16: Authoritative LLM Board Context
+
+**Type:** Gate
+**Status:** Implemented; paid model benchmarking remains separate.
+**Depends on:** Godip bridge and generated adjacency
+**Primary risk:** models reason from recalled or ambiguous board state
+
+Tasks:
+
+- [x] Distinguish supply ownership, home power, occupation, and pending capture.
+- [x] Include canonical army and coast-aware fleet topology in prompts.
+- [x] Generate legal movement orders through Godip with stable IDs.
+- [x] Require one legal selection per active unit or a supplied candidate set.
+- [x] Build tactical suggestions and validation from the same legal catalog.
+- [x] Add offline topology, support, convoy, split-coast, and selection tests.
+
+Done when:
+
+- Automated movement output cannot name an order absent from Godip's legal
+  catalog, and prompt fixtures describe the live board without relying on model
+  memory.
+
 ## Phase 5: Voice Stability
 
 ### I2-15: OpenAI Voice Socket Diagnostics
@@ -381,10 +403,11 @@ Done when:
 7. I2-05 Unified Power Activity Styling.
 8. I2-07 Host/Event Log Visibility Pass.
 9. I2-11 LLM Validation Telemetry.
-10. I2-15 OpenAI Voice Socket Diagnostics if voice is in the friend test.
-11. I2-10 Sorted Orders and Chats.
-12. I2-09 Zoom Limit Increase.
-13. I2-06 Conversation Grouping and Privacy Review.
-14. I2-12 Turn-Start LLM Planning Spike.
-15. I2-13 Relationship Summary Context.
-16. I2-14 Message Snapshot References.
+10. I2-16 Authoritative LLM Board Context.
+11. I2-15 OpenAI Voice Socket Diagnostics if voice is in the friend test.
+12. I2-10 Sorted Orders and Chats.
+13. I2-09 Zoom Limit Increase.
+14. I2-06 Conversation Grouping and Privacy Review.
+15. I2-12 Turn-Start LLM Planning Spike.
+16. I2-13 Relationship Summary Context.
+17. I2-14 Message Snapshot References.

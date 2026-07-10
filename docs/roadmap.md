@@ -73,12 +73,12 @@ The second longer-playtest iteration is tracked in
 - Route every automated order, retreat, build, and diplomatic reply through the
   `PowerController` interface; retain the deterministic stub controller for
   development and provider failure fallback.
-- Provide each controller with a power-scoped prompt snapshot containing public
-  game state, legal action context, persona, private messages, strategic memory,
-  and structured agreements.
-- Require schema-constrained phase decisions and diplomatic replies. Validate
-  ownership, completeness, action shape, and known rule constraints before
-  accepting output.
+- [x] Provide each controller with a versioned canonical board snapshot that
+  separates ownership, occupation, topology, and adjustment eligibility.
+- [x] Generate movement options through Godip and require stable legal-order
+  IDs instead of free-form model-authored orders.
+- Require schema-constrained retreat, build, and diplomatic decisions and keep
+  their validation server-authoritative.
 - Schedule bounded LLM planning when an orders phase begins, while keeping final
   LLM decisions after all active human powers submit so the latest negotiations
   are considered.

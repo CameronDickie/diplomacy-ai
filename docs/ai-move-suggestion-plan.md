@@ -9,23 +9,19 @@ influence.
 ## Current Baseline
 
 - Godip adjudicates submitted movement orders.
-- The Go adapter does not yet expose legal-order generation.
+- The Go adapter exposes authoritative legal-order generation.
 - Client and server have generated adjacency data for armies and fleets.
-- The LLM prompt includes current units, state, messages, memory, and movement
-  options.
+- The LLM prompt includes a versioned canonical board context and stable legal
+  order IDs.
 
 ## Implementation Plan
 
-- Add a deterministic tactical advisor interface that produces ranked candidate
-  order sets.
-- Start with internal heuristics: all-hold, adjacent supply-center moves,
-  simple supports, and available convoy-style army moves when own fleets can
-  bridge the route.
+- Produce ranked candidate order-ID sets from the Godip legal-order catalog.
+- Cover all-hold, adjacent moves, support holds, support moves, and available
+  convoy combinations without maintaining a second legality implementation.
 - Feed ranked candidates into the LLM prompt with stable candidate IDs.
-- Let the LLM select a candidate ID or provide explicit orders; server
-  validation remains authoritative either way.
-- Track a later rules-engine milestone for authoritative legal-order
-  generation from Godip.
+- Let the LLM select a candidate ID or exactly one legal order ID per unit.
+- Keep Godip authoritative for both option generation and adjudication.
 
 ## Running Log
 
@@ -37,3 +33,6 @@ influence.
   and own-fleet convoy opportunities. Order prompts now include candidate IDs,
   and structured order output can select a candidate ID or submit explicit
   actions.
+- 2026-06-26: Replaced advisor-created orders with Godip-issued legal order IDs.
+  Suggestions and free selections now expand through the same catalog used by
+  automated-order validation.

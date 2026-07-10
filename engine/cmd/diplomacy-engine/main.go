@@ -9,10 +9,13 @@ import (
 
 	"github.com/zond/godip"
 	"github.com/zond/godip/orders"
+	godipstate "github.com/zond/godip/state"
 	"github.com/zond/godip/variants/classical"
 )
 
 type request struct {
+	Operation     string            `json:"operation,omitempty"`
+	Power         string            `json:"power,omitempty"`
 	Year          int               `json:"year"`
 	Season        string            `json:"season"`
 	Units         []unitInput       `json:"units"`
@@ -40,10 +43,11 @@ type orderInput struct {
 }
 
 type response struct {
-	Units       []unitOutput `json:"units"`
-	Dislodged   []unitOutput `json:"dislodged"`
-	Resolutions []resolution `json:"resolutions"`
-	Standoffs   []string     `json:"standoffs"`
+	Units       []unitOutput       `json:"units"`
+	Dislodged   []unitOutput       `json:"dislodged"`
+	Resolutions []resolution       `json:"resolutions"`
+	Standoffs   []string           `json:"standoffs"`
+	LegalOrders []legalOrderOutput `json:"legalOrders,omitempty"`
 }
 
 type unitOutput struct {
@@ -68,12 +72,29 @@ type resolution struct {
 	Error   string   `json:"error,omitempty"`
 }
 
+type legalOrderOutput struct {
+	Type                 string `json:"type"`
+	UnitTerritory        string `json:"unitTerritory"`
+	UnitCoast            string `json:"unitCoast,omitempty"`
+	TargetTerritory      string `json:"targetTerritory,omitempty"`
+	TargetCoast          string `json:"targetCoast,omitempty"`
+	SupportedUnit        string `json:"supportedUnit,omitempty"`
+	SupportedDestination string `json:"supportedDestination,omitempty"`
+	ViaConvoy            bool   `json:"viaConvoy,omitempty"`
+}
+
 func main() {
 	var input request
 	if err := json.NewDecoder(os.Stdin).Decode(&input); err != nil {
 		fail(fmt.Errorf("decode request: %w", err))
 	}
-	output, err := adjudicate(input)
+	var output response
+	var err error
+	if strings.EqualFold(input.Operation, "LEGAL_ORDERS") {
+		output, err = legalOrders(input)
+	} else {
+		output, err = adjudicate(input)
+	}
 	if err != nil {
 		fail(err)
 	}
@@ -83,35 +104,10 @@ func main() {
 }
 
 func adjudicate(input request) (response, error) {
-	season := godip.Spring
-	if strings.EqualFold(input.Season, "FALL") {
-		season = godip.Fall
+	state, before, err := loadMovementState(input)
+	if err != nil {
+		return response{}, err
 	}
-	state := classical.Blank(classical.NewPhase(input.Year, season, godip.Movement))
-
-	godipUnits := make(map[godip.Province]godip.Unit)
-	before := make(map[godip.Province]unitInput)
-	for _, unit := range input.Units {
-		location := toGodipLocation(unit.Territory, unit.Coast)
-		godipUnits[location] = godip.Unit{
-			Type:   toGodipUnitType(unit.Type),
-			Nation: toGodipNation(unit.Power),
-		}
-		before[location.Super()] = unit
-	}
-	if err := state.SetUnits(godipUnits); err != nil {
-		return response{}, fmt.Errorf("load units: %w", err)
-	}
-
-	supplyCenters := make(map[godip.Province]godip.Nation)
-	for territory, power := range input.SupplyCenters {
-		if power == "" {
-			supplyCenters[toGodipProvince(territory)] = godip.Neutral
-		} else {
-			supplyCenters[toGodipProvince(territory)] = toGodipNation(power)
-		}
-	}
-	state.SetSupplyCenters(supplyCenters)
 
 	for _, submitted := range input.Orders {
 		order, err := toGodipOrder(submitted)
@@ -179,6 +175,135 @@ func adjudicate(input request) (response, error) {
 	sort.Slice(result.Resolutions, func(i, j int) bool { return result.Resolutions[i].Source < result.Resolutions[j].Source })
 	sort.Strings(result.Standoffs)
 	return result, nil
+}
+
+func loadMovementState(input request) (*godipstate.State, map[godip.Province]unitInput, error) {
+	season := godip.Spring
+	if strings.EqualFold(input.Season, "FALL") {
+		season = godip.Fall
+	}
+	state := classical.Blank(classical.NewPhase(input.Year, season, godip.Movement))
+
+	godipUnits := make(map[godip.Province]godip.Unit)
+	before := make(map[godip.Province]unitInput)
+	for _, unit := range input.Units {
+		location := toGodipLocation(unit.Territory, unit.Coast)
+		godipUnits[location] = godip.Unit{
+			Type:   toGodipUnitType(unit.Type),
+			Nation: toGodipNation(unit.Power),
+		}
+		before[location.Super()] = unit
+	}
+	if err := state.SetUnits(godipUnits); err != nil {
+		return nil, nil, fmt.Errorf("load units: %w", err)
+	}
+
+	supplyCenters := make(map[godip.Province]godip.Nation)
+	for territory, power := range input.SupplyCenters {
+		if power == "" {
+			supplyCenters[toGodipProvince(territory)] = godip.Neutral
+		} else {
+			supplyCenters[toGodipProvince(territory)] = toGodipNation(power)
+		}
+	}
+	state.SetSupplyCenters(supplyCenters)
+	return state, before, nil
+}
+
+func legalOrders(input request) (response, error) {
+	if input.Power == "" {
+		return response{}, fmt.Errorf("power is required for LEGAL_ORDERS")
+	}
+	state, _, err := loadMovementState(input)
+	if err != nil {
+		return response{}, err
+	}
+	paths := [][]string{}
+	flattenOptions(state.Phase().Options(state, toGodipNation(input.Power)), nil, &paths)
+	result := response{LegalOrders: []legalOrderOutput{}}
+	for _, path := range paths {
+		order, ok := legalOrderFromOptionPath(path)
+		if ok {
+			result.LegalOrders = append(result.LegalOrders, order)
+		}
+	}
+	sort.Slice(result.LegalOrders, func(i, j int) bool {
+		return legalOrderSortKey(result.LegalOrders[i]) < legalOrderSortKey(result.LegalOrders[j])
+	})
+	return result, nil
+}
+
+func flattenOptions(options godip.Options, prefix []string, result *[][]string) {
+	if len(options) == 0 {
+		*result = append(*result, append([]string{}, prefix...))
+		return
+	}
+	for value, next := range options {
+		part := value
+		if filtered, ok := value.(godip.FilteredOptionValue); ok {
+			part = filtered.Value
+		}
+		flattenOptions(next, append(prefix, fmt.Sprint(part)), result)
+	}
+}
+
+func legalOrderFromOptionPath(path []string) (legalOrderOutput, bool) {
+	if len(path) < 3 {
+		return legalOrderOutput{}, false
+	}
+	source := godip.Province(path[2])
+	output := legalOrderOutput{
+		UnitTerritory: fromGodipProvince(source.Super()),
+		UnitCoast:     fromGodipCoast(source.Sub()),
+	}
+	switch godip.OrderType(path[1]) {
+	case godip.Hold:
+		output.Type = "HOLD"
+	case godip.Move, godip.MoveViaConvoy:
+		if len(path) != 4 {
+			return legalOrderOutput{}, false
+		}
+		target := godip.Province(path[3])
+		output.Type = "MOVE"
+		output.TargetTerritory = fromGodipProvince(target.Super())
+		output.TargetCoast = fromGodipCoast(target.Sub())
+		output.ViaConvoy = godip.OrderType(path[1]) == godip.MoveViaConvoy
+	case godip.Support:
+		if len(path) != 5 {
+			return legalOrderOutput{}, false
+		}
+		output.SupportedUnit = fromGodipProvince(godip.Province(path[3]).Super())
+		destination := fromGodipProvince(godip.Province(path[4]).Super())
+		if output.SupportedUnit == destination {
+			output.Type = "SUPPORT_HOLD"
+		} else {
+			output.Type = "SUPPORT_MOVE"
+			output.SupportedDestination = destination
+		}
+	case godip.Convoy:
+		if len(path) != 5 {
+			return legalOrderOutput{}, false
+		}
+		output.Type = "CONVOY"
+		output.SupportedUnit = fromGodipProvince(godip.Province(path[3]).Super())
+		output.TargetTerritory = fromGodipProvince(godip.Province(path[4]).Super())
+	default:
+		return legalOrderOutput{}, false
+	}
+	return output, true
+}
+
+func legalOrderSortKey(order legalOrderOutput) string {
+	return strings.Join([]string{
+		order.UnitTerritory,
+		order.UnitCoast,
+		order.Type,
+		order.TargetTerritory,
+		order.TargetCoast,
+		order.SupportedUnit,
+		order.SupportedDestination,
+		fmt.Sprint(order.ViaConvoy),
+	}, "|")
 }
 
 func toGodipOrder(input orderInput) (godip.Adjudicator, error) {

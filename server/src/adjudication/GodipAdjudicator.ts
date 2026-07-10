@@ -20,6 +20,7 @@ interface EngineResponse {
   dislodged: EngineUnit[] | null;
   resolutions: EngineResolution[] | null;
   standoffs: TerritoryId[] | null;
+  legalOrders?: EngineOrder[] | null;
 }
 
 interface EngineUnit {
@@ -44,9 +45,27 @@ interface EngineResolution {
   error?: string;
 }
 
+interface EngineOrder {
+  type: OrderType;
+  unitTerritory: TerritoryId;
+  unitCoast?: Coast;
+  targetTerritory?: TerritoryId;
+  targetCoast?: Coast;
+  supportedUnit?: TerritoryId;
+  supportedDestination?: TerritoryId;
+  viaConvoy?: boolean;
+}
+
 export interface GodipAdjudication {
   result: AdjudicationResult;
   units: Unit[];
+}
+
+export interface LegalOrderOption {
+  id: string;
+  unitTerritory: TerritoryId;
+  order: Order;
+  description: string;
 }
 
 const defaultEnginePath = resolve(
@@ -55,24 +74,8 @@ const defaultEnginePath = resolve(
 );
 
 export function adjudicateWithGodip(state: GameState, orders: Order[]): GodipAdjudication {
-  const supplyCenters = Object.fromEntries(
-    Object.values(state.territories)
-      .filter(territory => territory.isSupplyCenter)
-      .map(territory => [territory.id, territory.owner ?? ''])
-  );
   const payload = {
-    year: state.year,
-    season: state.season,
-    units: state.units
-      .filter(unit => !unit.mustRetreat)
-      .map(unit => ({
-        id: unit.id,
-        type: unit.type,
-        power: unit.power,
-        territory: unit.territory,
-        coast: unit.coast ?? undefined,
-      })),
-    supplyCenters,
+    ...engineBoardPayload(state),
     orders: orders.map(order => ({
       type: order.type,
       unitTerritory: order.unitTerritory,
@@ -85,13 +88,7 @@ export function adjudicateWithGodip(state: GameState, orders: Order[]): GodipAdj
     })),
   };
 
-  const enginePath = process.env.DIPLOMACY_ENGINE_PATH ?? defaultEnginePath;
-  const stdout = execFileSync(enginePath, {
-    input: JSON.stringify(payload),
-    encoding: 'utf8',
-    maxBuffer: 4 * 1024 * 1024,
-  });
-  const response = JSON.parse(stdout) as EngineResponse;
+  const response = executeEngine(payload);
 
   const dislodged = response.dislodged ?? [];
   const activeUnits = (response.units ?? []).map(unit => toUnit(unit));
@@ -116,6 +113,110 @@ export function adjudicateWithGodip(state: GameState, orders: Order[]): GodipAdj
       standoffTerritories: response.standoffs ?? [],
     },
   };
+}
+
+export function listLegalOrdersWithGodip(
+  state: GameState,
+  power: Power
+): LegalOrderOption[] {
+  const response = executeEngine({
+    operation: 'LEGAL_ORDERS',
+    power,
+    ...engineBoardPayload(state),
+    orders: [],
+  });
+  const byId = new Map<string, LegalOrderOption>();
+  for (const engineOrder of response.legalOrders ?? []) {
+    const order: Order = {
+      id: '',
+      power,
+      unitTerritory: engineOrder.unitTerritory,
+      unitCoast: engineOrder.unitCoast ?? null,
+      type: engineOrder.type,
+      targetTerritory: engineOrder.targetTerritory ?? null,
+      targetCoast: engineOrder.targetCoast ?? null,
+      supportedUnit: engineOrder.supportedUnit ?? null,
+      supportedDestination: engineOrder.supportedDestination ?? null,
+      viaConvoy: engineOrder.viaConvoy || undefined,
+    };
+    const id = legalOrderId(order);
+    order.id = id;
+    byId.set(id, {
+      id,
+      unitTerritory: order.unitTerritory,
+      order,
+      description: describeLegalOrder(order),
+    });
+  }
+  return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id));
+}
+
+export function legalOrderId(order: Order): string {
+  const source = order.unitCoast
+    ? `${order.unitTerritory}/${order.unitCoast}`
+    : order.unitTerritory;
+  if (order.type === 'HOLD') return `${source}|HOLD`;
+  if (order.type === 'MOVE') {
+    const target = order.targetCoast
+      ? `${order.targetTerritory}/${order.targetCoast}`
+      : order.targetTerritory;
+    return `${source}|${order.viaConvoy ? 'MOVE_VIA_CONVOY' : 'MOVE'}|${target}`;
+  }
+  if (order.type === 'SUPPORT_HOLD') {
+    return `${source}|SUPPORT_HOLD|${order.supportedUnit}`;
+  }
+  if (order.type === 'SUPPORT_MOVE') {
+    return `${source}|SUPPORT_MOVE|${order.supportedUnit}|${order.supportedDestination}`;
+  }
+  return `${source}|CONVOY|${order.supportedUnit}|${order.targetTerritory}`;
+}
+
+function engineBoardPayload(state: GameState) {
+  const supplyCenters = Object.fromEntries(
+    Object.values(state.territories)
+      .filter(territory => territory.isSupplyCenter)
+      .map(territory => [territory.id, territory.owner ?? ''])
+  );
+  return {
+    year: state.year,
+    season: state.season,
+    units: state.units
+      .filter(unit => !unit.mustRetreat)
+      .map(unit => ({
+        id: unit.id,
+        type: unit.type,
+        power: unit.power,
+        territory: unit.territory,
+        coast: unit.coast ?? undefined,
+      })),
+    supplyCenters,
+  };
+}
+
+function executeEngine(payload: unknown): EngineResponse {
+  const enginePath = process.env.DIPLOMACY_ENGINE_PATH ?? defaultEnginePath;
+  const stdout = execFileSync(enginePath, {
+    input: JSON.stringify(payload),
+    encoding: 'utf8',
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  return JSON.parse(stdout) as EngineResponse;
+}
+
+function describeLegalOrder(order: Order): string {
+  if (order.type === 'HOLD') return `${order.unitTerritory} holds`;
+  if (order.type === 'MOVE') {
+    return `${order.unitTerritory} moves to ${order.targetTerritory}${
+      order.targetCoast ? `/${order.targetCoast}` : ''
+    }${order.viaConvoy ? ' via convoy' : ''}`;
+  }
+  if (order.type === 'SUPPORT_HOLD') {
+    return `${order.unitTerritory} supports ${order.supportedUnit} holding`;
+  }
+  if (order.type === 'SUPPORT_MOVE') {
+    return `${order.unitTerritory} supports ${order.supportedUnit} to ${order.supportedDestination}`;
+  }
+  return `${order.unitTerritory} convoys ${order.supportedUnit} to ${order.targetTerritory}`;
 }
 
 function toUnit(unit: EngineUnit, mustRetreat = false): Unit {

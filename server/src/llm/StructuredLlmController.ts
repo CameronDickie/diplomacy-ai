@@ -3,7 +3,6 @@ import type {
   Coast,
   DiplomaticAgreement,
   Order,
-  OrderType,
   Power,
   RetreatDestination,
   SubmitBuildsPayload,
@@ -33,17 +32,6 @@ interface AgreementOutput {
   sourceMessageIds: string[];
   expiresYear: number | null;
   expiresSeason: 'SPRING' | 'FALL' | 'WINTER' | null;
-}
-
-interface OrderOutput {
-  unitTerritory: TerritoryId;
-  unitCoast: Coast | null;
-  type: OrderType;
-  targetTerritory: TerritoryId | null;
-  targetCoast: Coast | null;
-  supportedUnit: TerritoryId | null;
-  supportedDestination: TerritoryId | null;
-  viaConvoy: boolean;
 }
 
 export class StructuredLlmController implements PowerController {
@@ -167,7 +155,7 @@ export class StructuredLlmController implements PowerController {
       strategicSummary: string;
       agreements: AgreementOutput[];
       selectedSuggestionId: string | null;
-      actions: OrderOutput[];
+      selectedOrderIds: string[];
     }>({
       model: this.model,
       timeoutMs: this.runtime.timeoutMs,
@@ -175,21 +163,48 @@ export class StructuredLlmController implements PowerController {
       system: CONTROLLER_SYSTEM_PROMPT,
       prompt: buildControllerPrompt(context, 'ORDERS', validationErrors),
       schemaName: 'diplomacy_orders',
-      schema: ordersSchema,
+      schema: ordersSchema(context),
     });
     const selectedSuggestion = result.value.selectedSuggestionId
       ? context.moveSuggestions?.find(
           suggestion => suggestion.id === result.value.selectedSuggestionId
         )
       : undefined;
+    const hasSuggestion = Boolean(result.value.selectedSuggestionId);
+    const hasIndividualOrders = result.value.selectedOrderIds.length > 0;
+    if (hasSuggestion === hasIndividualOrders) {
+      throw new Error(
+        'Choose exactly one order selection mode: a suggestion or individual legal orders'
+      );
+    }
+    if (hasSuggestion && !selectedSuggestion) {
+      throw new Error(`Unknown move suggestion ${result.value.selectedSuggestionId}`);
+    }
+    const selectedIds = selectedSuggestion
+      ? selectedSuggestion.orderIds
+      : result.value.selectedOrderIds;
+    const selectedOptions = selectedIds.map(id =>
+      context.legalOrders.find(option => option.id === id)
+    );
+    const unknownId = selectedIds.find((_, index) => !selectedOptions[index]);
+    if (unknownId) throw new Error(`Unknown legal order ${unknownId}`);
+
+    const activeUnits = context.state.units.filter(
+      unit => unit.power === context.power && !unit.mustRetreat
+    );
+    const selectedSources = selectedOptions.map(option => option!.unitTerritory);
+    if (
+      selectedOptions.length !== activeUnits.length ||
+      new Set(selectedSources).size !== activeUnits.length ||
+      activeUnits.some(unit => !selectedSources.includes(unit.territory))
+    ) {
+      throw new Error(`Exactly one legal order is required for each of ${activeUnits.length} units`);
+    }
     return {
-      actions: selectedSuggestion
-        ? selectedSuggestion.orders.map(order => ({ ...order, id: randomUUID() }))
-        : result.value.actions.map(action => ({
-            id: randomUUID(),
-            power: this.power,
-            ...action,
-          })),
+      actions: selectedOptions.map(option => ({
+        ...option!.order,
+        id: randomUUID(),
+      })),
       strategicSummary: result.value.strategicSummary,
       agreements: toAgreements(result.value.agreements, context),
       usage: result.usage,
@@ -326,45 +341,29 @@ function conversationInstruction(context: DiplomaticConversationContext): string
   ].join(' ');
 }
 
-const ordersSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['strategicSummary', 'agreements', 'selectedSuggestionId', 'actions'],
-  properties: {
-    ...commonDecisionProperties,
-    selectedSuggestionId: { type: ['string', 'null'] },
-    actions: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: [
-          'unitTerritory',
-          'unitCoast',
-          'type',
-          'targetTerritory',
-          'targetCoast',
-          'supportedUnit',
-          'supportedDestination',
-          'viaConvoy',
-        ],
-        properties: {
-          unitTerritory: { type: 'string' },
-          unitCoast: { type: ['string', 'null'] },
-          type: {
-            type: 'string',
-            enum: ['HOLD', 'MOVE', 'SUPPORT_HOLD', 'SUPPORT_MOVE', 'CONVOY'],
-          },
-          targetTerritory: { type: ['string', 'null'] },
-          targetCoast: { type: ['string', 'null'] },
-          supportedUnit: { type: ['string', 'null'] },
-          supportedDestination: { type: ['string', 'null'] },
-          viaConvoy: { type: 'boolean' },
+function ordersSchema(context: ControllerContext) {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'strategicSummary',
+      'agreements',
+      'selectedSuggestionId',
+      'selectedOrderIds',
+    ],
+    properties: {
+      ...commonDecisionProperties,
+      selectedSuggestionId: { type: ['string', 'null'] },
+      selectedOrderIds: {
+        type: 'array',
+        items: {
+          type: 'string',
+          enum: context.legalOrders.map(option => option.id),
         },
       },
     },
-  },
-};
+  };
+}
 
 const retreatsSchema = {
   type: 'object',

@@ -52,6 +52,14 @@ must return structured intent, which is validated by the server and adjudicated
 by the rules engine. Provider prompts and responses should be stored as private
 turn artifacts, separate from public game state.
 
+Prompts use a versioned canonical board context generated from the same
+territory graph used by the application. It explicitly separates supply-center
+ownership, original home power, current occupation, and pending Fall captures.
+For movement decisions, the Go engine flattens Godip's legal options into stable
+order IDs. A model selects one ID per active unit or a supplied candidate set;
+it does not construct free-form movement orders. Tactical suggestions and
+automated-order validation consume that same catalog.
+
 Turn-start planning is scheduled when an orders phase begins. A host-configured
 number of rotating provider-backed LLM powers may use a cheaper role-specific
 planner model to choose a relevant human or LLM recipient and open a private
@@ -79,9 +87,10 @@ enabled public pairings before the game.
 
 Every provider call creates a private structured run artifact with context
 message IDs, memory revisions, board snapshot, decision, validation/fallback
-metadata, and lifecycle statuses. These artifacts intentionally exclude hidden
-chain-of-thought. They remain server-private until observer/research roles and
-their authorization rules are implemented.
+metadata, board-context version, legal-order count, selected legal IDs, and
+lifecycle statuses. These artifacts intentionally exclude hidden chain-of-
+thought. They remain server-private until observer/research roles and their
+authorization rules are implemented.
 
 The current provider implementations are the deterministic stub, OpenAI
 structured output, and Gemini structured output. Provider and model selection is
