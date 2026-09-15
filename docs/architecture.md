@@ -90,7 +90,9 @@ message IDs, memory revisions, board snapshot, decision, validation/fallback
 metadata, board-context version, legal-order count, selected legal IDs, and
 lifecycle statuses. These artifacts intentionally exclude hidden chain-of-
 thought. They remain server-private until observer/research roles and their
-authorization rules are implemented.
+authorization rules are implemented. Each completed run also emits a concise
+host-only outcome summary with game-level run, retry, and fallback counters;
+the event excludes prompts, private messages, memory, and structured decisions.
 
 The current provider implementations are the deterministic stub, OpenAI
 structured output, and Gemini structured output. Provider and model selection is

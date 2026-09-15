@@ -265,7 +265,7 @@ Done when:
 ### I2-11: LLM Validation Telemetry
 
 **Type:** Gate  
-**Status:** Partially implemented in backend run artifacts; host-facing summaries and counters remain.  
+**Status:** Implemented; live fallback-rate tuning remains part of playtesting.
 **Depends on:** none  
 **Primary risk:** repeated structured-output failures are hard to diagnose
 
@@ -275,8 +275,8 @@ Tasks:
 
 - [x] Record validation reason, retry count, fallback reason, final accepted
   action, provider/model, latency, and phase.
-- [ ] Show concise host/debug summaries without chain-of-thought.
-- [ ] Add aggregate fallback-rate counters for a game.
+- [x] Show concise host/debug summaries without chain-of-thought.
+- [x] Add aggregate fallback-rate counters for a game.
 
 Done when:
 

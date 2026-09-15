@@ -71,3 +71,28 @@ export interface LlmRunArtifact {
     at: string;
   }>;
 }
+
+export interface LlmRunSummary {
+  id: string;
+  power: Power;
+  purpose: LlmRunArtifact['purpose'];
+  provider: LlmProviderId;
+  model: string;
+  outcome: 'COMPLETE' | 'FALLBACK';
+  latencyMs: number;
+  retryCount: number;
+  fallbackReason: string | null;
+  validationErrors: string[];
+}
+
+export interface LlmFallbackCounters {
+  totalRuns: number;
+  successfulRuns: number;
+  fallbackRuns: number;
+  fallbackRate: number;
+  totalRetries: number;
+  byPurpose: Record<
+    LlmRunArtifact['purpose'],
+    { totalRuns: number; fallbackRuns: number }
+  >;
+}

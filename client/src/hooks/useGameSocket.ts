@@ -241,6 +241,19 @@ export function useGameSocket() {
       setLlmStatuses(statuses => ({ ...statuses, [payload.power]: payload.status }));
       log('incoming', 'llm_status', `${payload.power} ${payload.status} ${payload.purpose}`);
     });
+    nextSocket.on('llm_telemetry', ({ run, counters }) => {
+      const fallback = run.fallbackReason
+        ? `; fallback=${run.fallbackReason}`
+        : '';
+      log(
+        run.outcome === 'FALLBACK' ? 'error' : 'incoming',
+        'llm_run',
+        `${run.power} ${run.purpose} ${run.provider}/${run.model} ${run.outcome}; ` +
+        `${run.latencyMs}ms; retries=${run.retryCount}; ` +
+        `game fallbacks=${counters.fallbackRuns}/${counters.totalRuns} ` +
+        `(${(counters.fallbackRate * 100).toFixed(1)}%)${fallback}`
+      );
+    });
     nextSocket.on('discord_link_status', ({ status }) => {
       setDiscordStatus(status);
       log('incoming', 'discord_link_status', status);

@@ -9,8 +9,8 @@ diagnosable. Paid providers remain authentication-gated by default.
 
 - `OPENAI` and `GEMINI` are implemented provider adapters.
 - Lobby defaults have used expensive free-form model strings.
-- Run artifacts capture tokens, retries, latency, and fallback reason, but not
-  estimated spend or model role.
+- Run artifacts capture model role, tokens, estimated spend, retries, latency,
+  validation errors, and fallback reason.
 - Non-stub AI rooms are already locked behind authenticated access.
 
 ## Implementation Plan
@@ -34,3 +34,7 @@ diagnosable. Paid providers remain authentication-gated by default.
   and model allowlists, per-game estimated spend cap, retry/timeout/output
   policy, artifact model-role/cost telemetry, Gemini adapter, and cheaper lobby
   defaults. `gpt-5.5` is rejected unless explicitly allowlisted by server env.
+- 2026-07-10: Added `gpt-5.6-luna` and `gpt-5.6-terra` as selectable OpenAI
+  seat models with cost estimation. Kept the cheaper GPT-5.4 mini/nano role
+  defaults unchanged. Added host-only run summaries and aggregate game fallback
+  counters to the browser event log.

@@ -33,7 +33,13 @@ const ROLE_DEFAULTS: Record<
 
 const DEFAULT_ALLOWED_MODELS: Record<LlmProviderId, string[]> = {
   STUB: ['auto-hold-v0', 'idle'],
-  OPENAI: ['gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-5.4'],
+  OPENAI: [
+    'gpt-5.6-terra',
+    'gpt-5.6-luna',
+    'gpt-5.4-mini',
+    'gpt-5.4-nano',
+    'gpt-5.4',
+  ],
   GEMINI: ['gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-3.5-flash'],
   ANTHROPIC: [],
   OPENROUTER: [],
@@ -44,6 +50,8 @@ const PRICING_PER_MILLION: Partial<
   Record<LlmProviderId, Record<string, { input: number; output: number }>>
 > = {
   OPENAI: {
+    'gpt-5.6-terra': { input: 2.5, output: 15 },
+    'gpt-5.6-luna': { input: 1, output: 6 },
     'gpt-5.5': { input: 5, output: 30 },
     'gpt-5.4': { input: 2.5, output: 15 },
     'gpt-5.4-mini': { input: 0.75, output: 4.5 },

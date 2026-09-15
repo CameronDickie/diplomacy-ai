@@ -17,6 +17,8 @@ import type {
   LlmDiplomacyMemory,
   LlmPlayer,
   LlmRunArtifact,
+  LlmFallbackCounters,
+  LlmRunSummary,
   LlmProviderId,
   LlmModelRole,
   GameSettings,
@@ -546,13 +548,13 @@ export class GameRoom {
       this.recordRunUsage(artifact, decision.usage);
       artifact.latencyMs = Date.now() - started;
       this.recordRunStatus(artifact, 'COMPLETE');
-      this.llmRunArtifacts.push(artifact);
+      this.recordLlmRunArtifact(artifact);
     } catch (error) {
       artifact.fallbackReason = error instanceof Error ? error.message : String(error);
       artifact.latencyMs = Date.now() - started;
       this.recordRunStatus(artifact, 'FALLBACK');
       this.recordRunStatus(artifact, 'COMPLETE');
-      this.llmRunArtifacts.push(artifact);
+      this.recordLlmRunArtifact(artifact);
       throw error;
     }
   }
@@ -576,6 +578,35 @@ export class GameRoom {
     return structuredClone(
       this.llmRunArtifacts.filter(artifact => !power || artifact.power === power)
     );
+  }
+
+  getLlmFallbackCounters(): LlmFallbackCounters {
+    const byPurpose: LlmFallbackCounters['byPurpose'] = {
+      DIPLOMACY: { totalRuns: 0, fallbackRuns: 0 },
+      ORDERS: { totalRuns: 0, fallbackRuns: 0 },
+      RETREATS: { totalRuns: 0, fallbackRuns: 0 },
+      BUILDS: { totalRuns: 0, fallbackRuns: 0 },
+    };
+    let fallbackRuns = 0;
+    let totalRetries = 0;
+    for (const artifact of this.llmRunArtifacts) {
+      const purpose = byPurpose[artifact.purpose];
+      purpose.totalRuns++;
+      totalRetries += artifact.retryCount;
+      if (artifact.fallbackReason) {
+        fallbackRuns++;
+        purpose.fallbackRuns++;
+      }
+    }
+    const totalRuns = this.llmRunArtifacts.length;
+    return {
+      totalRuns,
+      successfulRuns: totalRuns - fallbackRuns,
+      fallbackRuns,
+      fallbackRate: totalRuns === 0 ? 0 : fallbackRuns / totalRuns,
+      totalRetries,
+      byPurpose,
+    };
   }
 
   getLlmOutreachRequests(power?: Power): LlmOutreachRequest[] {
@@ -1321,7 +1352,7 @@ export class GameRoom {
           artifact.retryCount = attempt;
           artifact.latencyMs = Date.now() - started;
           this.recordRunStatus(artifact, 'COMPLETE');
-          this.llmRunArtifacts.push(artifact);
+          this.recordLlmRunArtifact(artifact);
           this.broadcastLlmStatus(player.power, 'IDLE', 'DIPLOMACY');
           return {
             toPower: decision.toPower,
@@ -1340,7 +1371,7 @@ export class GameRoom {
     artifact.latencyMs = Date.now() - started;
     this.recordRunStatus(artifact, 'FALLBACK');
     this.recordRunStatus(artifact, 'COMPLETE');
-    this.llmRunArtifacts.push(artifact);
+    this.recordLlmRunArtifact(artifact);
     this.broadcastLlmStatus(player.power, 'FALLBACK', 'DIPLOMACY');
     this.broadcastLlmStatus(player.power, 'IDLE', 'DIPLOMACY');
     return { toPower: null, message: '', expectsReply: false };
@@ -1454,7 +1485,7 @@ export class GameRoom {
           artifact.validationErrors = [];
           artifact.latencyMs = Date.now() - started;
           this.recordRunStatus(artifact, 'COMPLETE');
-          this.llmRunArtifacts.push(artifact);
+          this.recordLlmRunArtifact(artifact);
           this.broadcastLlmStatus(player.power, 'IDLE', purpose);
           return decision.actions;
         }
@@ -1469,7 +1500,7 @@ export class GameRoom {
     artifact.latencyMs = Date.now() - started;
     this.recordRunStatus(artifact, 'FALLBACK');
     this.recordRunStatus(artifact, 'COMPLETE');
-    this.llmRunArtifacts.push(artifact);
+    this.recordLlmRunArtifact(artifact);
     this.broadcastLlmStatus(player.power, 'FALLBACK', purpose);
     this.broadcastLlmStatus(player.power, 'IDLE', purpose);
     return fallback();
@@ -1540,7 +1571,7 @@ export class GameRoom {
           artifact.retryCount = attempt;
           artifact.latencyMs = Date.now() - started;
           this.recordRunStatus(artifact, 'COMPLETE');
-          this.llmRunArtifacts.push(artifact);
+          this.recordLlmRunArtifact(artifact);
           if (broadcastStatus) {
             this.broadcastLlmStatus(player.power, 'IDLE', 'DIPLOMACY');
           } else {
@@ -1564,7 +1595,7 @@ export class GameRoom {
     artifact.latencyMs = Date.now() - started;
     this.recordRunStatus(artifact, 'FALLBACK');
     this.recordRunStatus(artifact, 'COMPLETE');
-    this.llmRunArtifacts.push(artifact);
+    this.recordLlmRunArtifact(artifact);
     if (broadcastStatus) {
       this.broadcastLlmStatus(player.power, 'FALLBACK', 'DIPLOMACY');
       this.broadcastLlmStatus(player.power, 'IDLE', 'DIPLOMACY');
@@ -1636,7 +1667,7 @@ export class GameRoom {
     artifact.latencyMs = 0;
     this.recordRunStatus(artifact, 'FALLBACK');
     this.recordRunStatus(artifact, 'COMPLETE');
-    this.llmRunArtifacts.push(artifact);
+    this.recordLlmRunArtifact(artifact);
     this.broadcastLlmStatus(artifact.power, 'FALLBACK', artifact.purpose);
     this.broadcastLlmStatus(artifact.power, 'IDLE', artifact.purpose);
     return false;
@@ -1863,6 +1894,29 @@ export class GameRoom {
     artifact.statusHistory.push({
       status,
       at: new Date().toISOString(),
+    });
+  }
+
+  private recordLlmRunArtifact(artifact: LlmRunArtifact): void {
+    this.llmRunArtifacts.push(artifact);
+    if (!this.io) return;
+    const hostSocketId = this.getSocketIdForPlayerId(this.state.hostPlayerId);
+    if (!hostSocketId) return;
+    const run: LlmRunSummary = {
+      id: artifact.id,
+      power: artifact.power,
+      purpose: artifact.purpose,
+      provider: artifact.provider,
+      model: artifact.model,
+      outcome: artifact.fallbackReason ? 'FALLBACK' : 'COMPLETE',
+      latencyMs: artifact.latencyMs,
+      retryCount: artifact.retryCount,
+      fallbackReason: artifact.fallbackReason,
+      validationErrors: [...artifact.validationErrors],
+    };
+    this.io.to(hostSocketId).emit('llm_telemetry', {
+      run,
+      counters: this.getLlmFallbackCounters(),
     });
   }
 

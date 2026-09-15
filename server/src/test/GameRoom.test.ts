@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type {
   ConversationPresencePayload,
+  LlmTelemetryPayload,
   Order,
   Power,
   TerritoryId,
@@ -880,6 +881,7 @@ test('conversation presence hides private pairings from uninvolved players', asy
 
 test('LLM phase-decision diagnostics are delivered to the host only by default', async () => {
   const llmStatusBySocket = new Map<string, unknown[]>();
+  const llmTelemetryBySocket = new Map<string, LlmTelemetryPayload[]>();
   const room = new GameRoom({
     controllerFactory: ({ power }) => ({
       power,
@@ -918,10 +920,16 @@ test('LLM phase-decision diagnostics are delivered to the host only by default',
     to(socketId: string) {
       return {
         emit(event: string, payload: unknown) {
-          if (event !== 'llm_status') return;
-          const events = llmStatusBySocket.get(socketId) ?? [];
-          events.push(payload);
-          llmStatusBySocket.set(socketId, events);
+          if (event === 'llm_status') {
+            const events = llmStatusBySocket.get(socketId) ?? [];
+            events.push(payload);
+            llmStatusBySocket.set(socketId, events);
+          }
+          if (event === 'llm_telemetry') {
+            const events = llmTelemetryBySocket.get(socketId) ?? [];
+            events.push(payload as LlmTelemetryPayload);
+            llmTelemetryBySocket.set(socketId, events);
+          }
         },
       };
     },
@@ -939,6 +947,23 @@ test('LLM phase-decision diagnostics are delivered to the host only by default',
 
   assert.ok((llmStatusBySocket.get('host-socket')?.length ?? 0) > 0);
   assert.equal(llmStatusBySocket.get('england-socket'), undefined);
+  const telemetry = llmTelemetryBySocket.get('host-socket');
+  assert.equal(telemetry?.length, 5);
+  assert.equal(telemetry?.at(-1)?.run.outcome, 'FALLBACK');
+  assert.deepEqual(telemetry?.at(-1)?.counters, {
+    totalRuns: 5,
+    successfulRuns: 0,
+    fallbackRuns: 5,
+    fallbackRate: 1,
+    totalRetries: 5,
+    byPurpose: {
+      DIPLOMACY: { totalRuns: 0, fallbackRuns: 0 },
+      ORDERS: { totalRuns: 5, fallbackRuns: 5 },
+      RETREATS: { totalRuns: 0, fallbackRuns: 0 },
+      BUILDS: { totalRuns: 0, fallbackRuns: 0 },
+    },
+  });
+  assert.equal(llmTelemetryBySocket.get('england-socket'), undefined);
 });
 
 test('an all-LLM room can resolve its opening phase without a human submission', async () => {

@@ -4,7 +4,12 @@ import type { Unit, UnitType } from './unit.js';
 import type { Order, AdjudicationResult } from './order.js';
 import type { GameState, Player } from './state.js';
 import type { DiplomaticMessage } from './diplomacy.js';
-import type { LlmProviderId, LlmRunStatus } from './llm.js';
+import type {
+  LlmFallbackCounters,
+  LlmProviderId,
+  LlmRunStatus,
+  LlmRunSummary,
+} from './llm.js';
 import type { PublicPhaseReport } from './history.js';
 import type {
   DiscordLinkStatus,
@@ -221,6 +226,11 @@ export interface LlmStatusPayload {
   purpose: 'DIPLOMACY' | 'ORDERS' | 'RETREATS' | 'BUILDS';
 }
 
+export interface LlmTelemetryPayload {
+  run: LlmRunSummary;
+  counters: LlmFallbackCounters;
+}
+
 export interface DiscordLinkStatusPayload {
   status: DiscordLinkStatus;
 }
@@ -255,6 +265,7 @@ export interface ServerToClientEvents {
   phase_report_added: (payload: PhaseReportAddedPayload) => void;
   conversation_presence: (payload: ConversationPresencePayload) => void;
   llm_status: (payload: LlmStatusPayload) => void;
+  llm_telemetry: (payload: LlmTelemetryPayload) => void;
   discord_link_status: (payload: DiscordLinkStatusPayload) => void;
   discord_guild_bind_code_created: (payload: DiscordCodeCreatedPayload) => void;
   discord_player_link_code_created: (payload: DiscordCodeCreatedPayload) => void;

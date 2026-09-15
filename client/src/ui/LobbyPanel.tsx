@@ -6,6 +6,21 @@ import { useAuth } from '../hooks/useAuth.js';
 
 type GameSocket = ReturnType<typeof useGameSocket>;
 
+const MODEL_SUGGESTIONS: Partial<Record<LlmProviderId, string[]>> = {
+  OPENAI: [
+    'gpt-5.6-luna',
+    'gpt-5.6-terra',
+    'gpt-5.4-mini',
+    'gpt-5.4-nano',
+    'gpt-5.4',
+  ],
+  GEMINI: [
+    'gemini-3.1-flash-lite',
+    'gemini-3-flash-preview',
+    'gemini-3.5-flash',
+  ],
+};
+
 export function LobbyPanel({ game }: { game: GameSocket }) {
   const auth = useAuth();
   const [name, setName] = useState('Dev Player');
@@ -256,10 +271,16 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
               <label>
                 Model
                 <input
+                  list="llm-model-options"
                   value={llmModel}
                   disabled={aiControlsLocked}
                   onChange={event => setLlmModel(event.target.value)}
                 />
+                <datalist id="llm-model-options">
+                  {(MODEL_SUGGESTIONS[llmProvider] ?? []).map(model => (
+                    <option value={model} key={model} />
+                  ))}
+                </datalist>
               </label>
               <label>
                 Persona
