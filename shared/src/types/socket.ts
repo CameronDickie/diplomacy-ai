@@ -100,9 +100,9 @@ export interface ClientToServerEvents {
   add_llm_player: (payload: AddLlmPlayerPayload) => void;
   update_game_settings: (payload: UpdateGameSettingsPayload) => void;
   start_game: (payload: StartGamePayload) => void;
-  submit_orders: (payload: SubmitOrdersPayload) => void;
-  submit_retreats: (payload: SubmitRetreatsPayload) => void;
-  submit_builds: (payload: SubmitBuildsPayload) => void;
+  submit_orders: (payload: SubmitOrdersPayload & { phaseId: string }) => void;
+  submit_retreats: (payload: SubmitRetreatsPayload & { phaseId: string }) => void;
+  submit_builds: (payload: SubmitBuildsPayload & { phaseId: string }) => void;
   send_diplomatic_message: (payload: SendDiplomaticMessagePayload) => void;
   request_diplomacy_history: (payload: { gameId: string }) => void;
   request_phase_history: (payload: { gameId: string }) => void;
@@ -247,6 +247,7 @@ export interface ServerToClientEvents {
   game_created: (payload: GameCreatedPayload) => void;
   game_joined: (payload: GameJoinedPayload) => void;
   game_resumed: (payload: GameResumedPayload) => void;
+  session_replaced: (payload: ErrorPayload) => void;
   resume_error: (payload: ErrorPayload) => void;
   join_error: (payload: ErrorPayload) => void;
   player_joined: (payload: PlayerJoinedPayload) => void;

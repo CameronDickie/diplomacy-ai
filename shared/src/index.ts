@@ -11,3 +11,4 @@ export * from './types/discord.js';
 export * from './constants/territories.js';
 export * from './constants/adjacency.js';
 export * from './constants/startingPositions.js';
+export { gamePhaseId } from './phase.js';

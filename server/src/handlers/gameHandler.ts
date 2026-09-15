@@ -1,4 +1,5 @@
 import type { Server, Socket } from 'socket.io';
+import { onClientEvent } from './clientEvent.js';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
 import type { GameManager } from '../GameManager.js';
 import {
@@ -12,7 +13,7 @@ export function attachGameHandlers(
   io: Server<ClientToServerEvents, ServerToClientEvents>,
   gameManager: GameManager
 ): void {
-  socket.on('create_game', ({ playerName, preferredPower }) => {
+  onClientEvent(socket, 'create_game', ({ playerName, preferredPower }) => {
     const normalizedName = normalizePlayerName(playerName);
     if (!normalizedName) {
       socket.emit('error', { message: 'Player name must be 1-40 characters', code: 'INVALID_NAME' });
@@ -53,7 +54,11 @@ export function attachGameHandlers(
     console.log(`Game created: ${room.gameId} by ${normalizedName} (${player.power})`);
   });
 
-  socket.on('join_game', ({ gameId, playerName, preferredPower }) => {
+  onClientEvent(socket, 'join_game', ({ gameId, playerName, preferredPower }) => {
+    if (gameManager.getRoomBySocket(socket.id)) {
+      socket.emit('join_error', { message: 'You already have a seat in a game.', code: 'ALREADY_IN_GAME' });
+      return;
+    }
     const normalizedGameId = gameId.trim().toUpperCase();
     const normalizedName = normalizePlayerName(playerName);
     if (!normalizedName) {
@@ -105,7 +110,7 @@ export function attachGameHandlers(
     console.log(`${normalizedName} joined game ${normalizedGameId} as ${player.power}`);
   });
 
-  socket.on('resume_game', ({ gameId, sessionToken }) => {
+  onClientEvent(socket, 'resume_game', ({ gameId, sessionToken }) => {
     const normalizedGameId = gameId.trim().toUpperCase();
     const room = gameManager.getRoom(normalizedGameId);
     if (!room) {
@@ -113,6 +118,11 @@ export function attachGameHandlers(
       return;
     }
     if (!requireRoomAccess(socket, room)) return;
+    const existingRoom = gameManager.getRoomBySocket(socket.id);
+    if (existingRoom && existingRoom !== room) {
+      socket.emit('resume_error', { message: 'You already have a seat in another game.', code: 'ALREADY_IN_GAME' });
+      return;
+    }
     const player = room.resumePlayer(socket.id, sessionToken);
     if (!player) {
       socket.emit('resume_error', { message: 'The saved player session is invalid', code: 'INVALID_SESSION' });
@@ -131,7 +141,7 @@ export function attachGameHandlers(
     room.broadcast('game_state_sync', { gameState: room.getState() });
   });
 
-  socket.on('add_llm_player', ({
+  onClientEvent(socket, 'add_llm_player', ({
     gameId,
     power,
     name,
@@ -196,7 +206,7 @@ export function attachGameHandlers(
     });
   });
 
-  socket.on('update_game_settings', ({ gameId, ...settings }) => {
+  onClientEvent(socket, 'update_game_settings', ({ gameId, ...settings }) => {
     const room = gameManager.getRoom(gameId);
     if (!room) {
       socket.emit('error', { message: `Game ${gameId} not found`, code: 'GAME_NOT_FOUND' });
@@ -220,7 +230,7 @@ export function attachGameHandlers(
     room.broadcast('game_state_sync', { gameState: room.getState() });
   });
 
-  socket.on('start_game', async ({ gameId }) => {
+  onClientEvent(socket, 'start_game', async ({ gameId }) => {
     const room = gameManager.getRoom(gameId);
     if (!room) {
       socket.emit('error', { message: `Game ${gameId} not found`, code: 'GAME_NOT_FOUND' });

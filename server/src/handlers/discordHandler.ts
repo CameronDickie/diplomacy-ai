@@ -1,4 +1,5 @@
 import type { Server, Socket } from 'socket.io';
+import { onClientEvent } from './clientEvent.js';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
 import type { GameManager } from '../GameManager.js';
 import type { DiscordBotManager } from '../discord/DiscordBotManager.js';
@@ -14,7 +15,7 @@ export function attachDiscordHandlers(
   bots: DiscordBotManager | null,
   voice: VoiceSessionManager | null
 ): void {
-  socket.on('create_discord_guild_bind_code', ({ gameId }) => {
+  onClientEvent(socket, 'create_discord_guild_bind_code', ({ gameId }) => {
     withPlayer(socket, gameManager, gameId, (room, player) => {
       try {
         socket.emit('discord_guild_bind_code_created', {
@@ -26,7 +27,7 @@ export function attachDiscordHandlers(
     });
   });
 
-  socket.on('create_discord_player_link_code', ({ gameId }) => {
+  onClientEvent(socket, 'create_discord_player_link_code', ({ gameId }) => {
     withPlayer(socket, gameManager, gameId, (room, player) => {
       try {
         socket.emit('discord_player_link_code_created', {
@@ -38,7 +39,7 @@ export function attachDiscordHandlers(
     });
   });
 
-  socket.on('request_discord_link_status', ({ gameId }) => {
+  onClientEvent(socket, 'request_discord_link_status', ({ gameId }) => {
     withPlayer(socket, gameManager, gameId, (room, player) => {
       socket.emit('discord_link_status', {
         status: links.getStatus(room.gameId, player.id),
@@ -51,21 +52,21 @@ export function attachDiscordHandlers(
     });
   });
 
-  socket.on('start_voice_session', async ({ gameId, toPower }) => {
+  onClientEvent(socket, 'start_voice_session', async ({ gameId, toPower }) => {
     await withPlayerAsync(socket, gameManager, gameId, async (room, player) => {
       if (!voice || !bots) throw new Error('Discord voice is not configured');
       await voice.start(room.gameId, player, toPower);
     }, 'VOICE_START_FAILED');
   });
 
-  socket.on('begin_voice_input', async ({ gameId }) => {
+  onClientEvent(socket, 'begin_voice_input', async ({ gameId }) => {
     await withPlayerAsync(socket, gameManager, gameId, async (_room, player) => {
       if (!voice) throw new Error('Discord voice is not configured');
       await voice.beginInput(player.id);
     }, 'VOICE_INPUT_FAILED');
   });
 
-  socket.on('commit_voice_input', ({ gameId }) => {
+  onClientEvent(socket, 'commit_voice_input', ({ gameId }) => {
     withPlayer(socket, gameManager, gameId, (_room, player) => {
       try {
         if (!voice) throw new Error('Discord voice is not configured');
@@ -76,7 +77,7 @@ export function attachDiscordHandlers(
     });
   });
 
-  socket.on('interrupt_voice_response', ({ gameId }) => {
+  onClientEvent(socket, 'interrupt_voice_response', ({ gameId }) => {
     withPlayer(socket, gameManager, gameId, (_room, player) => {
       try {
         if (!voice) throw new Error('Discord voice is not configured');
@@ -87,7 +88,7 @@ export function attachDiscordHandlers(
     });
   });
 
-  socket.on('end_voice_session', async ({ gameId }) => {
+  onClientEvent(socket, 'end_voice_session', async ({ gameId }) => {
     await withPlayerAsync(socket, gameManager, gameId, async (_room, player) => {
       if (!voice) throw new Error('Discord voice is not configured');
       await voice.end(player.id);

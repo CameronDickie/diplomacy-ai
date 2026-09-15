@@ -1,4 +1,5 @@
 import type { Server, Socket } from 'socket.io';
+import { onClientEvent } from './clientEvent.js';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
 import type { GameManager } from '../GameManager.js';
 import type { DiplomacyService } from '../diplomacy/DiplomacyService.js';
@@ -12,7 +13,7 @@ export function attachDiplomacyHandlers(
 ): void {
   void io;
 
-  socket.on('send_diplomatic_message', async ({
+  onClientEvent(socket, 'send_diplomatic_message', async ({
     gameId,
     clientMessageId,
     toPower,
@@ -57,7 +58,7 @@ export function attachDiplomacyHandlers(
     }
   });
 
-  socket.on('request_diplomacy_history', ({ gameId }) => {
+  onClientEvent(socket, 'request_diplomacy_history', ({ gameId }) => {
     const room = gameManager.getRoom(gameId.trim().toUpperCase());
     if (!room) return;
     if (!requireRoomAccess(socket, room)) return;

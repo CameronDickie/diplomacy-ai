@@ -85,3 +85,7 @@ Lightsail deployment is documented in [docs/deployment.md](docs/deployment.md).
 
 See [docs/architecture.md](docs/architecture.md) and
 [docs/roadmap.md](docs/roadmap.md).
+
+The prioritized repair checklist and verified progress are in
+[docs/code-review-backlog.md](docs/code-review-backlog.md). Core browser game
+correctness and recovery take priority over optional voice and Discord work.

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { gamePhaseId } from '@diplomacy/shared';
 import type {
   ClientToServerEvents,
   ErrorPayload,
@@ -12,6 +13,9 @@ import { GameManager } from '../GameManager.js';
 import { attachDiscordHandlers } from '../handlers/discordHandler.js';
 import { attachGameHandlers } from '../handlers/gameHandler.js';
 import { attachOrderHandlers } from '../handlers/orderHandler.js';
+import { attachHandlers } from '../handlers/connectionHandler.js';
+import { onClientEvent } from '../handlers/clientEvent.js';
+import { DiplomacyService } from '../diplomacy/DiplomacyService.js';
 
 type ClientEventName = keyof ClientToServerEvents;
 type ServerEventName = keyof ServerToClientEvents;
@@ -146,7 +150,7 @@ test('authenticated AI rooms reject unauthenticated play events', async () => {
   room.enableAuthenticatedAiAccess();
 
   const france = socketWithOrderHandlers('france-socket', manager);
-  await invoke(france, 'submit_orders', { gameId: room.gameId, orders: [] });
+  await invoke(france, 'submit_orders', { gameId: room.gameId, phaseId: gamePhaseId(room.getState()), orders: [] });
   assertLastError(france, 'AUTH_REQUIRED');
 });
 
@@ -170,6 +174,7 @@ test('order handlers bind submissions to the socket owner power', async () => {
   await invoke(france, 'submit_orders', {
     gameId: room.gameId,
     orders: [austriaOrder],
+    phaseId: gamePhaseId(room.getState()),
   });
   assertLastError(france, 'INVALID_ORDERS');
   assert.equal(room.getState().submittedPowers.includes('FRANCE'), false);
@@ -181,16 +186,16 @@ test('order handlers reject non-participants consistently', async () => {
   const room = manager.getRooms()[0];
   const attacker = socketWithOrderHandlers('attacker-socket', manager);
 
-  await invoke(attacker, 'submit_orders', { gameId: room.gameId, orders: [] });
+  await invoke(attacker, 'submit_orders', { gameId: room.gameId, phaseId: gamePhaseId(room.getState()), orders: [] });
   assertLastError(attacker, 'NOT_IN_GAME');
 
   room.getState().phase = 'RETREATS';
-  await invoke(attacker, 'submit_retreats', { gameId: room.gameId, retreats: {} });
+  await invoke(attacker, 'submit_retreats', { gameId: room.gameId, phaseId: gamePhaseId(room.getState()), retreats: {} });
   assertLastError(attacker, 'NOT_IN_GAME');
 
   room.getState().phase = 'BUILDS';
   const builds: [] = [];
-  await invoke(attacker, 'submit_builds', { gameId: room.gameId, builds, disbands: [] });
+  await invoke(attacker, 'submit_builds', { gameId: room.gameId, phaseId: gamePhaseId(room.getState()), builds, disbands: [] });
   assertLastError(attacker, 'NOT_IN_GAME');
 });
 
@@ -247,6 +252,9 @@ function socketWithDiscordHandlers(
 
 function fakeIO(): Server<ClientToServerEvents, ServerToClientEvents> {
   return {
+    in() {
+      return { socketsLeave() {} };
+    },
     to() {
       return {
         emit() {
@@ -256,6 +264,138 @@ function fakeIO(): Server<ClientToServerEvents, ServerToClientEvents> {
     },
   } as unknown as Server<ClientToServerEvents, ServerToClientEvents>;
 }
+
+test('every transport handler rejects malformed input without throwing or creating rooms', async () => {
+  const manager = new GameManager();
+  const socket = new FakeSocket('malformed-socket');
+  attachHandlers(socket as unknown as Socket<ClientToServerEvents, ServerToClientEvents>, fakeIO(), manager, {
+    diplomacy: new DiplomacyService(manager),
+    discordLinks: new DiscordLinkService(manager, null),
+    discordBots: null,
+    voice: null,
+  });
+  for (const [event, handler] of socket.handlers) {
+    if (event === 'disconnect') continue;
+    for (const value of [null, [], 42, 'wrong', { gameId: 42 }, ...(event === 'request_state' ? [] : [undefined])]) {
+      const previousCount = socket.emitted.length;
+      await handler(value);
+      assert.equal(socket.emitted.length, previousCount + 1, event);
+      assert.equal((socket.emitted.at(-1)?.payload as ErrorPayload).code, 'INVALID_PAYLOAD', event);
+    }
+  }
+  await invoke(socket, 'create_game', { playerName: 42 });
+  assertLastError(socket, 'INVALID_PAYLOAD');
+  assert.equal(manager.getRooms().length, 0);
+});
+
+test('nested malformed orders, builds and settings leave a room unchanged', async () => {
+  const manager = GameManagerWithStartedRoom();
+  const room = manager.getRooms()[0];
+  const socket = socketWithOrderHandlers('france-socket', manager);
+  attachGameHandlers(socket as unknown as Socket<ClientToServerEvents, ServerToClientEvents>, fakeIO(), manager);
+  const before = structuredClone(room.getState());
+  const base = { gameId: room.gameId, phaseId: gamePhaseId(room.getState()) };
+  for (const orders of [null, [null], Array(35).fill({}), [{ type: 'TELEPORT' }]]) {
+    await invoke(socket, 'submit_orders', { ...base, orders });
+    assertLastError(socket, 'INVALID_PAYLOAD');
+  }
+  await invoke(socket, 'submit_builds', {
+    ...base, builds: [{ type: 'SUBMARINE', territory: 'BRE', coast: null }], disbands: [],
+  });
+  assertLastError(socket, 'INVALID_PAYLOAD');
+  await invoke(socket, 'update_game_settings', { gameId: room.gameId, llmNegotiationPlannerModel: null });
+  assertLastError(socket, 'INVALID_PAYLOAD');
+  await invoke(socket, 'update_game_settings', { gameId: room.gameId, unknownSetting: true });
+  assertLastError(socket, 'INVALID_PAYLOAD');
+  assert.deepEqual(room.getState(), before);
+});
+
+test('the event boundary catches both thrown exceptions and rejected promises', async () => {
+  const socket = new FakeSocket('exception-socket');
+  for (const handler of [
+    () => { throw new Error('private error details'); },
+    async () => { throw new Error('private error details'); },
+  ]) {
+    onClientEvent(socket as unknown as Socket<ClientToServerEvents, ServerToClientEvents>, 'request_state', handler);
+    await invoke(socket, 'request_state', undefined);
+    assertLastError(socket, 'INTERNAL_ERROR');
+    assert.equal(JSON.stringify(socket.emitted).includes('private error details'), false);
+  }
+});
+
+test('joining twice or joining another room cannot change the socket seat', async () => {
+  const manager = new GameManager();
+  const first = manager.createGame();
+  first.addPlayer('joined-socket', 'England', 'ENGLAND');
+  const other = manager.createGame();
+  const socket = socketWithGameHandlers('joined-socket', manager);
+  for (const room of [first, other]) {
+    await invoke(socket, 'join_game', { gameId: room.gameId, playerName: 'France', preferredPower: 'FRANCE' });
+    assert.equal((lastEmitted(socket, 'join_error')?.payload as ErrorPayload).code, 'ALREADY_IN_GAME');
+  }
+  assert.equal(first.getState().players.length, 1);
+  assert.equal(other.getState().players.length, 0);
+  assert.equal(first.getPlayerBySocket(socket.id)?.power, 'ENGLAND');
+});
+
+test('resume cannot attach an occupied socket to another room', async () => {
+  const manager = new GameManager();
+  const first = manager.createGame();
+  first.addPlayer('joined-socket', 'England', 'ENGLAND');
+  const other = manager.createGame();
+  const target = other.addPlayer('other-socket', 'France', 'FRANCE')!;
+  const socket = socketWithGameHandlers('joined-socket', manager);
+  await invoke(socket, 'resume_game', { gameId: other.gameId, sessionToken: target.sessionToken });
+  assert.equal((lastEmitted(socket, 'resume_error')?.payload as ErrorPayload).code, 'ALREADY_IN_GAME');
+  assert.equal(other.hasSocket(socket.id), false);
+  assert.equal(other.hasSocket('other-socket'), true);
+});
+
+test('orders, retreats and builds reject stale phase IDs and synchronize the board', async () => {
+  const manager = GameManagerWithStartedRoom();
+  const room = manager.getRooms()[0];
+  const socket = socketWithOrderHandlers('france-socket', manager);
+  const commands = [
+    ['ORDERS', 'submit_orders', { orders: [] }],
+    ['RETREATS', 'submit_retreats', { retreats: {} }],
+    ['BUILDS', 'submit_builds', { builds: [], disbands: [] }],
+  ] as const;
+  for (const [phase, event, actions] of commands) {
+    room.getState().phase = phase;
+    const before = structuredClone(room.getState());
+    const phaseId = gamePhaseId({ ...before, year: before.year - 1 });
+    await invoke(socket, event, { gameId: room.gameId, phaseId, ...actions });
+    assertLastError(socket, 'STALE_PHASE');
+    assert.ok(lastEmitted(socket, 'game_state_sync'));
+    assert.deepEqual(room.getState(), before);
+  }
+});
+
+test('replaying the last human orders cannot resolve the next season', async () => {
+  const manager = new GameManager();
+  const room = manager.createGame();
+  room.addPlayer('human-socket', 'England', 'ENGLAND');
+  for (let i = 0; i < 6; i++) room.addLlmPlayer();
+  await room.startGame();
+  const socket = socketWithOrderHandlers('human-socket', manager);
+  socket.data.authenticated = true;
+  const command = { gameId: room.gameId, phaseId: gamePhaseId(room.getState()), orders: [] };
+  await invoke(socket, 'submit_orders', command);
+  assert.equal(room.getState().season, 'FALL');
+  const after = structuredClone(room.getState());
+  await invoke(socket, 'submit_orders', command);
+  assertLastError(socket, 'STALE_PHASE');
+  assert.deepEqual(room.getState(), after);
+});
+
+test('clients without a phase ID cannot submit orders', async () => {
+  const manager = GameManagerWithStartedRoom();
+  const room = manager.getRooms()[0];
+  const socket = socketWithOrderHandlers('france-socket', manager);
+  await invoke(socket, 'submit_orders', { gameId: room.gameId, orders: [] });
+  assertLastError(socket, 'INVALID_PAYLOAD');
+  assert.deepEqual(room.getState().submittedPowers, []);
+});
 
 async function invoke(
   socket: FakeSocket,

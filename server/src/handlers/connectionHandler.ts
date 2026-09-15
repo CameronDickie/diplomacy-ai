@@ -1,4 +1,5 @@
 import type { Server, Socket } from 'socket.io';
+import { onClientEvent } from './clientEvent.js';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
 import type { GameManager } from '../GameManager.js';
 import { attachGameHandlers } from './gameHandler.js';
@@ -48,14 +49,14 @@ export function attachHandlers(
     room.broadcast('player_disconnected', { power: player.power });
   });
 
-  socket.on('request_state', () => {
+  onClientEvent(socket, 'request_state', () => {
     const room = gameManager.getRoomBySocket(socket.id);
     if (!room) return;
     if (!requireRoomAccess(socket, room)) return;
     socket.emit('game_state_sync', { gameState: room.getState() });
   });
 
-  socket.on('request_phase_history', ({ gameId }) => {
+  onClientEvent(socket, 'request_phase_history', ({ gameId }) => {
     const room = gameManager.getRoom(gameId);
     if (!room || !room.hasSocket(socket.id)) return;
     if (!requireRoomAccess(socket, room)) return;

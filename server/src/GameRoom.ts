@@ -282,6 +282,7 @@ export class GameRoom {
     preferredPower: Power | 'RANDOM' = 'RANDOM'
   ): { player: HumanPlayer; sessionToken: string } | null {
     if (this.state.status !== 'LOBBY') return null;
+    if (this.hasSocket(socketId)) return null;
     const availablePowers = this.getAvailablePowers();
     const available = preferredPower === 'RANDOM'
       ? availablePowers[Math.floor(Math.random() * availablePowers.length)]
@@ -315,7 +316,17 @@ export class GameRoom {
     if (!sessionEntry) return undefined;
 
     const [playerId, session] = sessionEntry;
+    const existingPlayer = this.getPlayerBySocket(socketId);
+    if (existingPlayer && existingPlayer.id !== playerId) return undefined;
+    const previousSocketId = session.socketId;
     session.socketId = socketId;
+    if (previousSocketId && previousSocketId !== socketId && this.io) {
+      this.io.to(previousSocketId).emit('session_replaced', {
+        code: 'SESSION_REPLACED',
+        message: 'Your seat was opened in another tab or browser. Refresh this page to take control here.',
+      });
+      this.io.in(previousSocketId).socketsLeave(this.gameId);
+    }
     const player = this.state.players.find(
       (candidate): candidate is HumanPlayer =>
         candidate.kind === 'HUMAN' && candidate.id === playerId
@@ -691,6 +702,7 @@ export class GameRoom {
       this.state.submittedPowers = this.state.submittedPowers.filter(
         submittedPower => submittedPower !== power
       );
+      this.broadcast('game_state_sync', { gameState: this.state });
       throw error;
     }
   }

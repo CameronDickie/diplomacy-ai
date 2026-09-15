@@ -1,5 +1,8 @@
 import type { Server, Socket } from 'socket.io';
+import { onClientEvent } from './clientEvent.js';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
+import { gamePhaseId } from '@diplomacy/shared';
+import type { GameRoom } from '../GameRoom.js';
 import type { GameManager } from '../GameManager.js';
 import { requireRoomAccess } from './authz.js';
 
@@ -10,7 +13,7 @@ export function attachOrderHandlers(
 ): void {
   void io; // io available for future use
 
-  socket.on('submit_orders', async ({ gameId, orders }) => {
+  onClientEvent(socket, 'submit_orders', async ({ gameId, phaseId, orders }) => {
     const room = gameManager.getRoom(gameId);
     if (!room) {
       socket.emit('error', { message: 'Game not found', code: 'GAME_NOT_FOUND' });
@@ -28,6 +31,8 @@ export function attachOrderHandlers(
       socket.emit('error', { message: 'Game has not started', code: 'GAME_NOT_STARTED' });
       return;
     }
+
+    if (!requireCurrentPhase(socket, room, phaseId)) return;
 
     if (room.getState().phase !== 'ORDERS') {
       socket.emit('error', { message: 'Not in orders phase', code: 'WRONG_PHASE' });
@@ -52,7 +57,7 @@ export function attachOrderHandlers(
     }
   });
 
-  socket.on('submit_retreats', async ({ gameId, retreats }) => {
+  onClientEvent(socket, 'submit_retreats', async ({ gameId, phaseId, retreats }) => {
     const room = gameManager.getRoom(gameId);
     if (!room) {
       socket.emit('error', { message: 'Game not found', code: 'GAME_NOT_FOUND' });
@@ -70,6 +75,8 @@ export function attachOrderHandlers(
       socket.emit('error', { message: 'Game has not started', code: 'GAME_NOT_STARTED' });
       return;
     }
+
+    if (!requireCurrentPhase(socket, room, phaseId)) return;
 
     if (room.getState().phase !== 'RETREATS') {
       socket.emit('error', { message: 'Not in retreats phase', code: 'WRONG_PHASE' });
@@ -93,7 +100,7 @@ export function attachOrderHandlers(
     }
   });
 
-  socket.on('submit_builds', async ({ gameId, builds, disbands }) => {
+  onClientEvent(socket, 'submit_builds', async ({ gameId, phaseId, builds, disbands }) => {
     const room = gameManager.getRoom(gameId);
     if (!room) {
       socket.emit('error', { message: 'Game not found', code: 'GAME_NOT_FOUND' });
@@ -111,6 +118,8 @@ export function attachOrderHandlers(
       socket.emit('error', { message: 'Game has not started', code: 'GAME_NOT_STARTED' });
       return;
     }
+
+    if (!requireCurrentPhase(socket, room, phaseId)) return;
 
     if (room.getState().phase !== 'BUILDS') {
       socket.emit('error', { message: 'Not in builds phase', code: 'WRONG_PHASE' });
@@ -134,4 +143,18 @@ export function attachOrderHandlers(
       });
     }
   });
+}
+
+function requireCurrentPhase(
+  socket: Socket<ClientToServerEvents, ServerToClientEvents>,
+  room: GameRoom,
+  phaseId: string
+): boolean {
+  if (phaseId === gamePhaseId(room.getState())) return true;
+  socket.emit('game_state_sync', { gameState: room.getState() });
+  socket.emit('error', {
+    code: 'STALE_PHASE',
+    message: 'The turn changed before your submission arrived. Review the current board and submit again.',
+  });
+  return false;
 }

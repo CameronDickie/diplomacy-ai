@@ -35,6 +35,30 @@ input, select, textarea { width: 100%; }
   grid-template-rows: auto minmax(0, 1fr) 38px;
 }
 
+.game-errors {
+  position: fixed;
+  top: 80px;
+  right: 16px;
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100dvh - 100px);
+  overflow: auto;
+  z-index: 1000;
+  display: grid;
+  gap: 8px;
+}
+.game-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #d67a71;
+  border-radius: 8px;
+  background: #392322;
+  color: #fff1ef;
+  box-shadow: 0 4px 18px #0008;
+}
+.game-error span { flex: 1; overflow-wrap: anywhere; }
+
 .topbar {
   align-items: center;
   border-bottom: 1px solid #2b3035;

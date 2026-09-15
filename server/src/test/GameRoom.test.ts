@@ -39,6 +39,72 @@ test('players cannot join after a game starts', async () => {
   assert.equal(room.addPlayer('late-socket', 'Late Player'), null);
 });
 
+test('a socket owns at most one seat and can resume that same seat repeatedly', () => {
+  const room = new GameRoom();
+  const england = room.addPlayer('england-socket', 'England', 'ENGLAND')!;
+  const france = room.addPlayer('france-socket', 'France', 'FRANCE')!;
+  assert.equal(room.addPlayer('england-socket', 'Italy', 'ITALY'), null);
+  assert.equal(room.resumePlayer('england-socket', france.sessionToken), undefined);
+  assert.equal(room.resumePlayer('england-socket', england.sessionToken)?.id, england.player.id);
+  assert.equal(room.getState().players.length, 2);
+  assert.equal(room.getPlayerBySocket('france-socket')?.id, france.player.id);
+});
+
+test('seat takeover removes old transport membership without disconnecting the resumed player', () => {
+  const room = new GameRoom();
+  const joined = room.addPlayer('old-socket', 'England', 'ENGLAND')!;
+  const events: Array<{ target: string; event: string }> = [];
+  const removed: Array<{ target: string; room: string }> = [];
+  room.setIO({
+    to(target: string) {
+      return { emit(event: string) { events.push({ target, event }); } };
+    },
+    in(target: string) {
+      return { socketsLeave(room: string) { removed.push({ target, room }); } };
+    },
+  } as unknown as Parameters<GameRoom['setIO']>[0]);
+  assert.equal(room.resumePlayer('new-socket', joined.sessionToken)?.id, joined.player.id);
+  assert.equal(room.hasSocket('old-socket'), false);
+  assert.deepEqual(events, [{ target: 'old-socket', event: 'session_replaced' }]);
+  assert.deepEqual(removed, [{ target: 'old-socket', room: room.gameId }]);
+  room.markDisconnected('old-socket');
+  assert.equal(joined.player.connected, true);
+  assert.equal(room.getPlayerBySocket('new-socket')?.id, joined.player.id);
+});
+
+test('failed adjudication broadcasts rolled-back submission state and allows retry', async () => {
+  const room = new GameRoom();
+  for (const power of ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY'] as const) {
+    room.addPlayer(power, power, power);
+  }
+  await room.startGame();
+  for (const power of ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA'] as const) {
+    await room.submitOrders(power, []);
+  }
+  const synced: string[][] = [];
+  room.setIO({
+    to() {
+      return {
+        emit(event: string, payload: { gameState?: { submittedPowers: string[] } }) {
+          if (event === 'game_state_sync') synced.push([...payload.gameState!.submittedPowers]);
+        },
+      };
+    },
+  } as unknown as Parameters<GameRoom['setIO']>[0]);
+  const previousEngine = process.env.DIPLOMACY_ENGINE_PATH;
+  process.env.DIPLOMACY_ENGINE_PATH = '/nonexistent-diplomacy-review-engine';
+  try {
+    await assert.rejects(room.submitOrders('TURKEY', []));
+  } finally {
+    if (previousEngine === undefined) delete process.env.DIPLOMACY_ENGINE_PATH;
+    else process.env.DIPLOMACY_ENGINE_PATH = previousEngine;
+  }
+  assert.equal(synced.at(-1)?.includes('TURKEY'), false);
+  assert.equal(room.getState().submittedPowers.includes('TURKEY'), false);
+  await room.submitOrders('TURKEY', []);
+  assert.equal(room.getState().season, 'FALL');
+});
+
 test('a human can advance an opening turn with six automated players', async () => {
   const room = new GameRoom();
   const human = room.addPlayer('human-socket', 'Human', 'AUSTRIA');

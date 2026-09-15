@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { gamePhaseId } from '@diplomacy/shared';
 import type {
   AddLlmPlayerPayload,
   ClientToServerEvents,
@@ -49,6 +50,7 @@ export function useGameSocket() {
   const [myPlayerId, setMyPlayerId] = useState<string | null>(null);
   const [myPower, setMyPower] = useState<Power | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [errors, setErrors] = useState<Array<{ id: string; message: string }>>([]);
   const [diplomaticMessages, setDiplomaticMessages] = useState<DiplomaticMessage[]>([]);
   const [phaseHistory, setPhaseHistory] = useState<PublicPhaseReport[]>([]);
   const [llmStatuses, setLlmStatuses] = useState<
@@ -96,7 +98,12 @@ export function useGameSocket() {
     setLogs(entries => [{ id: crypto.randomUUID(), at: now(), kind, event, detail: text }, ...entries].slice(0, 200));
   }
 
+  function showError(message: string) {
+    setErrors(current => [...current, { id: crypto.randomUUID(), message }].slice(-5));
+  }
+
   useEffect(() => {
+    let sessionReplaced = false;
     const nextSocket = io(import.meta.env.VITE_SERVER_URL || undefined, {
       withCredentials: true,
     }) as AppSocket;
@@ -120,6 +127,7 @@ export function useGameSocket() {
     nextSocket.on('connect_error', error => {
       setConnection('error');
       log('error', 'connect_error', error.message);
+      showError('Could not connect to the game server. Reconnecting automatically.');
     });
     nextSocket.on('game_created', payload => {
       setGameId(payload.gameId);
@@ -153,10 +161,35 @@ export function useGameSocket() {
       log('incoming', 'game_resumed', { gameId: payload.gameId, power: payload.power });
     });
     nextSocket.on('resume_error', payload => {
-      localStorage.removeItem(SESSION_KEY);
+      if (['INVALID_SESSION', 'GAME_NOT_FOUND'].includes(payload.code)) {
+        localStorage.removeItem(SESSION_KEY);
+        setGameState(null);
+        setGameId(null);
+        setMyPlayerId(null);
+        setMyPower(null);
+        setDiplomaticMessages([]);
+        setPhaseHistory([]);
+      }
+      showError(payload.message);
       log('error', 'resume_error', payload);
     });
-    nextSocket.on('join_error', payload => log('error', 'join_error', payload));
+    nextSocket.on('session_replaced', payload => {
+      sessionReplaced = true;
+      nextSocket.disconnect();
+      setConnection('seat opened elsewhere');
+      setGameState(null);
+      setGameId(null);
+      setMyPlayerId(null);
+      setMyPower(null);
+      setDiplomaticMessages([]);
+      setPhaseHistory([]);
+      showError(payload.message);
+      // Local storage is shared with the new tab: do not delete its session.
+    });
+    nextSocket.on('join_error', payload => {
+      showError(payload.message);
+      log('error', 'join_error', payload);
+    });
     nextSocket.on('player_joined', payload => {
       setGameState(state => {
         if (!state) return state;
@@ -270,9 +303,13 @@ export function useGameSocket() {
       setVoiceSession(state);
       log('incoming', 'voice_session_state', `${state.power ?? '-'} ${state.status}`);
     });
-    nextSocket.on('error', payload => log('error', payload.code, payload.message));
+    nextSocket.on('error', payload => {
+      showError(payload.message);
+      log('error', payload.code, payload.message);
+    });
 
     const reconnectAfterAuth = () => {
+      if (sessionReplaced) return;
       nextSocket.disconnect();
       nextSocket.connect();
     };
@@ -299,6 +336,10 @@ export function useGameSocket() {
     voiceSession,
     llmStatuses,
     logs,
+    errors,
+    dismissError(id: string) {
+      setErrors(current => current.filter(error => error.id !== id));
+    },
     createGame(playerName: string, preferredPower: Power | 'RANDOM') {
       socket?.emit('create_game', { playerName, preferredPower });
       log('outgoing', 'create_game', `${playerName} ${preferredPower}`);
@@ -308,7 +349,6 @@ export function useGameSocket() {
       playerName: string,
       preferredPower: Power | 'RANDOM'
     ) {
-      setGameId(nextGameId.trim().toUpperCase());
       socket?.emit('join_game', {
         gameId: nextGameId.trim().toUpperCase(),
         playerName,
@@ -335,18 +375,18 @@ export function useGameSocket() {
       log('outgoing', 'start_game', gameId);
     },
     submitOrders(orders: Order[]) {
-      if (!gameId) return;
-      socket?.emit('submit_orders', { gameId, orders });
+      if (!gameId || !gameState) return;
+      socket?.emit('submit_orders', { gameId, phaseId: gamePhaseId(gameState), orders });
       log('outgoing', 'submit_orders', `${orders.length} orders`);
     },
     submitRetreats(retreats: Record<string, RetreatDestination | null>) {
-      if (!gameId) return;
-      socket?.emit('submit_retreats', { gameId, retreats });
+      if (!gameId || !gameState) return;
+      socket?.emit('submit_retreats', { gameId, phaseId: gamePhaseId(gameState), retreats });
       log('outgoing', 'submit_retreats', retreats);
     },
     submitBuilds(payload: Omit<SubmitBuildsPayload, 'gameId'>) {
-      if (!gameId) return;
-      socket?.emit('submit_builds', { gameId, ...payload });
+      if (!gameId || !gameState) return;
+      socket?.emit('submit_builds', { gameId, phaseId: gamePhaseId(gameState), ...payload });
       log('outgoing', 'submit_builds', payload);
     },
     sendDiplomaticMessage(toPower: Power, body: string) {
@@ -418,6 +458,7 @@ export function useGameSocket() {
     gameState,
     llmStatuses,
     logs,
+    errors,
     myPlayerId,
     myPower,
     socket,

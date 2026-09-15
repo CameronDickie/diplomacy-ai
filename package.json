@@ -14,7 +14,8 @@
     "build:engine": "mkdir -p engine/bin engine/.cache/go-build && GOCACHE=$PWD/engine/.cache/go-build go -C engine build -buildvcs=false -o bin/diplomacy-engine ./cmd/diplomacy-engine",
     "generate:board": "GOCACHE=$PWD/engine/.cache/go-build go -C engine run -buildvcs=false ./cmd/generate-board -out ../shared/src/constants/adjacency.generated.ts",
     "build": "npm run build:engine && npm run build -w shared && npm run build -w server && npm run build -w client",
-    "check": "npm run build && npm test -w server",
+    "test:engine": "GOCACHE=$PWD/engine/.cache/go-build go -C engine test ./...",
+    "check": "npm run build && npm test -w server && npm run test:engine",
     "generate:auth-env": "node scripts/generate-auth-env.cjs",
     "start": "npm start -w server"
   },

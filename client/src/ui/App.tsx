@@ -271,6 +271,17 @@ export function App() {
         {game.gameId && <span className="game-code">Game {game.gameId}</span>}
       </header>
 
+      <div className="game-errors" aria-label="Game notifications">
+        {game.errors.map(error => (
+          <div className="game-error" role="alert" key={error.id}>
+            <span>{error.message}</span>
+            <button type="button" aria-label="Dismiss notification" onClick={() => game.dismissError(error.id)}>
+              Dismiss
+            </button>
+          </div>
+        ))}
+      </div>
+
       <main className="workspace">
         <aside className="panel side-panel">
           {isLobby ? (

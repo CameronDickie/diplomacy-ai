@@ -36,7 +36,13 @@ function readCookieFromHeader(cookieHeader: string | undefined, name: string): s
   const prefix = `${name}=`;
   for (const part of cookieHeader.split(';')) {
     const trimmed = part.trim();
-    if (trimmed.startsWith(prefix)) return decodeURIComponent(trimmed.slice(prefix.length));
+    if (trimmed.startsWith(prefix)) {
+      try {
+        return decodeURIComponent(trimmed.slice(prefix.length));
+      } catch {
+        return null;
+      }
+    }
   }
   return null;
 }
@@ -62,7 +68,7 @@ function verifySessionValue(sessionValue: string | null): AuthState {
     .update(payload)
     .digest('base64url');
   const validSignature =
-    signature.length === expectedSignature.length &&
+    Buffer.byteLength(signature) === Buffer.byteLength(expectedSignature) &&
     crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
   if (!validSignature) {
     return { authenticated: false, enabled: true, message: 'Session is invalid', status: 401 };
@@ -121,7 +127,7 @@ export function createAuthRouter(): express.Router {
       return;
     }
 
-    const loginAttempt = request.body as { username?: unknown; password?: unknown };
+    const loginAttempt = (request.body ?? {}) as { username?: unknown; password?: unknown };
     if (
       typeof loginAttempt.username !== 'string' ||
       typeof loginAttempt.password !== 'string' ||
