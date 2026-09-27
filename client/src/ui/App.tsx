@@ -371,6 +371,7 @@ export function App() {
 
         <aside className="panel orders-panel">
           <OrderPanel
+            submission={game.submission}
             gameState={game.gameState}
             myPower={game.myPower}
             selectedUnit={selectedUnit}

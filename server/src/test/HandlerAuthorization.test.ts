@@ -384,6 +384,8 @@ test('replaying the last human orders cannot resolve the next season', async () 
   assert.equal(room.getState().season, 'FALL');
   const after = structuredClone(room.getState());
   await invoke(socket, 'submit_orders', command);
+  assert.equal(lastEmitted(socket, 'error'), undefined);
+  await invoke(socket, 'submit_orders', { ...command, requestId: 'new-stale-request' });
   assertLastError(socket, 'STALE_PHASE');
   assert.deepEqual(room.getState(), after);
 });
@@ -397,6 +399,34 @@ test('clients without a phase ID cannot submit orders', async () => {
   assert.deepEqual(room.getState().submittedPowers, []);
 });
 
+test('resuming a seat delivers its accepted submission state', async () => {
+  const manager = new GameManager();
+  const room = manager.createGame();
+  const joined = room.addPlayer('old-socket', 'France', 'FRANCE')!;
+  room.getState().status = 'IN_PROGRESS';
+  const command = {
+    phase: 'ORDERS' as const, phaseId: gamePhaseId(room.getState()), requestId: 'resume-receipt', orders: [],
+  };
+  // Keep resolution pending on another human so this phase remains open.
+  room.getState().status = 'LOBBY';
+  room.addPlayer('other-socket', 'England', 'ENGLAND');
+  room.getState().status = 'IN_PROGRESS';
+  const accepted = await room.submitCommand('FRANCE', command);
+  assert.equal(accepted.status, 'ACCEPTED');
+  room.markDisconnected('old-socket');
+  const socket = socketWithGameHandlers('new-socket', manager);
+  await invoke(socket, 'resume_game', { gameId: room.gameId, sessionToken: joined.sessionToken });
+  assert.deepEqual(lastEmitted(socket, 'submission_state')?.payload, accepted);
+});
+
+test('commands without request IDs are rejected at the transport boundary', async () => {
+  const manager = GameManagerWithStartedRoom();
+  const room = manager.getRooms()[0];
+  const socket = socketWithOrderHandlers('france-socket', manager);
+  await socket.handlers.get('submit_orders')!({ gameId: room.gameId, phaseId: gamePhaseId(room.getState()), orders: [] });
+  assertLastError(socket, 'INVALID_PAYLOAD');
+});
+
 async function invoke(
   socket: FakeSocket,
   event: ClientEventName,
@@ -404,6 +434,9 @@ async function invoke(
 ): Promise<void> {
   const handler = socket.handlers.get(event);
   assert.ok(handler, `Missing handler for ${event}`);
+  if (event.startsWith('submit_') && payload && typeof payload === 'object') {
+    payload = { requestId: 'test-request', ...payload };
+  }
   await handler(payload);
 }
 

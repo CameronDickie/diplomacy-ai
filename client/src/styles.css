@@ -58,6 +58,7 @@ input, select, textarea { width: 100%; }
   box-shadow: 0 4px 18px #0008;
 }
 .game-error span { flex: 1; overflow-wrap: anywhere; }
+fieldset.order-builder { min-width: 0; margin: 0; border: 0; padding: 0; }
 
 .topbar {
   align-items: center;

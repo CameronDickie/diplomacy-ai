@@ -54,6 +54,8 @@ export function attachHandlers(
     if (!room) return;
     if (!requireRoomAccess(socket, room)) return;
     socket.emit('game_state_sync', { gameState: room.getState() });
+    const player = room.getPlayerBySocket(socket.id);
+    if (player) socket.emit('submission_state', room.getSubmissionState(player.power));
   });
 
   onClientEvent(socket, 'request_phase_history', ({ gameId }) => {

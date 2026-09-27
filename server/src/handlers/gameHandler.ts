@@ -136,6 +136,7 @@ export function attachGameHandlers(
       power: player.power,
       gameState: room.getState(),
     });
+    socket.emit('submission_state', room.getSubmissionState(player.power));
     socket.emit('diplomacy_history', { messages: room.getDiplomaticMessages(player.power) });
     socket.emit('phase_history', { reports: room.getPhaseHistory() });
     room.broadcast('game_state_sync', { gameState: room.getState() });

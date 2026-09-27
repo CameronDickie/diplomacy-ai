@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { gamePhaseId } from '@diplomacy/shared';
 import type {
@@ -19,6 +19,7 @@ import type {
   SubmitBuildsPayload,
   TerritoryId,
   VoiceSessionState,
+  SubmissionState,
 } from '@diplomacy/shared';
 
 type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -51,6 +52,8 @@ export function useGameSocket() {
   const [myPower, setMyPower] = useState<Power | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [errors, setErrors] = useState<Array<{ id: string; message: string }>>([]);
+  const [submission, setSubmission] = useState<SubmissionState | null>(null);
+  const sendingSubmission = useRef(false);
   const [diplomaticMessages, setDiplomaticMessages] = useState<DiplomaticMessage[]>([]);
   const [phaseHistory, setPhaseHistory] = useState<PublicPhaseReport[]>([]);
   const [llmStatuses, setLlmStatuses] = useState<
@@ -102,6 +105,18 @@ export function useGameSocket() {
     setErrors(current => [...current, { id: crypto.randomUUID(), message }].slice(-5));
   }
 
+  function prepareSubmission() {
+    if (!gameState || !socket?.connected) {
+      showError('Wait for the game to reconnect before submitting. Your draft is still here.');
+      return null;
+    }
+    if (sendingSubmission.current) return null;
+    const identity = { phaseId: gamePhaseId(gameState), requestId: crypto.randomUUID() };
+    sendingSubmission.current = true;
+    setSubmission({ ...identity, status: 'SUBMITTING', error: null });
+    return identity;
+  }
+
   useEffect(() => {
     let sessionReplaced = false;
     const nextSocket = io(import.meta.env.VITE_SERVER_URL || undefined, {
@@ -121,6 +136,7 @@ export function useGameSocket() {
       }
     });
     nextSocket.on('disconnect', reason => {
+      sendingSubmission.current = false;
       setConnection('disconnected');
       log('system', 'disconnect', reason);
     });
@@ -130,6 +146,7 @@ export function useGameSocket() {
       showError('Could not connect to the game server. Reconnecting automatically.');
     });
     nextSocket.on('game_created', payload => {
+      setSubmission(null);
       setGameId(payload.gameId);
       setMyPlayerId(payload.playerId);
       setMyPower(payload.power);
@@ -141,6 +158,7 @@ export function useGameSocket() {
       log('incoming', 'game_created', { gameId: payload.gameId, power: payload.power });
     });
     nextSocket.on('game_joined', payload => {
+      setSubmission(null);
       setGameId(payload.gameId);
       setMyPlayerId(payload.playerId);
       setMyPower(payload.power);
@@ -152,6 +170,7 @@ export function useGameSocket() {
       log('incoming', 'game_joined', { power: payload.power });
     });
     nextSocket.on('game_resumed', payload => {
+      setSubmission(null);
       setGameId(payload.gameId);
       setMyPlayerId(payload.playerId);
       setMyPower(payload.power);
@@ -214,6 +233,10 @@ export function useGameSocket() {
       log('incoming', 'game_state_sync', `${payload.gameState.year} ${payload.gameState.season} ${payload.gameState.phase}`);
     });
     nextSocket.on('orders_acknowledged', payload => log('incoming', 'orders_acknowledged', `${payload.orders.length} orders`));
+    nextSocket.on('submission_state', state => {
+      setSubmission(state);
+      sendingSubmission.current = state.status === 'SUBMITTING';
+    });
     nextSocket.on('power_submitted', payload => {
       setGameState(state => state && !state.submittedPowers.includes(payload.power)
         ? { ...state, submittedPowers: [...state.submittedPowers, payload.power] }
@@ -304,6 +327,11 @@ export function useGameSocket() {
       log('incoming', 'voice_session_state', `${state.power ?? '-'} ${state.status}`);
     });
     nextSocket.on('error', payload => {
+      if (sendingSubmission.current) {
+        sendingSubmission.current = false;
+        setSubmission(null);
+        nextSocket.emit('request_state');
+      }
       showError(payload.message);
       log('error', payload.code, payload.message);
     });
@@ -337,6 +365,7 @@ export function useGameSocket() {
     llmStatuses,
     logs,
     errors,
+    submission: gameState && submission?.phaseId === gamePhaseId(gameState) ? submission : null,
     dismissError(id: string) {
       setErrors(current => current.filter(error => error.id !== id));
     },
@@ -376,17 +405,23 @@ export function useGameSocket() {
     },
     submitOrders(orders: Order[]) {
       if (!gameId || !gameState) return;
-      socket?.emit('submit_orders', { gameId, phaseId: gamePhaseId(gameState), orders });
+      const identity = prepareSubmission();
+      if (!identity) return;
+      socket?.emit('submit_orders', { gameId, ...identity, orders });
       log('outgoing', 'submit_orders', `${orders.length} orders`);
     },
     submitRetreats(retreats: Record<string, RetreatDestination | null>) {
       if (!gameId || !gameState) return;
-      socket?.emit('submit_retreats', { gameId, phaseId: gamePhaseId(gameState), retreats });
+      const identity = prepareSubmission();
+      if (!identity) return;
+      socket?.emit('submit_retreats', { gameId, ...identity, retreats });
       log('outgoing', 'submit_retreats', retreats);
     },
     submitBuilds(payload: Omit<SubmitBuildsPayload, 'gameId'>) {
       if (!gameId || !gameState) return;
-      socket?.emit('submit_builds', { gameId, phaseId: gamePhaseId(gameState), ...payload });
+      const identity = prepareSubmission();
+      if (!identity) return;
+      socket?.emit('submit_builds', { gameId, ...identity, ...payload });
       log('outgoing', 'submit_builds', payload);
     },
     sendDiplomaticMessage(toPower: Power, body: string) {
@@ -459,6 +494,7 @@ export function useGameSocket() {
     llmStatuses,
     logs,
     errors,
+    submission,
     myPlayerId,
     myPower,
     socket,

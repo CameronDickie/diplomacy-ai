@@ -1,160 +1,45 @@
 import type { Server, Socket } from 'socket.io';
-import { onClientEvent } from './clientEvent.js';
-import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
-import { gamePhaseId } from '@diplomacy/shared';
-import type { GameRoom } from '../GameRoom.js';
+import type { ClientToServerEvents, PhaseSubmission, ServerToClientEvents } from '@diplomacy/shared';
 import type { GameManager } from '../GameManager.js';
 import { requireRoomAccess } from './authz.js';
+import { onClientEvent } from './clientEvent.js';
 
 export function attachOrderHandlers(
   socket: Socket<ClientToServerEvents, ServerToClientEvents>,
-  io: Server<ClientToServerEvents, ServerToClientEvents>,
+  _io: Server<ClientToServerEvents, ServerToClientEvents>,
   gameManager: GameManager
 ): void {
-  void io; // io available for future use
-
-  onClientEvent(socket, 'submit_orders', async ({ gameId, phaseId, orders }) => {
+  async function submit(gameId: string, command: PhaseSubmission): Promise<void> {
     const room = gameManager.getRoom(gameId);
     if (!room) {
       socket.emit('error', { message: 'Game not found', code: 'GAME_NOT_FOUND' });
       return;
     }
     if (!requireRoomAccess(socket, room)) return;
-
     const player = room.getPlayerBySocket(socket.id);
     if (!player) {
       socket.emit('error', { message: 'Not in this game', code: 'NOT_IN_GAME' });
       return;
     }
-
-    if (room.getState().status !== 'IN_PROGRESS') {
-      socket.emit('error', { message: 'Game has not started', code: 'GAME_NOT_STARTED' });
-      return;
+    const result = room.submitCommand(player.power, command);
+    socket.emit('submission_state', room.getSubmissionState(player.power));
+    const outcome = await result;
+    if (room.getPlayerBySocket(socket.id)?.id === player.id) {
+      socket.emit('submission_state', outcome);
+      if (outcome.error) socket.emit('error', outcome.error);
+      socket.emit('game_state_sync', { gameState: room.getState() });
+      socket.emit('submission_state', room.getSubmissionState(player.power));
+    } else {
+      // Resolution may finish after the submitting transport has been replaced.
+      room.emitToPlayer(player.id, 'game_state_sync', { gameState: room.getState() });
+      room.emitToPlayer(player.id, 'submission_state', room.getSubmissionState(player.power));
     }
+  }
 
-    if (!requireCurrentPhase(socket, room, phaseId)) return;
-
-    if (room.getState().phase !== 'ORDERS') {
-      socket.emit('error', { message: 'Not in orders phase', code: 'WRONG_PHASE' });
-      return;
-    }
-
-    const validationError = room.validateOrders(player.power, orders);
-    if (validationError) {
-      socket.emit('error', { message: validationError, code: 'INVALID_ORDERS' });
-      return;
-    }
-
-    try {
-      await room.submitOrders(player.power, orders);
-      socket.emit('orders_acknowledged', { orders });
-    } catch (error) {
-      console.error(`Failed to adjudicate game ${room.gameId}:`, error);
-      socket.emit('error', {
-        message: 'Turn resolution failed. Your submission was not finalized; please retry.',
-        code: 'ADJUDICATION_FAILED',
-      });
-    }
-  });
-
-  onClientEvent(socket, 'submit_retreats', async ({ gameId, phaseId, retreats }) => {
-    const room = gameManager.getRoom(gameId);
-    if (!room) {
-      socket.emit('error', { message: 'Game not found', code: 'GAME_NOT_FOUND' });
-      return;
-    }
-    if (!requireRoomAccess(socket, room)) return;
-
-    const player = room.getPlayerBySocket(socket.id);
-    if (!player) {
-      socket.emit('error', { message: 'Not in this game', code: 'NOT_IN_GAME' });
-      return;
-    }
-
-    if (room.getState().status !== 'IN_PROGRESS') {
-      socket.emit('error', { message: 'Game has not started', code: 'GAME_NOT_STARTED' });
-      return;
-    }
-
-    if (!requireCurrentPhase(socket, room, phaseId)) return;
-
-    if (room.getState().phase !== 'RETREATS') {
-      socket.emit('error', { message: 'Not in retreats phase', code: 'WRONG_PHASE' });
-      return;
-    }
-
-    const validationError = room.validateRetreats(player.power, retreats);
-    if (validationError) {
-      socket.emit('error', { message: validationError, code: 'INVALID_RETREATS' });
-      return;
-    }
-
-    try {
-      await room.submitRetreats(player.power, retreats);
-    } catch (error) {
-      console.error(`Failed to resolve retreats in ${room.gameId}:`, error);
-      socket.emit('error', {
-        message: 'Retreat resolution failed. Please retry.',
-        code: 'ADJUDICATION_FAILED',
-      });
-    }
-  });
-
-  onClientEvent(socket, 'submit_builds', async ({ gameId, phaseId, builds, disbands }) => {
-    const room = gameManager.getRoom(gameId);
-    if (!room) {
-      socket.emit('error', { message: 'Game not found', code: 'GAME_NOT_FOUND' });
-      return;
-    }
-    if (!requireRoomAccess(socket, room)) return;
-
-    const player = room.getPlayerBySocket(socket.id);
-    if (!player) {
-      socket.emit('error', { message: 'Not in this game', code: 'NOT_IN_GAME' });
-      return;
-    }
-
-    if (room.getState().status !== 'IN_PROGRESS') {
-      socket.emit('error', { message: 'Game has not started', code: 'GAME_NOT_STARTED' });
-      return;
-    }
-
-    if (!requireCurrentPhase(socket, room, phaseId)) return;
-
-    if (room.getState().phase !== 'BUILDS') {
-      socket.emit('error', { message: 'Not in builds phase', code: 'WRONG_PHASE' });
-      return;
-    }
-
-    const payload = { gameId, builds, disbands };
-    const validationError = room.validateBuilds(player.power, payload);
-    if (validationError) {
-      socket.emit('error', { message: validationError, code: 'INVALID_BUILDS' });
-      return;
-    }
-
-    try {
-      await room.submitBuilds(player.power, payload);
-    } catch (error) {
-      console.error(`Failed to resolve builds in ${room.gameId}:`, error);
-      socket.emit('error', {
-        message: 'Build resolution failed. Please retry.',
-        code: 'ADJUDICATION_FAILED',
-      });
-    }
-  });
-}
-
-function requireCurrentPhase(
-  socket: Socket<ClientToServerEvents, ServerToClientEvents>,
-  room: GameRoom,
-  phaseId: string
-): boolean {
-  if (phaseId === gamePhaseId(room.getState())) return true;
-  socket.emit('game_state_sync', { gameState: room.getState() });
-  socket.emit('error', {
-    code: 'STALE_PHASE',
-    message: 'The turn changed before your submission arrived. Review the current board and submit again.',
-  });
-  return false;
+  onClientEvent(socket, 'submit_orders', ({ gameId, ...command }) =>
+    submit(gameId, { ...command, phase: 'ORDERS' }));
+  onClientEvent(socket, 'submit_retreats', ({ gameId, ...command }) =>
+    submit(gameId, { ...command, phase: 'RETREATS' }));
+  onClientEvent(socket, 'submit_builds', ({ gameId, ...command }) =>
+    submit(gameId, { ...command, phase: 'BUILDS' }));
 }

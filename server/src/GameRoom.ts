@@ -29,9 +29,12 @@ import type {
   DiplomacyTransportSource,
   TerritoryId,
   LlmOutreachRequest,
+  PhaseSubmission,
+  SubmissionState,
 } from '@diplomacy/shared';
 import {
   ALL_POWERS,
+  gamePhaseId,
   TERRITORY_MAP,
 } from '@diplomacy/shared';
 import { buildInitialTerritories, STARTING_UNITS } from '@diplomacy/shared';
@@ -71,6 +74,11 @@ export class GameRoom {
   private pendingOrders = new Map<Power, Order[]>();
   private pendingRetreats = new Map<Power, Record<string, RetreatDestination | null>>();
   private pendingBuilds = new Map<Power, SubmitBuildsPayload>();
+  private submissionStates = new Map<Power, SubmissionState>();
+  private submissionReceipts = new Map<string, {
+    fingerprint: string;
+    result: Promise<SubmissionState>;
+  }>();
   private diplomaticMessages: DiplomaticMessage[] = [];
   private phaseHistory: PublicPhaseReport[] = [];
   private llmMemories = new Map<Power, LlmDiplomacyMemory>();
@@ -707,6 +715,77 @@ export class GameRoom {
     }
   }
 
+  getSubmissionState(power: Power): SubmissionState {
+    const phaseId = gamePhaseId(this.state);
+    const saved = this.submissionStates.get(power);
+    return saved?.phaseId === phaseId ? structuredClone(saved) : {
+      phaseId, requestId: null, status: 'EDITING', error: null,
+    };
+  }
+
+  /** Reserve before awaiting: repeated deliveries share one resolution attempt. */
+  submitCommand(power: Power, command: PhaseSubmission): Promise<SubmissionState> {
+    const key = `${power}:${command.requestId}`;
+    const fingerprint = JSON.stringify(command);
+    const existing = this.submissionReceipts.get(key);
+    if (existing) {
+      if (existing.fingerprint === fingerprint) return existing.result.then(value => structuredClone(value));
+      return Promise.resolve({
+        phaseId: command.phaseId, requestId: command.requestId, status: 'FAILED',
+        error: { code: 'REQUEST_ID_REUSED', message: 'This request ID was already used for a different submission.' },
+      });
+    }
+    const failed = (code: string, message: string): SubmissionState => ({
+      phaseId: command.phaseId, requestId: command.requestId, status: 'FAILED', error: { code, message },
+    });
+    if (command.phaseId !== gamePhaseId(this.state)) {
+      return Promise.resolve(failed('STALE_PHASE', 'The turn changed. Review the current board and submit again.'));
+    }
+    if (this.state.status !== 'IN_PROGRESS' || command.phase !== this.state.phase) {
+      return Promise.resolve(failed('WRONG_PHASE', 'Submissions are not open for this phase.'));
+    }
+    const current = this.getSubmissionState(power);
+    if (current.status === 'SUBMITTING' || current.status === 'ACCEPTED') {
+      return Promise.resolve(current);
+    }
+    const pending: SubmissionState = {
+      phaseId: command.phaseId, requestId: command.requestId, status: 'SUBMITTING', error: null,
+    };
+    this.submissionStates.set(power, pending);
+    // Starting in a microtask makes the reservation visible before work begins.
+    const result = Promise.resolve().then(async (): Promise<SubmissionState> => {
+      let outcome: SubmissionState;
+      try {
+        const error = command.phase === 'ORDERS' ? this.validateOrders(power, command.orders)
+          : command.phase === 'RETREATS' ? this.validateRetreats(power, command.retreats)
+          : this.validateBuilds(power, { gameId: this.gameId, builds: command.builds, disbands: command.disbands });
+        if (error) {
+          outcome = failed(`INVALID_${command.phase}`, error);
+        } else {
+          if (command.phase === 'ORDERS') await this.submitOrders(power, command.orders);
+          else if (command.phase === 'RETREATS') await this.submitRetreats(power, command.retreats);
+          else await this.submitBuilds(power, { gameId: this.gameId, builds: command.builds, disbands: command.disbands });
+          outcome = { ...pending, status: 'ACCEPTED' };
+        }
+      } catch (error) {
+        console.error(`Submission resolution failed in ${this.gameId}:`, error instanceof Error ? error.name : 'Unknown error');
+        if (gamePhaseId(this.state) !== command.phaseId) {
+          // A later phase failed after this command committed: never invite a replay.
+          outcome = { ...pending, status: 'ACCEPTED' };
+        } else {
+          this.pendingRetreats.delete(power);
+          this.pendingBuilds.delete(power);
+          outcome = failed('ADJUDICATION_FAILED', 'Resolution failed. Your submission was not finalized; please retry.');
+        }
+        this.broadcast('game_state_sync', { gameState: this.state });
+      }
+      if (this.submissionStates.get(power) === pending) this.submissionStates.set(power, outcome);
+      return outcome;
+    });
+    this.submissionReceipts.set(key, { fingerprint, result });
+    return result.then(value => structuredClone(value));
+  }
+
   validateOrders(power: Power, orders: Order[]): string | null {
     const seen = new Set<string>();
     for (const order of orders) {
@@ -794,7 +873,7 @@ export class GameRoom {
       return 'Cannot disband a unit you do not control';
     }
     if (delta <= 0 && payload.builds.length > 0) return 'No builds are available';
-    if (payload.builds.length > delta) return `At most ${delta} units may be built`;
+    if (payload.builds.length > Math.max(0, delta)) return `At most ${Math.max(0, delta)} units may be built`;
 
     const occupied = new Set(this.state.units.map(unit => unit.territory));
     const buildTerritories = new Set<string>();

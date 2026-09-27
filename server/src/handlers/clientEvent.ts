@@ -73,14 +73,14 @@ const validators: Record<Event, Check> = {
     voiceAutoCommitSilenceSeconds: optional(number),
   }),
   start_game: shape(game),
-  submit_orders: shape({ ...game, phaseId, orders: array(order) }),
+  submit_orders: shape({ ...game, phaseId, requestId: identifier, orders: array(order) }),
   submit_retreats: shape({
-    ...game, phaseId,
+    ...game, phaseId, requestId: identifier,
     retreats: value => object(value) && Object.keys(value).length <= 34 &&
       Object.entries(value).every(([key, destination]) => identifier(key) && retreat(destination)),
   }),
   submit_builds: shape({
-    ...game, phaseId,
+    ...game, phaseId, requestId: identifier,
     builds: array(shape({ type: oneOf(['ARMY', 'FLEET']), territory, coast })),
     disbands: array(identifier),
   }),

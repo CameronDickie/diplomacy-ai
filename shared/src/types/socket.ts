@@ -93,6 +93,24 @@ export interface SendDiplomaticMessagePayload {
   body: string;
 }
 
+export interface SubmissionIdentity {
+  phaseId: string;
+  requestId: string;
+}
+
+export type PhaseSubmission = SubmissionIdentity & (
+  | { phase: 'ORDERS'; orders: Order[] }
+  | { phase: 'RETREATS'; retreats: SubmitRetreatsPayload['retreats'] }
+  | { phase: 'BUILDS'; builds: SubmitBuildsPayload['builds']; disbands: string[] }
+);
+
+export interface SubmissionState {
+  phaseId: string;
+  requestId: string | null;
+  status: 'EDITING' | 'SUBMITTING' | 'ACCEPTED' | 'FAILED';
+  error: ErrorPayload | null;
+}
+
 export interface ClientToServerEvents {
   create_game: (payload: CreateGamePayload) => void;
   join_game: (payload: JoinGamePayload) => void;
@@ -100,9 +118,9 @@ export interface ClientToServerEvents {
   add_llm_player: (payload: AddLlmPlayerPayload) => void;
   update_game_settings: (payload: UpdateGameSettingsPayload) => void;
   start_game: (payload: StartGamePayload) => void;
-  submit_orders: (payload: SubmitOrdersPayload & { phaseId: string }) => void;
-  submit_retreats: (payload: SubmitRetreatsPayload & { phaseId: string }) => void;
-  submit_builds: (payload: SubmitBuildsPayload & { phaseId: string }) => void;
+  submit_orders: (payload: SubmitOrdersPayload & SubmissionIdentity) => void;
+  submit_retreats: (payload: SubmitRetreatsPayload & SubmissionIdentity) => void;
+  submit_builds: (payload: SubmitBuildsPayload & SubmissionIdentity) => void;
   send_diplomatic_message: (payload: SendDiplomaticMessagePayload) => void;
   request_diplomacy_history: (payload: { gameId: string }) => void;
   request_phase_history: (payload: { gameId: string }) => void;
@@ -255,6 +273,7 @@ export interface ServerToClientEvents {
   game_started: (payload: GameStartedPayload) => void;
   game_state_sync: (payload: GameStateSyncPayload) => void;
   orders_acknowledged: (payload: OrdersAcknowledgedPayload) => void;
+  submission_state: (payload: SubmissionState) => void;
   power_submitted: (payload: PowerSubmittedPayload) => void;
   turn_resolved: (payload: TurnResolvedPayload) => void;
   retreat_phase_start: (payload: RetreatPhasePayload) => void;

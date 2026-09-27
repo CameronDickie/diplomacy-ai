@@ -57,7 +57,7 @@ later phase; reproduced with the same empty orders advancing Spring and Fall.
 
 - [x] Include a server-verifiable phase ID on orders, retreats, and builds.
 - [x] Reject stale submissions and resynchronize the client.
-- [ ] Add request IDs and idempotent receipts, including across reconnects.
+- [x] Add request IDs and idempotent receipts, including across reconnects (within the current server process; restart durability is R7).
 - [x] Test delayed and duplicated commands across phase boundaries.
 
 Sources: `shared/src/types/socket.ts`, order handlers, game socket hook.
@@ -78,10 +78,12 @@ Sources: `client/src/hooks/useGameSocket.ts`, `client/src/ui/App.tsx`.
 Retreat/build buttons claim submission before acceptance, then cannot recover
 from rejection. Movement rollback changes server state without broadcasting it.
 
-- [ ] Model editing/submitting/accepted/failed for all three phase types.
-- [ ] Restore accepted submission state on reconnect.
+- [x] Model editing/submitting/accepted/failed for all three phase types.
+- [x] Restore accepted submission state on reconnect.
 - [x] Broadcast authoritative state after movement-submission rollback; allow retries.
-- [ ] Test failed adjudication, rejected builds/retreats, and reconnects.
+- [x] Test failed adjudication, rejected builds/retreats, and reconnect status delivery.
+- [x] Fix mandatory disband validation comparing zero builds to a negative allowance.
+- [ ] Browser-test retry/reconnect interactions and form locking for each phase.
 
 Sources: `OrderPanel.tsx`, order handlers, `GameRoom.ts`.
 
@@ -299,6 +301,34 @@ paid provider calls, deployments, or source-control commits were made. Browser
 rendering/interaction has not been exercised, so the explicit UI verification task
 under R15 remains open.
 
-Next coherent batch: complete R5/R16 with request receipts, authoritative submission
-state and retry/reconnect behavior; then address human legal-order menus (R17).
-Persistence remains a high-priority milestone before relying on long-running games.
+### September 15, 2026 — Checkpoint and submission recovery
+
+Created Git checkpoint `8295246` (`Harden game commands and track code review
+repairs`) for the verified first batch. Manual browser playtesting is recommended
+but does not block continuing local implementation; its checklist remains open.
+
+Implemented request IDs and server-owned submission receipts for orders, retreats,
+and builds. Concurrent identical deliveries share one attempt. Reusing an ID with
+different content is rejected; replaying an accepted receipt after phase advance
+does not execute it again. A second request cannot overwrite pending/accepted
+decisions. Failed attempts can be corrected with a new request ID.
+
+Reconnect/state refresh includes the player's current submission status. Resolution
+finishing after a transport replacement sends status to the current seat socket.
+Forms show submitting/accepted/failed states, recover from rejection, and retain
+their local drafts during a network disconnect. Unsent drafts are not persisted
+across a full page reload. Receipt durability across server restart remains R7.
+
+New regression coverage exposed and fixed another blocker: mandatory disbands
+were rejected because `builds.length === 0` was compared with a negative build
+allowance. Tests now exercise successful Winter disbands through the next Spring.
+
+Verification: `npm run check` passed with 69 server tests and all 10 Go tests,
+plus production compilation/bundling. Browser interaction tests remain open.
+No deployment or paid-provider/Discord calls were made. This second batch is left
+uncommitted so it can be reviewed separately from checkpoint `8295246`.
+
+Next coherent batch: human legal-order menus (R17), including friendly destinations,
+convoy support, and reachable coasts. Persistence remains a high-priority milestone
+before relying on long-running games; partial phase-transition failures need its
+transaction/recovery design as well.

@@ -10,6 +10,7 @@ import type {
   TerritoryId,
   Unit,
   UnitType,
+  SubmissionState,
 } from '@diplomacy/shared';
 import { TERRITORIES } from '@diplomacy/shared';
 import {
@@ -20,6 +21,7 @@ import {
 } from '../lib/game.js';
 
 interface Props {
+  submission: SubmissionState | null;
   gameState: GameState | null;
   myPower: Power | null;
   selectedUnit: Unit | null;
@@ -40,6 +42,7 @@ export function OrderPanel(props: Props) {
     onSelectTerritory,
     onPendingOrdersChange,
     onSubmitOrders,
+    submission,
   } = props;
   const [orderType, setOrderType] = useState<OrderType>('HOLD');
   const [target, setTarget] = useState<TerritoryId>('');
@@ -131,12 +134,13 @@ export function OrderPanel(props: Props) {
   const canSubmitOrders =
     gameState.status === 'IN_PROGRESS' &&
     gameState.phase === 'ORDERS' &&
-    !gameState.submittedPowers.includes(myPower);
+    !gameState.submittedPowers.includes(myPower) &&
+    !['SUBMITTING', 'ACCEPTED'].includes(submission?.status ?? '');
   const canSubmitCompleteOrders =
     canSubmitOrders &&
     unorderedUnits.length === 0 &&
     !draftDirty;
-  const hasSubmittedOrders = gameState.submittedPowers.includes(myPower);
+  const hasSubmittedOrders = submission?.status === 'ACCEPTED';
   const activePowers = new Set(
     gameState.units.filter(unit => !unit.mustRetreat).map(unit => unit.power)
   );
@@ -198,6 +202,8 @@ export function OrderPanel(props: Props) {
   return (
     <section className="card order-card">
       <h2>{myPower} Orders</h2>
+      {submission?.status === 'SUBMITTING' && <p role="status">Submitting decisions. Waiting for the server…</p>}
+      {submission?.status === 'FAILED' && <p role="alert">{submission.error?.message ?? 'Submission failed. Please retry.'}</p>}
       {gameState.phase === 'ORDERS' && hasSubmittedOrders && (
         <div className="turn-waiting" role="status">
           <strong>Orders submitted.</strong>{' '}
@@ -406,10 +412,11 @@ export function OrderPanel(props: Props) {
   );
 }
 
-function RetreatPanel({ gameState, myPower, onSubmitRetreats }: Props) {
+function RetreatPanel({ gameState, myPower, onSubmitRetreats, submission }: Props) {
   const retreats = gameState!.units.filter(unit => unit.power === myPower && unit.mustRetreat);
   const [choices, setChoices] = useState<Record<string, RetreatDestination | null>>({});
-  const [submitted, setSubmitted] = useState(false);
+  const submitted = submission?.status === 'ACCEPTED';
+  const submitting = submission?.status === 'SUBMITTING';
   useEffect(() => {
     setChoices(current => {
       const next = { ...current };
@@ -418,7 +425,6 @@ function RetreatPanel({ gameState, myPower, onSubmitRetreats }: Props) {
       }
       return next;
     });
-    setSubmitted(false);
   }, [retreats.map(unit => unit.id).join('|')]);
   if (retreats.length === 0) return <p>No retreats required.</p>;
   return (
@@ -428,6 +434,7 @@ function RetreatPanel({ gameState, myPower, onSubmitRetreats }: Props) {
         <label key={unit.id}>
           {unitLabel(unit)}
           <select
+            disabled={submitted || submitting}
             value={serializeRetreat(choices[unit.id])}
             onChange={event => setChoices({
               ...choices,
@@ -451,15 +458,14 @@ function RetreatPanel({ gameState, myPower, onSubmitRetreats }: Props) {
       ))}
       <button
         className="primary"
-        disabled={submitted}
+        disabled={submitted || submitting}
         onClick={() => {
-          setSubmitted(true);
           onSubmitRetreats(Object.fromEntries(
             retreats.map(unit => [unit.id, choices[unit.id] ?? null])
           ));
         }}
       >
-        {submitted ? 'Retreats Submitted' : 'Submit Retreats'}
+        {submitted ? 'Retreats Submitted' : submitting ? 'Submitting…' : 'Submit Retreats'}
       </button>
     </div>
   );
@@ -490,7 +496,7 @@ function defaultRetreat(unit: Unit): RetreatDestination | null {
   };
 }
 
-function BuildPanel({ gameState, myPower, onSubmitBuilds }: Props) {
+function BuildPanel({ gameState, myPower, onSubmitBuilds, submission }: Props) {
   const state = gameState!;
   const power = myPower!;
   const ownedCenters = Object.values(state.territories).filter(
@@ -503,10 +509,8 @@ function BuildPanel({ gameState, myPower, onSubmitBuilds }: Props) {
   const [territory, setTerritory] = useState<TerritoryId>('');
   const [unitType, setUnitType] = useState<UnitType>('ARMY');
   const [coast, setCoast] = useState<Coast | ''>('');
-  const [submitted, setSubmitted] = useState(false);
-  useEffect(() => {
-    setSubmitted(false);
-  }, [state.year, state.season, state.phase, power]);
+  const submitted = submission?.status === 'ACCEPTED';
+  const submitting = submission?.status === 'SUBMITTING';
   const remainingBuilds = Math.max(0, delta - builds.length);
   const requiredDisbands = Math.max(0, -delta);
   const remainingDisbands = Math.max(0, requiredDisbands - disbands.length);
@@ -548,7 +552,7 @@ function BuildPanel({ gameState, myPower, onSubmitBuilds }: Props) {
   }
 
   return (
-    <div className="order-builder">
+    <fieldset className="order-builder" disabled={submitted || submitting}>
       <h3>Adjustments</h3>
       <p className="adjustment-count" aria-live="polite">
         {delta > 0
@@ -634,19 +638,19 @@ function BuildPanel({ gameState, myPower, onSubmitBuilds }: Props) {
 
       <button
         className="primary"
-        disabled={submitted || (delta < 0 && remainingDisbands !== 0)}
+        disabled={submitted || submitting || (delta < 0 && remainingDisbands !== 0)}
         onClick={() => {
-          setSubmitted(true);
           onSubmitBuilds({ builds, disbands });
         }}
       >
         {submitted
           ? 'Adjustments Submitted'
+          : submitting ? 'Submitting…'
           : delta > 0 && remainingBuilds > 0
           ? `Submit and waive ${remainingBuilds}`
           : 'Submit Adjustments'}
       </button>
-    </div>
+    </fieldset>
   );
 }
 
