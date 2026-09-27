@@ -44,8 +44,8 @@ deadline defaults and disconnected-seat replacement still need decisions.
 
 ## Set up another computer
 
-Install Node.js 22.12 or newer, npm, Git, and Go 1.23 or newer. Once the
-repository has been published, clone it using your GitHub SSH access:
+Install Node.js 22.12 or newer, npm, Git, and Go 1.23 or newer. Clone the
+repository using your GitHub SSH access:
 
 ```bash
 git clone git@github.com:CameronDickie/diplomacy-ai.git
@@ -63,3 +63,15 @@ Discord integration. For optional paid AI or Discord features, create a local
 `.env` using [../.env.example](../.env.example) and the integration setup notes.
 Local secrets, Terraform state, and generated build/dependency directories are
 not part of the portable source checkout.
+
+## Git history cleanup
+
+The generated `infra/terraform/diplomacy/.terraform/` provider cache was removed
+from every commit before the initial GitHub push. All 19 existing commits were
+preserved, and each cleaned commit was checked against its original tree and
+metadata. The infrastructure source and `.terraform.lock.hcl` are unchanged.
+The cache is ignored and can be regenerated with `terraform init`.
+
+The original history is backed up locally in
+`.git/diplomacy-before-github-2026-09-27.bundle`; that backup is not uploaded.
+Commit hashes from the first infrastructure commit onward changed during cleanup.

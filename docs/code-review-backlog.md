@@ -303,8 +303,9 @@ under R15 remains open.
 
 ### September 15, 2026 — Checkpoint and submission recovery
 
-Created Git checkpoint `8295246` (`Harden game commands and track code review
-repairs`) for the verified first batch. Manual browser playtesting is recommended
+Created Git checkpoint `6536110` (`Harden game commands and track code review
+repairs`; originally `8295246` before Terraform cache cleanup) for the verified
+first batch. Manual browser playtesting is recommended
 but does not block continuing local implementation; its checklist remains open.
 
 Implemented request IDs and server-owned submission receipts for orders, retreats,
@@ -326,7 +327,7 @@ allowance. Tests now exercise successful Winter disbands through the next Spring
 Verification: `npm run check` passed with 69 server tests and all 10 Go tests,
 plus production compilation/bundling. Browser interaction tests remain open.
 No deployment or paid-provider/Discord calls were made. This second batch is left
-uncommitted so it can be reviewed separately from checkpoint `8295246`.
+uncommitted so it can be reviewed separately from checkpoint `6536110`.
 
 Next coherent batch: human legal-order menus (R17), including friendly destinations,
 convoy support, and reachable coasts. Persistence remains a high-priority milestone
@@ -343,7 +344,13 @@ Manual browser checks remain open; no paid calls or deployment were made.
 
 Added [current-state.md](current-state.md) as a short handoff and setup guide.
 Configured the supplied GitHub SSH remote and verified that it has no refs.
-Publication still requires removing the accidentally tracked Terraform provider
-cache from Git history; its Linux binary is approximately 706 MB. Keep the
-Terraform source and `.terraform.lock.hcl`, and regenerate provider caches with
-`terraform init` when infrastructure work is needed.
+Removed the accidentally tracked Terraform provider cache from all 19 commits;
+its Linux binary was approximately 706 MB. Verified that every commit retains
+all other files and its original author, committer, dates, and message. The
+Terraform source and `.terraform.lock.hcl` are unchanged. The local cache remains
+on disk, is now ignored, and can be regenerated with `terraform init`.
+
+Preserved the complete original history in the verified local backup
+`.git/diplomacy-before-github-2026-09-27.bundle`. Updated checkpoint references
+above to use the rewritten hashes. The GitHub transfer uses the cleaned `master`
+branch; the original-history backup stays local.

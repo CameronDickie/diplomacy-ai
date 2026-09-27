@@ -9,6 +9,7 @@ engine/.cache
 !.env.example
 *.tsbuildinfo
 
+# Generated Terraform providers; keep .terraform.lock.hcl tracked.
 .terraform/
 infra/terraform/diplomacy/diplomacy.tfplan
 infra/terraform/diplomacy/terraform.tfstate
