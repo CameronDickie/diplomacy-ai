@@ -5,8 +5,12 @@ shared/dist
 engine/bin
 engine/.cache
 .env
+.env.*
+!.env.example
 *.tsbuildinfo
 
+.terraform/
 infra/terraform/diplomacy/diplomacy.tfplan
 infra/terraform/diplomacy/terraform.tfstate
+infra/terraform/diplomacy/terraform.tfstate.*
 infra/terraform/diplomacy/terraform.tfvars

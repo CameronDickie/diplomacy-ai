@@ -332,3 +332,18 @@ Next coherent batch: human legal-order menus (R17), including friendly destinati
 convoy support, and reachable coasts. Persistence remains a high-priority milestone
 before relying on long-running games; partial phase-transition failures need its
 transaction/recovery design as well.
+
+### September 27, 2026 — Resume development and prepare GitHub transfer
+
+Reviewed and committed the September 15 submission-recovery batch as
+`Make phase submissions idempotent and recoverable`. Re-ran `npm run check`:
+production build, all 69 server tests, and all 10 Go tests passed. The local
+checks need execution outside the sandbox so Node can launch the Go engine.
+Manual browser checks remain open; no paid calls or deployment were made.
+
+Added [current-state.md](current-state.md) as a short handoff and setup guide.
+Configured the supplied GitHub SSH remote and verified that it has no refs.
+Publication still requires removing the accidentally tracked Terraform provider
+cache from Git history; its Linux binary is approximately 706 MB. Keep the
+Terraform source and `.terraform.lock.hcl`, and regenerate provider caches with
+`terraform init` when infrastructure work is needed.
