@@ -29,14 +29,40 @@ remain active work.
 - npm
 - Go 1.23 or newer
 
+On macOS with Homebrew installed:
+
+```bash
+brew install go
+node --version
+npm --version
+go version
+```
+
+If Node.js/npm are missing, install them with `brew install node`. The normal
+Homebrew installation puts these commands on your shell's PATH; no `GOPATH`
+configuration is needed for this Go module.
+
 ## Development
 
 ```bash
-npm install
+npm ci
+npm run check
 npm run dev
 ```
 
 Open `http://localhost:5173`. Vite proxies Socket.IO to port `3001`.
+
+`npm ci` restores the committed dependency lockfile. `npm run check` builds the
+Go executable and all three TypeScript workspaces, then runs the server and Go
+tests. Run it from the repository root. The first run downloads npm packages and
+the pinned Godip Go module; no provider keys, `.env`, Discord, or deployment are
+needed. The tests use local stubs/mocks and do not call paid providers.
+
+GitHub Actions runs the same commands for pull requests and pushes to `master`,
+`main`, or a `codex/` branch, covering Node 22 / Go 1.23 on Linux and Node 26 /
+Go 1.27 on macOS.
+See [the build baseline](docs/build-baseline.md) for recorded local results and
+verification limits.
 
 LLM seats use the local stub controller unless the host selects a paid provider
 such as `OPENAI` or `GEMINI`. Paid seats require the corresponding server
@@ -75,6 +101,17 @@ The server listens on `PORT` (default `3001`) and serves `client/dist`.
 
 Environment variables are documented in [.env.example](.env.example).
 Lightsail deployment is documented in [docs/deployment.md](docs/deployment.md).
+
+Optional local secrets belong in the repository-root `.env`, which Git and the
+Docker build context ignore. Copy your own file over SSH when needed, for example:
+
+```bash
+(umask 077 && scp 'user@desktop:~/path/to/diplomacy/.env' .env) && chmod 600 .env
+```
+
+This replaces an existing `.env`; keep a copy first if it contains local settings
+you need. The build/test command does not load `.env`. Starting the server does,
+so configured Discord bots may connect when you run `npm run dev` or `npm start`.
 
 ## Architecture
 

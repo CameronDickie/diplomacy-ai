@@ -1,0 +1,52 @@
+name: Build and test
+
+on:
+  pull_request:
+  push:
+    branches: [master, main, 'codex/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: ${{ matrix.os }} / Node ${{ matrix.node }} / Go ${{ matrix.go }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Keep coverage for the toolchain families used by the Dockerfile.
+          - os: ubuntu-latest
+            node: '22.x'
+            go: '1.23.x'
+          # Exercise the current Homebrew toolchain on macOS too.
+          - os: macos-latest
+            node: '26.x'
+            go: '1.27.x'
+    env:
+      GOCACHE: ${{ github.workspace }}/engine/.cache/go-build
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: engine/go.sum
+      - name: Restore locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build and run server and rules-engine tests
+        run: npm run check

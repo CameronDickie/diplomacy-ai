@@ -22,9 +22,13 @@ errors, retry/reconnect behavior, and form locking remain open.
 
 ## Next work
 
-[code-review-backlog.md](code-review-backlog.md) is the current prioritized
-repair checklist. The older roadmap and playtest notebooks retain the broader
-feature plans; a planned feature is not necessarily implemented.
+[Public showcase tracking](public-showcase-tracking.md) links the active Linear
+MVP plan. DIC-49 establishes the reproducible build and CI baseline; see
+[build-baseline.md](build-baseline.md) for its verification record.
+[code-review-backlog.md](code-review-backlog.md) retains the detailed repair
+history. The older roadmap and playtest notebooks retain broader feature plans;
+a planned feature is not necessarily implemented. The remaining core-game work
+identified at the previous checkpoint is:
 
 1. Finish the browser smoke checks for submission recovery and error visibility
    (R15/R16), ideally using two human clients.
