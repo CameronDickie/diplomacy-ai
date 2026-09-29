@@ -1,5 +1,10 @@
 # Diplomacy
 
+This project's original code is licensed under GPL-3.0-only. See
+[LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md).
+The interactive client links to the [credits and licenses page](client/public/legal.html)
+and the [source repository](https://github.com/CameronDickie/diplomacy-ai).
+
 A browser-based implementation of standard Diplomacy for private games, with a
 server architecture designed to support human and LLM-controlled powers.
 
@@ -119,6 +124,29 @@ so configured Discord bots may connect when you run `npm run dev` or `npm start`
 - `shared/`: transport contracts, game types, and board metadata.
 - `server/`: rooms, authorization, sessions, controllers, and Socket.IO.
 - `engine/`: isolated Go executable wrapping the Godip rules engine.
+
+## License and redistribution
+
+Godip v0.6.5, the unmodified classical SVG map, and the map's embedded Libre
+Baskerville font have separate attribution and license notices in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The map and Godip are GPL-3.0;
+the font remains under the SIL Open Font License 1.1. The browser exposes these
+notices at `/legal.html`, with full license texts at `/LICENSE.txt` and
+`/LIBRE_BASKERVILLE_OFL.txt`.
+
+A clean clone contains the application and Go wrapper source. Run `npm ci` and
+`npm run build` to fetch the pinned Godip module and produce the distributable
+client, server, and engine. The production Docker image includes the notices in
+`/app` and the application, wrapper, and pinned Godip source in `/app/source`.
+When publishing a build, make its corresponding source and these notices
+available to recipients alongside the build. Before launching a public site,
+make the linked source repository public or provide an equivalent public source
+download for the exact deployed version. Do not publish `.env` or provider
+credentials. The personal-site repository and deployment remain separate from
+this game project. The JSON-over-stdio process boundary does not itself settle
+whether components form a combined work, so this repository uses one
+GPL-compatible license for its original code rather than relying on that
+boundary for a license exception.
 
 See [docs/architecture.md](docs/architecture.md) and
 [docs/roadmap.md](docs/roadmap.md).

@@ -50,3 +50,24 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Build and run server and rules-engine tests
         run: npm run check
+
+  package:
+    name: Production image source and notices
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Build production image
+        run: docker build --tag diplomacy:ci .
+      - name: Check shipped source and browser notices
+        run: |
+          docker run --rm --entrypoint sh diplomacy:ci -c '
+            test -f /app/source/engine/go.mod &&
+            test -f /app/source/third_party/godip/LICENSE &&
+            test -f /app/source/client/src/ui/App.tsx &&
+            test -f /app/client/dist/legal.html &&
+            cmp /app/LICENSE /app/client/dist/LICENSE.txt &&
+            cmp /app/LIBRE_BASKERVILLE_OFL.txt /app/client/dist/LIBRE_BASKERVILLE_OFL.txt
+          '
