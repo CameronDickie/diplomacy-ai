@@ -84,6 +84,9 @@ fieldset.order-builder { min-width: 0; margin: 0; border: 0; padding: 0; }
 .phase-pill, .game-code { margin-left: 0; }
 .connection.connected { border-color: #326b47; color: #88d49d; }
 .connection.error { border-color: #8b3838; color: #e88d8d; }
+.project-links { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; }
+.project-links a, .map-attribution { color: #d8bd88; text-decoration: underline; text-underline-offset: 2px; }
+.project-links a:focus-visible, .map-attribution:focus-visible { outline: 2px solid #f5d999; outline-offset: 3px; }
 
 .workspace {
   display: grid;
@@ -102,6 +105,17 @@ fieldset.order-builder { min-width: 0; margin: 0; border: 0; padding: 0; }
 }
 
 .map-panel { overflow: hidden; padding: 0; position: relative; }
+.map-attribution {
+  background: rgba(16, 20, 23, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 7px;
+  font-size: 11px;
+  left: 12px;
+  padding: 6px 8px;
+  position: absolute;
+  top: 12px;
+  z-index: 6;
+}
 .card { display: grid; gap: 12px; }
 .card + .card { border-top: 1px solid #2b3035; margin-top: 18px; padding-top: 18px; }
 .card h2 { color: #fff4df; font-size: 13px; letter-spacing: 0.08em; margin: 0; text-transform: uppercase; }
@@ -1412,6 +1426,10 @@ fieldset.order-builder { min-width: 0; margin: 0; border: 0; padding: 0; }
 }
 
 @media (max-width: 650px) {
+  .topbar { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  .topbar > div:first-child { width: 100%; }
+  .connection { margin-left: 0; }
+  .project-links { margin-left: auto; }
   .chat-panel { grid-template-columns: 120px minmax(0, 1fr); }
   .chat-message { max-width: 92%; }
   .replay-controls {

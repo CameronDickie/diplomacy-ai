@@ -206,7 +206,9 @@ Sources: [Luna model](https://developers.openai.com/api/docs/models/gpt-6-luna),
 
 For open sourcing, choose and include a repository license, retain the Godip
 notices/license and map attribution, document the local and showcase profiles,
-and make setup reproducible. There is currently no top-level project license.
+and make setup reproducible. DIC-79 adds a top-level GPL-3.0 license, a
+browser-visible credits page, and corresponding source in the production image;
+the GitHub repository still needs to be public before the showcase launches.
 The process boundary is an architectural choice, not a licensing conclusion.
 
 ## Verification and limits of this review

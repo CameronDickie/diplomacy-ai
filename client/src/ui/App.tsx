@@ -269,6 +269,12 @@ export function App() {
           </span>
         )}
         {game.gameId && <span className="game-code">Game {game.gameId}</span>}
+        <nav className="project-links" aria-label="Project links">
+          <a href="/legal.html">Credits &amp; licenses</a>
+          <a href="https://github.com/CameronDickie/diplomacy-ai" target="_blank" rel="noopener noreferrer">
+            Source code
+          </a>
+        </nav>
       </header>
 
       <div className="game-errors" aria-label="Game notifications">
@@ -303,6 +309,9 @@ export function App() {
         </aside>
 
         <section className="panel map-panel">
+          <a className="map-attribution" href="/legal.html">
+            Map: Godip contributors · GPL-3.0
+          </a>
           <MapGraph
             gameState={displayedGameState}
             selectedTerritory={replayReport ? null : selectedTerritory}
