@@ -150,6 +150,8 @@ boundary for a license exception.
 
 See [docs/architecture.md](docs/architecture.md) and
 [docs/roadmap.md](docs/roadmap.md).
+The first authored scenario pilot and its offline scoring rules are described
+in [docs/first-challenge.md](docs/first-challenge.md).
 
 For the latest development checkpoint, remaining work, and setup on another
 computer, see [docs/current-state.md](docs/current-state.md).
