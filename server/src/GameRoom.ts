@@ -1,4 +1,5 @@
 import { EngineError } from './adjudication/EngineExecutor.js';
+import { importBoard } from './fixtures/BoardFixture.js';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import type { Server } from 'socket.io';
 import type {
@@ -162,6 +163,23 @@ export class GameRoom {
       status: 'LOBBY',
       winner: null,
     };
+  }
+
+  /** Internal/offline construction only. No network handler accepts fixtures. */
+  static async fromBoardFixture(input: unknown): Promise<GameRoom> {
+    const board = await importBoard(input);
+    const room = new GameRoom();
+    room.state.year = board.year;
+    room.state.season = board.season;
+    room.state.phase = board.phase;
+    room.state.units = board.units;
+    for (const [id, owner] of Object.entries(board.territoryOwners)) room.state.territories[id].owner = owner;
+    if (board.retreatContext) room.state.lastAdjudicationResult = {
+      resolvedOrders: [], dislodgedUnits: board.units.filter(u => u.mustRetreat), destroyedUnits: [],
+      newTerritoryOwnership: {}, buildCounts: {} as Record<Power, number>,
+      standoffTerritories: Object.keys(board.retreatContext.bounces), retreatContext: board.retreatContext,
+    };
+    return room;
   }
 
   setIO(io: Server<ClientToServerEvents, ServerToClientEvents>): void {
@@ -1066,8 +1084,11 @@ export class GameRoom {
       });
 
       for (const build of payload.builds) {
+        const baseId = `build-${this.state.year}-${power}-${build.territory}`;
+        let id = baseId;
+        for (let suffix = 1; this.state.units.some(unit => unit.id === id); suffix++) id = `${baseId}-${suffix}`;
         const newUnit: Unit = {
-          id: randomUUID(),
+          id,
           type: build.type,
           power,
           territory: build.territory,

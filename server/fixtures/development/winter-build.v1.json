@@ -1,0 +1,152 @@
+{
+  "board": {
+    "phase": "BUILDS",
+    "powers": [
+      "AUSTRIA",
+      "ENGLAND",
+      "FRANCE",
+      "GERMANY",
+      "ITALY",
+      "RUSSIA",
+      "TURKEY"
+    ],
+    "retreatContext": null,
+    "rulesEngine": "godip@v0.6.5",
+    "schemaVersion": 1,
+    "season": "WINTER",
+    "territoryOwners": {
+      "ADR": null,
+      "AEG": null,
+      "ALB": null,
+      "ANK": null,
+      "APU": null,
+      "ARM": null,
+      "BAL": null,
+      "BAR": null,
+      "BEL": null,
+      "BER": null,
+      "BLA": null,
+      "BOH": null,
+      "BOT": null,
+      "BRE": "FRANCE",
+      "BUD": null,
+      "BUL": null,
+      "BUR": null,
+      "CLY": null,
+      "CON": null,
+      "DEN": null,
+      "EAS": null,
+      "EDI": null,
+      "ENG": null,
+      "FIN": null,
+      "GAL": null,
+      "GAS": null,
+      "GOL": null,
+      "GRE": null,
+      "HEL": null,
+      "HOL": null,
+      "ION": null,
+      "IRI": null,
+      "KIE": null,
+      "LON": null,
+      "LVN": null,
+      "LVP": null,
+      "MAO": null,
+      "MAR": "FRANCE",
+      "MOS": null,
+      "MUN": null,
+      "NAF": null,
+      "NAO": null,
+      "NAP": null,
+      "NOR": null,
+      "NTH": null,
+      "NWG": null,
+      "PAR": "FRANCE",
+      "PIC": null,
+      "PIE": null,
+      "POR": null,
+      "PRU": null,
+      "ROM": null,
+      "RUH": null,
+      "RUM": null,
+      "SER": null,
+      "SEV": null,
+      "SIL": null,
+      "SKA": null,
+      "SMY": null,
+      "SPA": null,
+      "STP": null,
+      "SWE": null,
+      "SYR": null,
+      "TRI": null,
+      "TUN": null,
+      "TUS": null,
+      "TYR": null,
+      "TYS": null,
+      "UKR": null,
+      "VEN": null,
+      "VIE": null,
+      "WAL": null,
+      "WAR": null,
+      "WES": null,
+      "YOR": null
+    },
+    "units": [
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "french-marseilles",
+        "mustRetreat": false,
+        "power": "FRANCE",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "MAR",
+        "type": "ARMY"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "french-paris",
+        "mustRetreat": false,
+        "power": "FRANCE",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "PAR",
+        "type": "ARMY"
+      }
+    ],
+    "variant": "CLASSICAL",
+    "year": 1901
+  },
+  "id": "winter-build",
+  "objective": null,
+  "provenance": "AI_GENERATED_DEVELOPMENT",
+  "schemaVersion": 1,
+  "title": "Winter fleet build",
+  "version": 1,
+  "witnesses": [
+    {
+      "expectedOutcome": null,
+      "name": "build-brest",
+      "steps": [
+        {
+          "adjustments": {
+            "FRANCE": {
+              "builds": [
+                {
+                  "coast": null,
+                  "territory": "BRE",
+                  "type": "FLEET"
+                }
+              ],
+              "disbands": []
+            }
+          },
+          "phase": "BUILDS",
+          "season": "WINTER",
+          "year": 1901
+        }
+      ]
+    }
+  ]
+}

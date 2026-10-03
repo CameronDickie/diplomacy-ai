@@ -45,4 +45,9 @@ export interface AdjudicationResult {
   buildCounts: Record<Power, number>;
   /** Territories where a standoff occurred (units bounced here) */
   standoffTerritories: TerritoryId[];
+  /** Full Godip retreat constraints; destinations alone lose bounce exceptions. */
+  retreatContext?: {
+    dislodgers: Record<TerritoryId, TerritoryId>;
+    bounces: Record<TerritoryId, TerritoryId[]>;
+  };
 }

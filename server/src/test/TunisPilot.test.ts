@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import type { Order, Power, PublicPhaseReport, TerritoryId } from '@diplomacy/shared';
 import { ALL_POWERS } from '@diplomacy/shared';
 import { GameRoom } from '../GameRoom.js';
 import { describeChallengeScore, scoreChallenge, TUNIS_PILOT_V1 } from '../challenge/TunisPilot.js';
 
 async function offlineGame(): Promise<GameRoom> {
-  const room = new GameRoom();
+  const fixture = JSON.parse(readFileSync(new URL('../../fixtures/development/tunis-expedition.v1.json', import.meta.url), 'utf8'));
+  const room = await GameRoom.fromBoardFixture(fixture.board);
   for (const power of ALL_POWERS) {
     assert.ok(room.addPlayer(`socket-${power}`, power, power));
   }

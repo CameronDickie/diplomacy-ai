@@ -19,6 +19,7 @@ server architecture designed to support human and LLM-controlled powers.
 - Enter holds, moves, supports, convoys, retreats, builds, and disbands.
 - Preserve split-coast movement, retreat, and build choices.
 - Adjudicate movement and convoy rules with the pinned Godip engine.
+- Import, validate, play and export [portable JSON development scenarios](docs/board-fixtures.md) offline.
 - Exchange private messages with humans or LLM powers.
 - Run structured OpenAI-backed diplomacy and phase decisions with validation,
   retry, and deterministic fallback.

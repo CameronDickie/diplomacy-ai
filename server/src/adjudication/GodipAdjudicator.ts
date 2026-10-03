@@ -17,11 +17,14 @@ import type {
 } from '@diplomacy/shared';
 
 interface EngineResponse {
+  validated?: boolean;
   units: EngineUnit[] | null;
   dislodged: EngineUnit[] | null;
   resolutions: EngineResolution[] | null;
   standoffs: TerritoryId[] | null;
   legalOrders?: EngineOrder[] | null;
+  retreatContext?: AdjudicationResult['retreatContext'];
+  validationErrors?: string[];
 }
 
 interface EngineUnit {
@@ -116,6 +119,7 @@ export async function adjudicateWithGodip(
       newTerritoryOwnership: {},
       buildCounts: {} as Record<Power, number>,
       standoffTerritories: response.standoffs ?? [],
+      retreatContext: response.retreatContext,
     },
   };
 }
@@ -215,6 +219,16 @@ async function executeEngine(payload: unknown, signal?: AbortSignal): Promise<En
 
 export async function shutdownGodip(): Promise<void> {
   await executor?.close();
+}
+
+/** Internal fixture boundary; the payload is schema-checked before this call. */
+export async function validateBoardWithGodip(payload: unknown): Promise<string[]> {
+  const response = await executeEngine(payload);
+  if (response.validated !== true || (response.validationErrors !== undefined &&
+    (!Array.isArray(response.validationErrors) || response.validationErrors.some(error => typeof error !== 'string')))) {
+    throw new EngineError('ENGINE_INVALID_RESPONSE', 'Rules engine did not validate this board. Rebuild the engine.');
+  }
+  return response.validationErrors ?? [];
 }
 
 function describeLegalOrder(order: Order): string {

@@ -6,7 +6,7 @@ export interface ChallengeDefinition {
   title: string;
   objectiveText: string;
   variant: 'CLASSICAL';
-  startingPosition: 'STANDARD_1901';
+  startingPosition: { fixtureId: string; version: number };
   rulesEngine: 'godip@v0.6.5';
   humanPower: Power;
   opponentPowers: readonly Power[];
@@ -28,7 +28,7 @@ export const TUNIS_PILOT_V1: ChallengeDefinition = {
   title: 'Tunis expedition',
   objectiveText: 'As Turkey, own Tunis after Fall 1903 or sooner.',
   variant: 'CLASSICAL',
-  startingPosition: 'STANDARD_1901',
+  startingPosition: { fixtureId: 'tunis-expedition', version: 1 },
   rulesEngine: 'godip@v0.6.5',
   humanPower: 'TURKEY',
   opponentPowers: ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA'],

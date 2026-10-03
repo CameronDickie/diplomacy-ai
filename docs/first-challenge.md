@@ -32,8 +32,11 @@ server-recorded phase history, not a model's explanation or browser state.
 
 ## Offline reachability and failure fixtures
 
-`server/src/test/TunisPilot.test.ts` starts a standard game with seven human
-seats and lets Godip adjudicate every movement phase. Its successful route is:
+`server/fixtures/development/tunis-expedition.v1.json` contains the portable
+starting board, objective and named success/deadline witnesses. The pilot
+definition pins that fixture id/version. `server/src/test/TunisPilot.test.ts`
+loads its board with seven human seats and lets Godip adjudicate every movement
+phase. Its successful route is:
 
 1. Spring 1901: A Smyrna → Armenia, A Constantinople → Smyrna, F Ankara →
    Constantinople. The coordinated opening clears the fleet's path.
@@ -61,6 +64,6 @@ the daily label only after an approved catalog and rotation have passed offline
 reachability/failure fixtures and live quality checks. A future daily schedule
 should pin a challenge id and version for each date, publish the schedule before
 attempts start, and preserve prior definitions for replay. Do not generate or
-silently revise the official scenario during a day. DIC-81 will add portable
-JSON board fixtures and import/export to make future authored positions easier
-to hand off and test.
+silently revise the official scenario during a day. See [portable JSON
+fixtures](board-fixtures.md) for local commands to validate, play and export
+these fixed development scenarios.

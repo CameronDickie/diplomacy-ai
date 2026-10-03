@@ -14,13 +14,16 @@ import (
 )
 
 type request struct {
-	Operation     string            `json:"operation,omitempty"`
-	Power         string            `json:"power,omitempty"`
-	Year          int               `json:"year"`
-	Season        string            `json:"season"`
-	Units         []unitInput       `json:"units"`
-	SupplyCenters map[string]string `json:"supplyCenters"`
-	Orders        []orderInput      `json:"orders"`
+	Operation      string            `json:"operation,omitempty"`
+	Power          string            `json:"power,omitempty"`
+	Year           int               `json:"year"`
+	Season         string            `json:"season"`
+	Units          []unitInput       `json:"units"`
+	SupplyCenters  map[string]string `json:"supplyCenters"`
+	Orders         []orderInput      `json:"orders"`
+	Phase          string            `json:"phase,omitempty"`
+	Dislodged      []unitOutput      `json:"dislodged,omitempty"`
+	RetreatContext *retreatContext   `json:"retreatContext,omitempty"`
 }
 
 type unitInput struct {
@@ -43,11 +46,19 @@ type orderInput struct {
 }
 
 type response struct {
-	Units       []unitOutput       `json:"units"`
-	Dislodged   []unitOutput       `json:"dislodged"`
-	Resolutions []resolution       `json:"resolutions"`
-	Standoffs   []string           `json:"standoffs"`
-	LegalOrders []legalOrderOutput `json:"legalOrders,omitempty"`
+	Validated        bool               `json:"validated,omitempty"`
+	Units            []unitOutput       `json:"units"`
+	Dislodged        []unitOutput       `json:"dislodged"`
+	Resolutions      []resolution       `json:"resolutions"`
+	Standoffs        []string           `json:"standoffs"`
+	LegalOrders      []legalOrderOutput `json:"legalOrders,omitempty"`
+	RetreatContext   *retreatContext    `json:"retreatContext,omitempty"`
+	ValidationErrors []string           `json:"validationErrors,omitempty"`
+}
+
+type retreatContext struct {
+	Dislodgers map[string]string   `json:"dislodgers"`
+	Bounces    map[string][]string `json:"bounces"`
 }
 
 type unitOutput struct {
@@ -90,7 +101,10 @@ func main() {
 	}
 	var output response
 	var err error
-	if strings.EqualFold(input.Operation, "LEGAL_ORDERS") {
+	if input.Operation == "VALIDATE_BOARD" {
+		output.Validated = true
+		output.ValidationErrors = validateBoard(input)
+	} else if strings.EqualFold(input.Operation, "LEGAL_ORDERS") {
 		output, err = legalOrders(input)
 	} else {
 		output, err = adjudicate(input)
@@ -155,6 +169,18 @@ func adjudicate(input request) (response, error) {
 	}
 
 	_, _, dislodgeds, dislodgers, bounces, _ := state.Dump()
+	result.RetreatContext = &retreatContext{Dislodgers: map[string]string{}, Bounces: map[string][]string{}}
+	for attacker, victim := range dislodgers {
+		result.RetreatContext.Dislodgers[fromGodipProvince(attacker)] = fromGodipProvince(victim)
+	}
+	for destination, sources := range bounces {
+		list := []string{}
+		for source := range sources {
+			list = append(list, fromGodipProvince(source))
+		}
+		sort.Strings(list)
+		result.RetreatContext.Bounces[fromGodipProvince(destination)] = list
+	}
 	for location, unit := range dislodgeds {
 		output := outputUnit(before[location.Super()].ID, location, unit)
 		output.RetreatOptions = retreatOptions(state, location)

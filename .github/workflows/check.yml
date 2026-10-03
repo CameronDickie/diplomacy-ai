@@ -67,6 +67,8 @@ jobs:
             test -f /app/source/engine/go.mod &&
             test -f /app/source/third_party/godip/LICENSE &&
             test -f /app/source/client/src/ui/App.tsx &&
+            test -f /app/source/server/fixtures/development/tunis-expedition.v1.json &&
+            node /app/server/dist/fixtures/cli.js validate /app/server/fixtures/development/retreat-position.v1.json &&
             test -f /app/client/dist/legal.html &&
             cmp /app/LICENSE /app/client/dist/LICENSE.txt &&
             cmp /app/LIBRE_BASKERVILLE_OFL.txt /app/client/dist/LIBRE_BASKERVILLE_OFL.txt
