@@ -197,13 +197,7 @@ function readRuntimeConfig(env = process.env, options = {}) {
     databasePath: value(env, 'DIPLOMACY_DATABASE_PATH', './data/diplomacy.sqlite'),
     discord: { enabled: discordEnabled, voiceEnabled,
       voiceDebug: bool(env, 'DISCORD_VOICE_DEBUG', false), autoListen: bool(env, 'DISCORD_VOICE_AUTO_LISTEN', true) },
-    engine: {
-      path: value(env, 'DIPLOMACY_ENGINE_PATH'),
-      concurrency: number(env, 'DIPLOMACY_ENGINE_CONCURRENCY', 2, 1, 32, true),
-      maxQueue: number(env, 'DIPLOMACY_ENGINE_MAX_QUEUE', 16, 0, 256, true),
-      timeoutMs: number(env, 'DIPLOMACY_ENGINE_TIMEOUT_MS', 10000, 50, 120000, true),
-      maxOutputBytes: number(env, 'DIPLOMACY_ENGINE_MAX_OUTPUT_BYTES', 4194304, 1024, 16777216, true),
-    },
+    engine: readEngineConfig(env),
     notifyMode, admins, idleWarnMinutes, idleExpireMinutes, maxActiveAttempts, maxActivePerAccount,
     dailyStartLimit: number(env, 'DIPLOMACY_DAILY_START_LIMIT', 3, 1, 100, true),
     resultRetentionDays: number(env, 'DIPLOMACY_RESULT_RETENTION_DAYS', 30, 1, 365, true),
@@ -212,9 +206,19 @@ function readRuntimeConfig(env = process.env, options = {}) {
   };
 }
 
+function readEngineConfig(env = process.env) {
+  return {
+    path: value(env, 'DIPLOMACY_ENGINE_PATH'),
+    concurrency: number(env, 'DIPLOMACY_ENGINE_CONCURRENCY', 2, 1, 32, true),
+    maxQueue: number(env, 'DIPLOMACY_ENGINE_MAX_QUEUE', 16, 0, 256, true),
+    timeoutMs: number(env, 'DIPLOMACY_ENGINE_TIMEOUT_MS', 10000, 50, 120000, true),
+    maxOutputBytes: number(env, 'DIPLOMACY_ENGINE_MAX_OUTPUT_BYTES', 4194304, 1024, 16777216, true),
+  };
+}
+
 function assertRuntimeReady(config) {
   // Removed only when every paid dispatch goes through durable admission.
   if (config.llm.paidEnabled) fail('DIPLOMACY_PAID_AI_ENABLED', 'paid startup awaits durable budget admission (DIC-64); use false for offline development');
 }
 
-module.exports = { SUPPORTED_ENV_NAMES, PROVIDERS, ROLES, readLlmConfig, readRuntimeConfig, assertRuntimeReady };
+module.exports = { SUPPORTED_ENV_NAMES, PROVIDERS, ROLES, readLlmConfig, readRuntimeConfig, assertRuntimeReady, readEngineConfig };

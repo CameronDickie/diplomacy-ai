@@ -1,5 +1,6 @@
 import express from 'express';
 import { readRuntimeConfig, assertRuntimeReady } from '../../config/runtime.cjs';
+import { shutdownGodip } from './adjudication/GodipAdjudicator.js';
 import { existsSync } from 'fs';
 import { createServer } from 'http';
 import { dirname, resolve } from 'path';
@@ -107,5 +108,26 @@ httpServer.listen(PORT, config.host, () => {
     console.error('Discord integration failed to start:', error);
   });
 });
+
+let shuttingDown = false;
+async function shutdown(): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  // Bound shutdown even if an optional integration cannot close its connection.
+  setTimeout(() => process.exit(1), 10_000).unref();
+  const socketsClosed = new Promise<void>(resolve => io.close(() => resolve()));
+  for (const room of gameManager.getRooms()) room.dispose();
+  try {
+    await Promise.all([shutdownGodip(), discordBots?.stop(), socketsClosed]);
+    // Close any remaining private-profile voice connections without starting
+    // reconciliation/provider work during shutdown.
+    process.exit(0);
+  } catch {
+    console.error('Server shutdown could not complete cleanly.');
+    process.exit(1);
+  }
+}
+process.once('SIGTERM', () => { void shutdown(); });
+process.once('SIGINT', () => { void shutdown(); });
 
 export { io };

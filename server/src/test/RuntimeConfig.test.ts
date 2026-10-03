@@ -165,6 +165,8 @@ test('showcase server starts without Discord or provider secrets and serves heal
     assert.equal((await auth.json() as { authenticated: boolean }).authenticated, false);
   } finally {
     child.kill('SIGTERM');
-    await closed;
+    const [code, signal] = await closed;
+    assert.equal(code, 0, 'SIGTERM closes the server cleanly');
+    assert.equal(signal, null);
   }
 });

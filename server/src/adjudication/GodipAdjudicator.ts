@@ -1,4 +1,5 @@
-import { execFileSync } from 'child_process';
+import { EngineExecutor, EngineError } from './EngineExecutor.js';
+import { readEngineConfig } from '../../../config/runtime.cjs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import type {
@@ -73,7 +74,11 @@ const defaultEnginePath = resolve(
   '../../../engine/bin/diplomacy-engine'
 );
 
-export function adjudicateWithGodip(state: GameState, orders: Order[]): GodipAdjudication {
+export async function adjudicateWithGodip(
+  state: GameState, orders: Order[], signal?: AbortSignal
+): Promise<GodipAdjudication> {
+  state = structuredClone(state);
+  orders = structuredClone(orders);
   const payload = {
     ...engineBoardPayload(state),
     orders: orders.map(order => ({
@@ -88,7 +93,7 @@ export function adjudicateWithGodip(state: GameState, orders: Order[]): GodipAdj
     })),
   };
 
-  const response = executeEngine(payload);
+  const response = await executeEngine(payload, signal);
 
   const dislodged = response.dislodged ?? [];
   const activeUnits = (response.units ?? []).map(unit => toUnit(unit));
@@ -115,16 +120,17 @@ export function adjudicateWithGodip(state: GameState, orders: Order[]): GodipAdj
   };
 }
 
-export function listLegalOrdersWithGodip(
+export async function listLegalOrdersWithGodip(
   state: GameState,
-  power: Power
-): LegalOrderOption[] {
-  const response = executeEngine({
+  power: Power,
+  signal?: AbortSignal
+): Promise<LegalOrderOption[]> {
+  const response = await executeEngine({
     operation: 'LEGAL_ORDERS',
     power,
     ...engineBoardPayload(state),
     orders: [],
-  });
+  }, signal);
   const byId = new Map<string, LegalOrderOption>();
   for (const engineOrder of response.legalOrders ?? []) {
     const order: Order = {
@@ -193,14 +199,22 @@ function engineBoardPayload(state: GameState) {
   };
 }
 
-function executeEngine(payload: unknown): EngineResponse {
-  const enginePath = process.env.DIPLOMACY_ENGINE_PATH ?? defaultEnginePath;
-  const stdout = execFileSync(enginePath, {
-    input: JSON.stringify(payload),
-    encoding: 'utf8',
-    maxBuffer: 4 * 1024 * 1024,
-  });
-  return JSON.parse(stdout) as EngineResponse;
+let executor: EngineExecutor | undefined;
+
+async function executeEngine(payload: unknown, signal?: AbortSignal): Promise<EngineResponse> {
+  executor ??= new EngineExecutor(readEngineConfig());
+  const enginePath = process.env.DIPLOMACY_ENGINE_PATH || defaultEnginePath;
+  const response = await executor.execute(payload, enginePath, signal);
+  if (!response || typeof response !== 'object' || Array.isArray(response) ||
+    !['units', 'dislodged', 'resolutions', 'standoffs'].every(key =>
+      Object.hasOwn(response, key) && ((response as Record<string, unknown>)[key] === null || Array.isArray((response as Record<string, unknown>)[key])))) {
+    throw new EngineError('ENGINE_INVALID_RESPONSE', 'Rules engine returned an invalid board response.');
+  }
+  return response as EngineResponse;
+}
+
+export async function shutdownGodip(): Promise<void> {
+  await executor?.close();
 }
 
 function describeLegalOrder(order: Order): string {

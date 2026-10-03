@@ -81,10 +81,10 @@ test('board context distinguishes topology, ownership, occupancy, and build site
   assert.deepEqual(prompt.actionContext.legalOrders, []);
 });
 
-test('Godip legal-order catalog is stable and tactical suggestions only use catalog IDs', () => {
+test('Godip legal-order catalog is stable and tactical suggestions only use catalog IDs', async () => {
   const state = new GameRoom().getState();
-  const first = listLegalOrdersWithGodip(state, 'ENGLAND');
-  const second = listLegalOrdersWithGodip(state, 'ENGLAND');
+  const first = await listLegalOrdersWithGodip(state, 'ENGLAND');
+  const second = await listLegalOrdersWithGodip(state, 'ENGLAND');
   assert.deepEqual(first.map(option => option.id), second.map(option => option.id));
   assert.ok(first.some(option => option.id === 'LON|MOVE|WAL'));
   assert.ok(first.some(option => option.id === 'LON|MOVE|YOR'));
@@ -99,7 +99,7 @@ test('Godip legal-order catalog is stable and tactical suggestions only use cata
 
 test('structured order decisions require one supplied legal order per active unit', async () => {
   const state = new GameRoom().getState();
-  const legalOrders = listLegalOrdersWithGodip(state, 'ENGLAND');
+  const legalOrders = await listLegalOrdersWithGodip(state, 'ENGLAND');
   const context = controllerContext(state, 'ENGLAND', legalOrders);
   const holdIds = legalOrders
     .filter(option => option.order.type === 'HOLD')

@@ -44,3 +44,5 @@ export function readLlmConfig(env?: NodeJS.ProcessEnv): LlmConfig;
 export function readRuntimeConfig(env?: NodeJS.ProcessEnv, options?: { production?: boolean }): RuntimeConfig;
 
 export function assertRuntimeReady(config: RuntimeConfig): void;
+
+export function readEngineConfig(env?: NodeJS.ProcessEnv): RuntimeConfig['engine'];

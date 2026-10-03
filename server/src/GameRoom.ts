@@ -1,3 +1,4 @@
+import { EngineError } from './adjudication/EngineExecutor.js';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import type { Server } from 'socket.io';
 import type {
@@ -83,7 +84,9 @@ export class GameRoom {
   private phaseHistory: PublicPhaseReport[] = [];
   private llmMemories = new Map<Power, LlmDiplomacyMemory>();
   private llmRunArtifacts: LlmRunArtifact[] = [];
-  private legalOrderCache = new Map<string, LegalOrderOption[]>();
+  private legalOrderCache = new Map<string, Promise<LegalOrderOption[]>>();
+  private legalOrderCachePhase = '';
+  private readonly rulesAbort = new AbortController();
   private llmOutreachRequests: LlmOutreachRequest[] = [];
   private llmQueues = new Map<Power, Promise<unknown>>();
   private diplomacyParticipantLocks = new Map<Power, Promise<unknown>>();
@@ -558,10 +561,10 @@ export class GameRoom {
     if (!this.canSpendForLlmRun(artifact)) return;
     try {
       const decision = await controller.reconcileDiplomaticMemory(
-        this.controllerContext(player)
+        await this.controllerContext(player)
       );
       this.applyControllerMemory(power, decision);
-      this.completeRunArtifact(artifact, decision, {
+      await this.completeRunArtifact(artifact, decision, {
         kind: 'VOICE_MEMORY_RECONCILIATION',
       });
       this.recordRunUsage(artifact, decision.usage);
@@ -775,7 +778,9 @@ export class GameRoom {
         } else {
           this.pendingRetreats.delete(power);
           this.pendingBuilds.delete(power);
-          outcome = failed('ADJUDICATION_FAILED', 'Resolution failed. Your submission was not finalized; please retry.');
+          outcome = error instanceof EngineError
+            ? failed(error.code, error.message)
+            : failed('ADJUDICATION_FAILED', 'Resolution failed. Your submission was not finalized; please retry.');
         }
         this.broadcast('game_state_sync', { gameState: this.state });
       }
@@ -803,7 +808,7 @@ export class GameRoom {
     return null;
   }
 
-  validateAutomatedOrders(power: Power, orders: Order[]): string[] {
+  async validateAutomatedOrders(power: Power, orders: Order[]): Promise<string[]> {
     const errors: string[] = [];
     const units = this.state.units.filter(
       unit => unit.power === power && !unit.mustRetreat
@@ -816,7 +821,7 @@ export class GameRoom {
 
     let legalIds: Set<string>;
     try {
-      legalIds = new Set(this.getLegalOrders(power).map(option => option.id));
+      legalIds = new Set((await this.getLegalOrders(power)).map(option => option.id));
     } catch (error) {
       errors.push(`Unable to generate authoritative legal orders: ${
         error instanceof Error ? error.message : String(error)
@@ -926,9 +931,11 @@ export class GameRoom {
     const reportYear = this.state.year;
     const reportSeason = this.state.season;
     const before = this.publicBoardSnapshot();
-    this.expireOpenOutreachForCurrentPhase();
+    const phaseId = gamePhaseId(this.state);
     const allOrders = Array.from(this.pendingOrders.values()).flat();
-    const adjudication = adjudicateWithGodip(this.state, allOrders);
+    const adjudication = await adjudicateWithGodip(this.state, allOrders, this.rulesAbort.signal);
+    if (gamePhaseId(this.state) !== phaseId) throw new Error('Phase changed during adjudication');
+    this.expireOpenOutreachForCurrentPhase();
     const result = adjudication.result;
 
     this.state.lastAdjudicationResult = result;
@@ -1170,8 +1177,8 @@ export class GameRoom {
         const decision = await this.generatePhaseDecision(
           player,
           'ORDERS',
-          (controller, errors) =>
-            controller.requestOrders(this.controllerContext(player, true), errors),
+          async (controller, errors) =>
+            controller.requestOrders(await this.controllerContext(player, true), errors),
           actions => this.validateAutomatedOrders(player.power, actions),
           () => this.createHoldOrders(player.power)
         );
@@ -1414,7 +1421,7 @@ export class GameRoom {
           'DIPLOMACY_INITIATIVE',
           model
         ).requestDiplomaticInitiative(
-          this.controllerContext(player),
+          await this.controllerContext(player),
           eligiblePowers,
           errors,
           { allowHumanTargets }
@@ -1434,7 +1441,7 @@ export class GameRoom {
         }
         if (errors.length === 0) {
           this.applyControllerMemory(player.power, decision);
-          this.completeRunArtifact(artifact, decision, {
+          await this.completeRunArtifact(artifact, decision, {
             toPower: decision.toPower,
             message,
             expectsReply: decision.expectsReply ?? true,
@@ -1485,8 +1492,8 @@ export class GameRoom {
         const actions = await this.generatePhaseDecision(
           player,
           'RETREATS',
-          (controller, errors) =>
-            controller.requestRetreats(this.controllerContext(player), errors),
+          async (controller, errors) =>
+            controller.requestRetreats(await this.controllerContext(player), errors),
           retreats => {
             const error = this.validateRetreats(player.power, retreats);
             return error ? [error] : [];
@@ -1521,8 +1528,8 @@ export class GameRoom {
         const actions = await this.generatePhaseDecision(
           player,
           'BUILDS',
-          (controller, errors) =>
-            controller.requestBuilds(this.controllerContext(player), errors),
+          async (controller, errors) =>
+            controller.requestBuilds(await this.controllerContext(player), errors),
           builds => {
             const error = this.validateBuilds(player.power, {
               gameId: this.gameId,
@@ -1550,7 +1557,7 @@ export class GameRoom {
     player: LlmPlayer,
     purpose: 'ORDERS' | 'RETREATS' | 'BUILDS',
     request: (controller: PowerController, errors: string[]) => Promise<ControllerDecision<T>>,
-    validate: (actions: T) => string[],
+    validate: (actions: T) => string[] | Promise<string[]>,
     fallback: () => T
   ): Promise<T> {
     const started = Date.now();
@@ -1567,10 +1574,10 @@ export class GameRoom {
       try {
         const controller = this.controllerFor(player, modelRole, model);
         const decision = await request(controller, errors);
-        errors = validate(decision.actions);
+        errors = await validate(decision.actions);
         if (errors.length === 0) {
           this.applyControllerMemory(player.power, decision);
-          this.completeRunArtifact(artifact, decision, decision.actions);
+          await this.completeRunArtifact(artifact, decision, decision.actions);
           this.recordRunUsage(artifact, decision.usage);
           artifact.retryCount = attempt;
           artifact.validationErrors = [];
@@ -1643,7 +1650,7 @@ export class GameRoom {
           'DIPLOMACY_REPLY',
           model
         ).requestDiplomaticReply(
-          this.controllerContext(player),
+          await this.controllerContext(player),
           incomingMessage,
           conversation,
           errors
@@ -1654,7 +1661,7 @@ export class GameRoom {
           : reply.length > 2000 ? ['Diplomatic reply cannot exceed 2000 characters'] : [];
         if (errors.length === 0) {
           this.applyControllerMemory(player.power, decision);
-          this.completeRunArtifact(artifact, decision, {
+          await this.completeRunArtifact(artifact, decision, {
             reply,
             expectsReply: decision.expectsReply ?? false,
           });
@@ -1870,36 +1877,53 @@ export class GameRoom {
     });
   }
 
-  private controllerContext(
+  private async controllerContext(
     player: LlmPlayer,
     includeLegalOrders = false
-  ): ControllerContext {
+  ): Promise<ControllerContext> {
+    const snapshot = structuredClone(this.state);
+    const phaseId = gamePhaseId(snapshot);
     const memory = this.llmMemories.get(player.power);
     if (!memory) throw new Error(`Missing LLM memory for ${player.power}`);
     const legalOrders = includeLegalOrders && this.state.phase === 'ORDERS'
-      ? this.getLegalOrders(player.power)
+      ? await this.getLegalOrders(player.power)
       : [];
+    if (gamePhaseId(this.state) !== phaseId) throw new Error('Phase changed while generating legal orders');
     return {
-      state: this.state,
+      state: snapshot,
       power: player.power,
       persona: player.persona,
       messages: this.getDiplomaticMessages(player.power),
       memory: this.getLlmDiplomacyMemory(player.power)!,
-      boardContext: buildLlmBoardContext(this.state),
+      boardContext: buildLlmBoardContext(snapshot),
       legalOrders,
       moveSuggestions: includeLegalOrders && this.state.phase === 'ORDERS'
-        ? suggestMoveOrderSets(this.state, player.power, legalOrders)
+        ? suggestMoveOrderSets(snapshot, player.power, legalOrders)
         : [],
     };
   }
 
-  private getLegalOrders(power: Power): LegalOrderOption[] {
-    const key = `${this.currentOrdersPhaseKey()}:${power}`;
-    const cached = this.legalOrderCache.get(key);
-    if (cached) return cached;
-    const legalOrders = listLegalOrdersWithGodip(this.state, power);
-    this.legalOrderCache.set(key, legalOrders);
-    return legalOrders;
+  async getLegalOrders(power: Power): Promise<LegalOrderOption[]> {
+    const phase = gamePhaseId(this.state);
+    if (this.legalOrderCachePhase !== phase) {
+      this.legalOrderCache.clear();
+      this.legalOrderCachePhase = phase;
+    }
+    const key = `${phase}:${power}`;
+    let pending = this.legalOrderCache.get(key);
+    if (!pending) {
+      pending = listLegalOrdersWithGodip(structuredClone(this.state), power, this.rulesAbort.signal);
+      this.legalOrderCache.set(key, pending);
+      void pending.catch(() => {
+        if (this.legalOrderCache.get(key) === pending) this.legalOrderCache.delete(key);
+      });
+    }
+    return structuredClone(await pending);
+  }
+
+  dispose(): void {
+    this.rulesAbort.abort();
+    this.legalOrderCache.clear();
   }
 
   private applyControllerMemory(
@@ -1959,11 +1983,11 @@ export class GameRoom {
     };
   }
 
-  private completeRunArtifact(
+  private async completeRunArtifact(
     artifact: LlmRunArtifact,
     decision: Pick<ControllerDecision<unknown>, 'strategicSummary' | 'agreements'>,
     structuredDecision: unknown
-  ): void {
+  ): Promise<void> {
     artifact.strategicSummary = decision.strategicSummary.trim();
     artifact.agreementsAfter = structuredClone(decision.agreements);
     artifact.structuredDecision = structuredClone(structuredDecision);
@@ -1971,7 +1995,7 @@ export class GameRoom {
       const orders = structuredDecision as Order[];
       artifact.selectedLegalOrderIds = orders.map(legalOrderId).sort();
       try {
-        artifact.legalOrderCount = this.getLegalOrders(artifact.power).length;
+        artifact.legalOrderCount = (await this.getLegalOrders(artifact.power)).length;
       } catch {
         artifact.legalOrderCount = null;
       }

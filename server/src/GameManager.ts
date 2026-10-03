@@ -27,6 +27,7 @@ export class GameManager {
   }
 
   removeRoom(gameId: string): void {
+    this.rooms.get(gameId)?.dispose();
     this.rooms.delete(gameId);
   }
 }

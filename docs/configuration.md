@@ -65,7 +65,16 @@ silently ignored. Comma-separated lists are trimmed and deduplicated.
 | `DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS` | 7; integer 1–365 |
 | `DIPLOMACY_RECEIPT_RETENTION_DAYS` | 90; integer 1–3650; ledger totals/liabilities must survive cleanup |
 
-Engine limits are consumed by DIC-61. SQLite, attempt admission, lifecycle, OAuth
+Engine limits apply to one shared asynchronous pool across all rooms and legal
+catalogs. Queue wait counts toward the deadline. The pool bounds stdout and
+stderr together, kills timed-out/cancelled process groups on POSIX, and retains
+each running slot until its child is reaped. Requests also have a fixed 4 MiB
+input limit. Engine errors return stable codes and safe retry guidance without
+forwarding subprocess output. Legal catalogs share pending/completed work for
+each room, phase and power; failures are evicted so a fresh request can retry.
+Room removal and server shutdown cancel pending rules work.
+
+SQLite, attempt admission, lifecycle, OAuth
 and notification integration follow in their dedicated work items; declaring
 settings does not mean those features are implemented.
 
