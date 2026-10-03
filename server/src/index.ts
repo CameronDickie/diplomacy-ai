@@ -1,4 +1,5 @@
 import express from 'express';
+import { readRuntimeConfig, assertRuntimeReady } from '../../config/runtime.cjs';
 import { existsSync } from 'fs';
 import { createServer } from 'http';
 import { dirname, resolve } from 'path';
@@ -18,19 +19,24 @@ import {
 import { VoiceSessionManager } from './voice/VoiceSessionManager.js';
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
-const rootEnvFile = resolve(currentDirectory, '../../.env');
+const rootEnvFile = process.env.DIPLOMACY_ENV_FILE ?? resolve(currentDirectory, '../../.env');
 if (existsSync(rootEnvFile)) loadEnvFile(rootEnvFile);
+
+let config;
+try {
+  config = readRuntimeConfig();
+  assertRuntimeReady(config);
+} catch (error) {
+  console.error(`Invalid runtime configuration: ${error instanceof Error ? error.message : 'validation failed'}`);
+  process.exit(1);
+}
 
 const app = express();
 const httpServer = createServer(app);
-const configuredOrigins = process.env.CORS_ORIGINS
-  ?.split(',')
-  .map(origin => origin.trim())
-  .filter(Boolean);
 
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: {
-    origin: configuredOrigins ?? ['http://localhost:5173', 'http://127.0.0.1:5173'],
+    origin: config.corsOrigins,
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -38,7 +44,7 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
 
 const gameManager = new GameManager();
 const diplomacy = new DiplomacyService(gameManager);
-const discordConfig = readDiscordBotConfig();
+const discordConfig = config.discord.enabled ? readDiscordBotConfig() : null;
 const discordLinks = new DiscordLinkService(
   gameManager,
   discordConfig?.guildId ?? null,
@@ -47,7 +53,7 @@ const discordLinks = new DiscordLinkService(
       ? Object.keys(discordConfig.powerTokens) as Array<keyof typeof discordConfig.powerTokens>
       : []
   ),
-  process.env.DISCORD_VOICE_ENABLED === 'true'
+  config.discord.voiceEnabled
 );
 const discordBots = discordConfig
   ? new DiscordBotManager(discordConfig, gameManager, discordLinks, diplomacy)
@@ -57,9 +63,9 @@ const voice = discordBots
       gameManager,
       discordLinks,
       discordBots,
-      process.env.DISCORD_VOICE_ENABLED === 'true',
-      process.env.DISCORD_VOICE_DEBUG === 'true',
-      process.env.DISCORD_VOICE_AUTO_LISTEN !== 'false'
+      config.discord.voiceEnabled,
+      config.discord.voiceDebug,
+      config.discord.autoListen
     )
   : null;
 
@@ -90,11 +96,11 @@ io.on('connection', socket => {
   });
 });
 
-const PORT = process.env.PORT ?? 3001;
-httpServer.listen(PORT, () => {
+const PORT = config.port;
+httpServer.listen(PORT, config.host, () => {
   console.log(`Diplomacy server listening on port ${PORT}`);
   if (!discordBots) {
-    console.log('Discord integration disabled: configure DISCORD_GUILD_ID and DISCORD_COORDINATOR_TOKEN');
+    console.log('Discord integration disabled');
     return;
   }
   void discordBots.start().catch(error => {

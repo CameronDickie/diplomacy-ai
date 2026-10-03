@@ -10,6 +10,7 @@ import type {
 import type { Server, Socket } from 'socket.io';
 import { DiscordLinkService } from '../discord/DiscordLinkService.js';
 import { GameManager } from '../GameManager.js';
+import { buildLlmRuntimePolicy } from '../llm/policy.js';
 import { attachDiscordHandlers } from '../handlers/discordHandler.js';
 import { attachGameHandlers } from '../handlers/gameHandler.js';
 import { attachOrderHandlers } from '../handlers/orderHandler.js';
@@ -101,8 +102,8 @@ test('unauthenticated hosts cannot enable authenticated AI features', async () =
   assert.equal(room.getState().accessMode, 'PUBLIC');
 });
 
-test('authenticated hosts can enable AI and lock the room behind auth', async () => {
-  const manager = new GameManager();
+test('authenticated hosts can enable AI and lock the room behind auth when paid policy is explicit', async () => {
+  const manager = paidSetupManager();
   const room = manager.createGame();
   assert.ok(room.addPlayer('host-socket', 'Host', 'AUSTRIA'));
 
@@ -128,7 +129,7 @@ test('authenticated hosts can enable AI and lock the room behind auth', async ()
 });
 
 test('authenticated hosts cannot select disallowed paid models', async () => {
-  const manager = new GameManager();
+  const manager = paidSetupManager();
   const room = manager.createGame();
   assert.ok(room.addPlayer('host-socket', 'Host', 'AUSTRIA'));
 
@@ -459,4 +460,11 @@ function GameManagerWithStartedRoom(): GameManager {
   room.getState().status = 'IN_PROGRESS';
   room.getState().phase = 'ORDERS';
   return manager;
+}
+
+function paidSetupManager(): GameManager {
+  // These tests only configure seats; no game or provider call is started.
+  return new GameManager({ llmPolicy: buildLlmRuntimePolicy({
+    DIPLOMACY_PAID_AI_ENABLED: 'true', LLM_TOTAL_BUDGET_USD: '5',
+  }) });
 }

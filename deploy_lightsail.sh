@@ -113,21 +113,7 @@ rm -f diplomacy-image.tar.gz
 
 export DIPLOMACY_IMAGE SITE_DOMAIN
 deployment_stage="container environment validation"
-docker compose -f docker-compose.lightsail.yml run --rm -T app node -e '
-  const required = [
-    "CORS_ORIGINS",
-    "OPENAI_API_KEY",
-    "DISCORD_GUILD_ID",
-    "DISCORD_COORDINATOR_TOKEN",
-    "DIPLOMACY_ENGINE_PATH",
-  ];
-  const missing = required.filter((name) => !process.env[name]);
-  if (missing.length) {
-    console.error(`Missing container environment variables: ${missing.join(", ")}`);
-    process.exit(1);
-  }
-  console.log(`Container environment includes all ${required.length} required variables`);
-' </dev/null
+docker compose -f docker-compose.lightsail.yml run --rm -T app node scripts/validate-runtime-env.cjs </dev/null
 
 deployment_stage="service recreation"
 docker compose -f docker-compose.lightsail.yml up -d --force-recreate app caddy

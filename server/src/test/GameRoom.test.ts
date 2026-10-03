@@ -230,7 +230,9 @@ test('players may choose an available power or request random assignment', () =>
 });
 
 test('host-configurable LLM negotiation count is validated and stored', () => {
-  const room = new GameRoom();
+  const room = new GameRoom({ llmPolicy: buildLlmRuntimePolicy({
+    DIPLOMACY_PAID_AI_ENABLED: 'true', LLM_TOTAL_BUDGET_USD: '5',
+  }) });
   assert.equal(room.getState().settings.llmNegotiationInitiators, 2);
   assert.equal(room.updateGameSettings({
     llmNegotiationInitiators: 5,
@@ -685,6 +687,9 @@ test('LLM artifacts record model role and estimated cost', async () => {
     llmPolicy: buildLlmRuntimePolicy({
       LLM_ALLOWED_PROVIDERS: 'STUB,OPENAI',
       LLM_ALLOWED_MODELS_OPENAI: 'gpt-5.4-mini',
+      LLM_DEFAULT_OPENAI_MODEL: 'gpt-5.4-mini',
+      DIPLOMACY_PAID_AI_ENABLED: 'true',
+      LLM_TOTAL_BUDGET_USD: '5',
       LLM_MAX_GAME_COST_USD: '1',
     }),
     controllerFactory: ({ power }) => ({

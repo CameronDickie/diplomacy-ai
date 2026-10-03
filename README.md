@@ -159,3 +159,5 @@ computer, see [docs/current-state.md](docs/current-state.md).
 The prioritized repair checklist and verified progress are in
 [docs/code-review-backlog.md](docs/code-review-backlog.md). Core browser game
 correctness and recovery take priority over optional voice and Discord work.
+
+Runtime modes, all supported environment settings, and safe production rendering are documented in [docs/configuration.md](docs/configuration.md). Paid AI and Discord require explicit enablement; credentials alone never enable either.

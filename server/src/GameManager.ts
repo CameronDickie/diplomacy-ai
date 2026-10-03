@@ -3,8 +3,10 @@ import { GameRoom } from './GameRoom.js';
 export class GameManager {
   private rooms = new Map<string, GameRoom>();
 
+  constructor(private readonly roomOptions: ConstructorParameters<typeof GameRoom>[0] = {}) {}
+
   createGame(): GameRoom {
-    const room = new GameRoom();
+    const room = new GameRoom(this.roomOptions);
     this.rooms.set(room.gameId, room);
     return room;
   }

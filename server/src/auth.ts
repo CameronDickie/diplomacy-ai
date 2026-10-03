@@ -13,6 +13,7 @@ export interface AuthState {
 }
 
 export function isAuthEnabled(): boolean {
+  if (process.env.DIPLOMACY_PROFILE === 'showcase' || process.env.DIPLOMACY_PROFILE === 'private') return true;
   if (process.env.DIPLOMACY_AUTH_ENABLED === 'true') return true;
   if (process.env.DIPLOMACY_AUTH_ENABLED === 'false') return false;
   return process.env.NODE_ENV === 'production';
@@ -28,7 +29,9 @@ function isEnvConfigured(): boolean {
 }
 
 function cookieSecure(): boolean {
-  return process.env.NODE_ENV === 'production' && process.env.DIPLOMACY_AUTH_COOKIE_SECURE !== 'false';
+  if (process.env.DIPLOMACY_AUTH_COOKIE_SECURE === 'true') return true;
+  if (process.env.DIPLOMACY_AUTH_COOKIE_SECURE === 'false') return false;
+  return process.env.NODE_ENV === 'production';
 }
 
 function readCookieFromHeader(cookieHeader: string | undefined, name: string): string | null {
