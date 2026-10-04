@@ -8,6 +8,10 @@ engine/.cache
 .env.*
 !.env.example
 .git
+**/data
+**/*.sqlite
+**/*.sqlite-wal
+**/*.sqlite-shm
 *.tsbuildinfo
 **/*.tsbuildinfo
 client/*.tsbuildinfo

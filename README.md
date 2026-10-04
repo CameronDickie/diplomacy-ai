@@ -31,7 +31,7 @@ remain active work.
 
 ## Requirements
 
-- Node.js 22.12 or newer
+- Node.js 22.16 or newer (built-in SQLite backup support)
 - npm
 - Go 1.23 or newer
 

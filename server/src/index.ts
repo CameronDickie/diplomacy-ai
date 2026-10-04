@@ -1,6 +1,7 @@
 import express from 'express';
 import { readRuntimeConfig, assertRuntimeReady } from '../../config/runtime.cjs';
 import { shutdownGodip } from './adjudication/GodipAdjudicator.js';
+import { Store } from './storage/Store.js';
 import { existsSync } from 'fs';
 import { createServer } from 'http';
 import { dirname, resolve } from 'path';
@@ -34,6 +35,15 @@ try {
 
 const app = express();
 const httpServer = createServer(app);
+let store: Store;
+try {
+  store = await Store.open(resolve(currentDirectory, '../..', config.databasePath));
+  const recoverable = await store.call('activeAttempts', {});
+  console.log(`Persistent storage ready; ${recoverable.length} active challenge attempts available for recovery.`);
+} catch {
+  console.error('Persistent storage startup failed. Check the database path, permissions and migration compatibility.');
+  process.exit(1);
+}
 
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: {
@@ -72,8 +82,11 @@ const voice = discordBots
 
 app.use(express.json());
 
-app.get('/healthz', (_request, response) => {
-  response.json({ ok: true });
+app.get('/healthz', async (_request, response) => {
+  try {
+    await store.call('health', {});
+    response.json({ ok: true });
+  } catch { response.status(503).json({ ok: false, code: 'STORAGE_UNAVAILABLE' }); }
 });
 
 app.use('/api/auth', createAuthRouter());
@@ -118,7 +131,7 @@ async function shutdown(): Promise<void> {
   const socketsClosed = new Promise<void>(resolve => io.close(() => resolve()));
   for (const room of gameManager.getRooms()) room.dispose();
   try {
-    await Promise.all([shutdownGodip(), discordBots?.stop(), socketsClosed]);
+    await Promise.all([shutdownGodip(), discordBots?.stop(), socketsClosed, store.close()]);
     // Close any remaining private-profile voice connections without starting
     // reconciliation/provider work during shutdown.
     process.exit(0);

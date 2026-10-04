@@ -194,7 +194,7 @@ function readRuntimeConfig(env = process.env, options = {}) {
     profile: mode, production, llm, authEnabled, callbackOrigin, returnOrigin, cookieSecure, corsOrigins,
     host: value(env, 'HOST', mode === 'local' ? '127.0.0.1' : '0.0.0.0'),
     port: number(env, 'PORT', 3001, 1, 65535, true),
-    databasePath: value(env, 'DIPLOMACY_DATABASE_PATH', './data/diplomacy.sqlite'),
+    databasePath: value(env, 'DIPLOMACY_DATABASE_PATH', production ? '/data/diplomacy.sqlite' : './data/diplomacy.sqlite'),
     discord: { enabled: discordEnabled, voiceEnabled,
       voiceDebug: bool(env, 'DISCORD_VOICE_DEBUG', false), autoListen: bool(env, 'DISCORD_VOICE_AUTO_LISTEN', true) },
     engine: readEngineConfig(env),

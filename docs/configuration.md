@@ -51,7 +51,7 @@ silently ignored. Comma-separated lists are trimmed and deduplicated.
 | `DIPLOMACY_GITHUB_CLIENT_ID`, `DIPLOMACY_GITHUB_CLIENT_SECRET` | Both required if either is supplied; required for paid showcase |
 | `DIPLOMACY_GOOGLE_CLIENT_ID`, `DIPLOMACY_GOOGLE_CLIENT_SECRET` | Same rule as GitHub |
 | `DIPLOMACY_ADMIN_GITHUB_USER_IDS` | Comma-separated immutable numeric IDs; at least one for paid showcase |
-| `DIPLOMACY_DATABASE_PATH` | `./data/diplomacy.sqlite`; choose a durable mounted path for deployment |
+| `DIPLOMACY_DATABASE_PATH` | `./data/diplomacy.sqlite` relative to project root locally; `/data/diplomacy.sqlite` in production; use a durable mount |
 | `DIPLOMACY_ENGINE_PATH` | Optional compiled Godip executable override |
 | `DIPLOMACY_ENGINE_CONCURRENCY` | 2; integer 1–32 |
 | `DIPLOMACY_ENGINE_MAX_QUEUE` | 16; integer 0–256 |
@@ -74,9 +74,10 @@ forwarding subprocess output. Legal catalogs share pending/completed work for
 each room, phase and power; failures are evicted so a fresh request can retry.
 Room removal and server shutdown cancel pending rules work.
 
-SQLite, attempt admission, lifecycle, OAuth
-and notification integration follow in their dedicated work items; declaring
-settings does not mean those features are implemented.
+The SQLite repository starts before HTTP and health fails when storage is
+unavailable. See [storage operation](storage.md). Attempt-flow integration,
+admission, lifecycle, OAuth and notifications remain separate work items;
+declaring settings does not mean those features are implemented.
 
 ## AI policy
 

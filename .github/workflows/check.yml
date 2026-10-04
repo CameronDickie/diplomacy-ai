@@ -73,3 +73,12 @@ jobs:
             cmp /app/LICENSE /app/client/dist/LICENSE.txt &&
             cmp /app/LIBRE_BASKERVILLE_OFL.txt /app/client/dist/LIBRE_BASKERVILLE_OFL.txt
           '
+      - name: Check non-root durable storage and backup
+        run: |
+          CI_STORAGE_VOLUME="diplomacy-storage-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker volume create "$CI_STORAGE_VOLUME"
+          trap 'docker volume rm "$CI_STORAGE_VOLUME"' EXIT
+          docker run --rm --mount "type=volume,source=$CI_STORAGE_VOLUME,target=/data" --entrypoint node diplomacy:ci server/dist/storage/cli.js init /data/game.sqlite
+          docker run --rm --mount "type=volume,source=$CI_STORAGE_VOLUME,target=/data" --entrypoint node diplomacy:ci server/dist/storage/cli.js backup /data/game.sqlite /data/backup.sqlite
+          docker run --rm --mount "type=volume,source=$CI_STORAGE_VOLUME,target=/data" --entrypoint node diplomacy:ci server/dist/storage/cli.js restore /data/backup.sqlite /data/restored.sqlite
+          docker run --rm --mount "type=volume,source=$CI_STORAGE_VOLUME,target=/data" --entrypoint node diplomacy:ci -e 'const fs=require("node:fs"); for(const path of ["/data/game.sqlite","/data/backup.sqlite","/data/restored.sqlite"]) { const s=fs.statSync(path); if(s.uid!==10001 || (s.mode&511)!==384) process.exit(1); }'

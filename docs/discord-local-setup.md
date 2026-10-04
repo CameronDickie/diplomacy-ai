@@ -67,7 +67,7 @@ DISCORD_VOICE_DEBUG=true
 ```
 
 The server uses the current DAVE-capable `@discordjs/voice` release,
-`prism-media`, and `opusscript`. Node.js 22.12 or newer is required.
+`prism-media`, and `opusscript`. Node.js 22.16 or newer is required.
 
 ## Linking Flow
 
@@ -120,7 +120,7 @@ lobby. Temporary channels are removed when the session ends or times out.
   channel, the coordinator role has Move Members, and the coordinator's highest
   role is above the target user's highest role. Discord does not allow bots to
   move the server owner.
-- If playback fails, run on Node.js 22.12 or newer and reinstall dependencies
+- If playback fails, run on Node.js 22.16 or newer and reinstall dependencies
   so the Opus backend is available.
 
 ## Current Boundary

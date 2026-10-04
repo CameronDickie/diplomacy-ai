@@ -27,4 +27,5 @@ mkdir -p \
   "${app_dir}/caddy/config"
 
 chown -R "${ssh_user}:${ssh_user}" "${app_dir}"
-
+chown 10001:10001 "${app_dir}/data"
+chmod 700 "${app_dir}/data"

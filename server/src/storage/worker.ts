@@ -1,0 +1,237 @@
+import { parentPort, workerData } from 'node:worker_threads';
+import { DatabaseSync, backup } from 'node:sqlite';
+import { chmodSync, closeSync, lstatSync, mkdirSync, openSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { gamePhaseId } from '@diplomacy/shared';
+import type { PublicPhaseReport, SubmissionState } from '@diplomacy/shared';
+import { canonicalJson, parseBoard } from '../fixtures/BoardFixture.js';
+import { scoreChallenge } from '../challenge/TunisPilot.js';
+import { migrate, verifyMigrationHistory } from './migrations.js';
+import { parseChallenge, publicBoard, publicReport } from './publicData.js';
+import { StoreError, type StoreRequest, type StoredAttempt, type StoredPlayer, type StoredReceipt, type StoredChallenge } from './contracts.js';
+
+type Row = Record<string, string | number | bigint | Uint8Array | null>;
+const invalid = (message: string): never => { throw new StoreError('STORE_INVALID', message); };
+const conflict = (message: string): never => { throw new StoreError('STORE_CONFLICT', message); };
+const hash = (v: string) => createHash('sha256').update(v).digest('hex');
+const validHash = (v: string) => { if (!/^[a-f0-9]{64}$/.test(v)) invalid('Expected a SHA-256 digest.'); };
+const validText = (v: string, max = 200) => { if (typeof v !== 'string' || v.length < 1 || v.length > max) invalid('Invalid text field.'); };
+const validTime = (v: number) => { if (!Number.isSafeInteger(v) || v < 0) invalid('Invalid timestamp.'); };
+const safeFile = (path: string, exclusive = false) => {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  try { closeSync(openSync(path, 'wx', 0o600)); }
+  catch (error) {
+    if (exclusive || (error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) invalid('Database path must be a regular file.');
+  }
+  chmodSync(path, 0o600);
+};
+const location = resolve(workerData.path);
+let db: DatabaseSync;
+let schemaVersion = 0;
+const boot = (async () => {
+  if (workerData.readOnly) {
+    if (!lstatSync(location).isFile() || lstatSync(location).isSymbolicLink()) invalid('Database path must be a regular file.');
+  } else safeFile(location, Boolean(workerData.restoreFrom));
+  if (workerData.restoreFrom) {
+    const source = new DatabaseSync(resolve(workerData.restoreFrom), { readOnly: true });
+    try {
+      if (source.prepare('PRAGMA integrity_check').get()?.integrity_check !== 'ok') invalid('Backup integrity check failed.');
+      verifyMigrationHistory(source, true);
+      if (source.prepare('PRAGMA foreign_key_check').all().length) invalid('Backup has invalid foreign-key references.');
+      await backup(source, location);
+    } finally { source.close(); }
+  }
+  db = new DatabaseSync(location, { readOnly: Boolean(workerData.readOnly), timeout: 250, enableForeignKeyConstraints: true, enableDoubleQuotedStringLiterals: false, allowExtension: false });
+  db.exec('PRAGMA trusted_schema=OFF;');
+  if (workerData.readOnly) schemaVersion = verifyMigrationHistory(db, true);
+  else {
+    db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
+    schemaVersion = migrate(db);
+  }
+  if (db.prepare('PRAGMA quick_check').get()?.quick_check !== 'ok') throw new StoreError('STORE_SCHEMA', 'Database integrity check failed.');
+})();
+// Attach a rejection handler immediately: boot can fail before the first RPC.
+void boot.catch(() => {});
+
+function transaction<T>(work: () => T): T {
+  db.exec('BEGIN IMMEDIATE');
+  try { const result = work(); db.exec('COMMIT'); return result; }
+  catch (error) { db.exec('ROLLBACK'); throw error; }
+}
+function player(row: Row): StoredPlayer {
+  return { id: String(row.id), provider: row.provider as StoredPlayer['provider'], subject: String(row.subject), displayName: String(row.display_name), bannedAt: row.banned_at === null ? null : Number(row.banned_at) };
+}
+function attempt(row: Row): StoredAttempt {
+  return { id: String(row.id), playerId: String(row.player_id), challengeId: String(row.challenge_id), challengeVersion: Number(row.challenge_version), revision: Number(row.revision), phaseId: String(row.phase_id), lifecycle: row.lifecycle as StoredAttempt['lifecycle'], execution: row.execution as StoredAttempt['execution'], board: parseBoard(JSON.parse(String(row.board_json))), score: row.score_json === null ? null : JSON.parse(String(row.score_json)), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at), lastActivityAt: Number(row.last_activity_at) };
+}
+function getAttempt(id: string): StoredAttempt | null {
+  const row = db.prepare('SELECT * FROM attempts WHERE id=?').get(id);
+  return row ? attempt(row) : null;
+}
+function getChallenge(id: string, version: number): StoredChallenge | null {
+  const row = db.prepare('SELECT * FROM challenges WHERE id=? AND version=?').get(id,version);
+  return row ? { definition: JSON.parse(String(row.definition_json)), board: parseBoard(JSON.parse(String(row.board_json))), hash: String(row.content_hash) } : null;
+}
+function getReceipt(attemptId: string, playerId: string, requestId: string): StoredReceipt | null {
+  const row = db.prepare('SELECT * FROM receipts WHERE attempt_id=? AND player_id=? AND request_id=?').get(attemptId,playerId,requestId);
+  return row ? { attemptId, playerId, fingerprint: String(row.fingerprint), state: JSON.parse(String(row.state_json)), createdAt: Number(row.created_at) } : null;
+}
+function writeReceipt(input: StoredReceipt, finalize = false): StoredReceipt {
+  validHash(input.fingerprint); validTime(input.createdAt);
+  if (!input.state.requestId) invalid('Receipt requires a request ID.');
+  validText(input.state.requestId!, 100);
+  const saved = getAttempt(input.attemptId);
+  if (!saved || saved.playerId !== input.playerId) throw new StoreError('STORE_FORBIDDEN', 'Attempt is not owned by this player.');
+  if (!db.prepare('SELECT id FROM players WHERE id=? AND banned_at IS NULL').get(input.playerId)) throw new StoreError('STORE_FORBIDDEN', 'Player is unavailable.');
+  const existing = getReceipt(input.attemptId,input.playerId,input.state.requestId!);
+  if (existing) {
+    if (existing.fingerprint !== input.fingerprint) conflict('Request ID was already used for a different submission.');
+    if (!finalize || existing.state.status !== 'SUBMITTING') return existing;
+  }
+  if (saved.phaseId !== input.state.phaseId || saved.lifecycle !== 'ACTIVE') conflict('Receipt no longer matches an active phase.');
+  if (!['SUBMITTING','ACCEPTED','FAILED'].includes(input.state.status)) invalid('Invalid receipt status.');
+  const state: SubmissionState = { phaseId: input.state.phaseId, requestId: input.state.requestId, status: input.state.status,
+    error: input.state.error ? {code: input.state.error.code, message: input.state.error.message} : null };
+  if (state.error) { validText(state.error.code,100); validText(state.error.message,500); }
+  db.prepare(`INSERT INTO receipts(attempt_id,player_id,request_id,fingerprint,state_json,created_at) VALUES(?,?,?,?,?,?)
+    ON CONFLICT(attempt_id,player_id,request_id) DO UPDATE SET state_json=excluded.state_json`).run(input.attemptId,input.playerId,state.requestId!,input.fingerprint,canonicalJson(state),input.createdAt);
+  if (!existing && state.status !== 'FAILED') db.prepare('UPDATE attempts SET last_activity_at=? WHERE id=?').run(input.createdAt,input.attemptId);
+  return { attemptId: input.attemptId, playerId: input.playerId, fingerprint: input.fingerprint, state, createdAt: existing?.createdAt ?? input.createdAt };
+}
+function reports(id: string): PublicPhaseReport[] {
+  return db.prepare('SELECT report_json FROM reports WHERE attempt_id=? ORDER BY sequence').all(id).map(r => JSON.parse(String(r.report_json)));
+}
+
+async function handle(request: StoreRequest): Promise<unknown> {
+  await boot;
+  const {operation,input} = request;
+  switch (operation) {
+    case 'health': return { schemaVersion, journalMode: String(db.prepare('PRAGMA journal_mode').get()?.journal_mode) };
+    case 'identity': return transaction(() => {
+      if (!['github','google'].includes(input.provider)) invalid('Unknown identity provider.');
+      validText(input.subject,255); validText(input.displayName,100); validTime(input.now);
+      let row = db.prepare('SELECT * FROM players WHERE provider=? AND subject=?').get(input.provider,input.subject);
+      if (!row) {
+        const id = randomUUID();
+        db.prepare('INSERT INTO players(id,provider,subject,display_name,created_at,last_seen_at) VALUES(?,?,?,?,?,?)').run(id,input.provider,input.subject,input.displayName,input.now,input.now);
+      } else db.prepare('UPDATE players SET display_name=?,last_seen_at=? WHERE id=?').run(input.displayName,input.now,row.id);
+      row = db.prepare('SELECT * FROM players WHERE provider=? AND subject=?').get(input.provider,input.subject);
+      return player(row!);
+    });
+    case 'createSession': {
+      validHash(input.tokenHash); validTime(input.now); validTime(input.expiresAt);
+      if (input.expiresAt > input.now + 7*24*60*60*1000 || input.expiresAt <= input.now) invalid('Session expiry exceeds the allowed lifetime.');
+      const result = db.prepare('INSERT INTO sessions(token_hash,player_id,created_at,expires_at) SELECT ?,id,?,? FROM players WHERE id=? AND banned_at IS NULL').run(input.tokenHash,input.now,input.expiresAt,input.playerId);
+      if (result.changes !== 1) throw new StoreError('STORE_FORBIDDEN', 'This player cannot create a session.');
+      return null;
+    }
+    case 'session': {
+      validHash(input.tokenHash); validTime(input.now);
+      const row = db.prepare('SELECT p.*,s.expires_at FROM sessions s JOIN players p ON p.id=s.player_id WHERE s.token_hash=? AND s.expires_at>? AND s.revoked_at IS NULL AND p.banned_at IS NULL').get(input.tokenHash,input.now);
+      return row ? { player: player(row), expiresAt: Number(row.expires_at) } : null;
+    }
+    case 'revokeSession': validHash(input.tokenHash); validTime(input.now); db.prepare('UPDATE sessions SET revoked_at=? WHERE token_hash=?').run(input.now,input.tokenHash); return null;
+    case 'banPlayer': return transaction(() => {
+      validTime(input.now);
+      db.prepare('UPDATE players SET banned_at=? WHERE id=?').run(input.banned ? input.now : null,input.playerId);
+      if (input.banned) {
+        db.prepare('UPDATE sessions SET revoked_at=? WHERE player_id=?').run(input.now,input.playerId);
+        for (const row of db.prepare("SELECT * FROM attempts WHERE player_id=? AND lifecycle='ACTIVE'").all(input.playerId)) {
+          const active = attempt(row);
+          const definition = getChallenge(active.challengeId,active.challengeVersion)!.definition;
+          const score = scoreChallenge(definition,{challengeId:active.challengeId,challengeVersion:active.challengeVersion,lifecycle:'ABANDONED',reports:reports(active.id)});
+          db.prepare("UPDATE attempts SET lifecycle='STOPPED',execution='IDLE',revision=revision+1,score_json=?,updated_at=? WHERE id=?").run(canonicalJson(score),input.now,active.id);
+        }
+      }
+      return null;
+    });
+    case 'registerChallenge': return transaction(() => {
+      const definition = parseChallenge(input.definition);
+      validText(definition.id,80); validTime(input.now); validHash(input.hash);
+      if (!Number.isSafeInteger(definition.version) || definition.version < 1) invalid('Invalid challenge version.');
+      const board = parseBoard(input.board);
+      const expectedHash = hash(canonicalJson({definition,board}));
+      if (input.hash !== expectedHash) invalid('Challenge content hash mismatch.');
+      const existing = getChallenge(definition.id,definition.version);
+      if (existing) { if (existing.hash !== expectedHash) conflict('Challenge versions are immutable; publish a new version.'); return null; }
+      db.prepare('INSERT INTO challenges(id,version,definition_json,board_json,content_hash,created_at) VALUES(?,?,?,?,?,?)').run(definition.id,definition.version,canonicalJson(definition),canonicalJson(board),expectedHash,input.now);
+      return null;
+    });
+    case 'challenge': return getChallenge(input.id,input.version);
+    case 'createAttempt': return transaction(() => {
+      validText(input.id,100); validTime(input.now); validHash(input.reconnectTokenHash);
+      const definition = getChallenge(input.challengeId,input.challengeVersion);
+      if (!definition) invalid('Unknown challenge version.');
+      const owner = db.prepare('SELECT id FROM players WHERE id=? AND banned_at IS NULL').get(input.playerId);
+      if (!owner) throw new StoreError('STORE_FORBIDDEN', 'Player is unavailable.');
+      const board = definition!.board;
+      const phaseId = gamePhaseId({gameId:input.id,...board});
+      db.prepare(`INSERT INTO attempts(id,player_id,challenge_id,challenge_version,phase_id,lifecycle,execution,board_json,reconnect_token_hash,created_at,updated_at,last_activity_at)
+        VALUES(?,?,?,?,?,'ACTIVE','ACCEPTING',?,?,?,?,?)`).run(input.id,input.playerId,input.challengeId,input.challengeVersion,phaseId,canonicalJson(board),input.reconnectTokenHash,input.now,input.now,input.now);
+      return getAttempt(input.id);
+    });
+    case 'attempt': {
+      const result = getAttempt(input.id);
+      return result && (input.playerId === undefined || result.playerId === input.playerId) ? result : null;
+    }
+    case 'activeAttempts': {
+      const rows = db.prepare("SELECT * FROM attempts WHERE lifecycle='ACTIVE' ORDER BY created_at LIMIT 101").all();
+      if (rows.length > 100) throw new StoreError('STORE_UNAVAILABLE', 'Active attempt count exceeds the supported restore bound.');
+      return rows.map(attempt);
+    }
+    case 'receipt': return getReceipt(input.attemptId,input.playerId,input.requestId);
+    case 'recordReceipt': return transaction(() => writeReceipt(input));
+    case 'reports': return reports(input.attemptId);
+    case 'checkpoint': return transaction(() => {
+      validTime(input.now);
+      const current = getAttempt(input.id);
+      if (!current || current.revision !== input.expectedRevision || current.phaseId !== input.expectedPhaseId || current.lifecycle !== 'ACTIVE') conflict('Attempt changed or is already terminal. Reload its committed state.');
+      if (input.receipt && (input.receipt.attemptId !== input.id || input.receipt.playerId !== current!.playerId || input.receipt.state.phaseId !== input.expectedPhaseId)) conflict('Receipt does not belong to this attempt and phase.');
+      const board = parseBoard(input.board);
+      if (input.reports.length > 4) invalid('Too many phase reports in one checkpoint.');
+      const history = reports(input.id);
+      let previousBoard = publicBoard(current!.board);
+      for (const [index, rawReport] of input.reports.entries()) {
+        const report = publicReport(rawReport);
+        if (canonicalJson(report.before) !== canonicalJson(previousBoard)) conflict('Report does not follow the committed board.');
+        if (index === 0 && (report.year !== current!.board.year || report.season !== current!.board.season || report.phase !== current!.board.phase)) conflict('Report does not match the committed phase.');
+        previousBoard = report.after;
+        if (report.sequence !== history.length+1) conflict('Phase reports must be appended in order.');
+        db.prepare('INSERT INTO reports(attempt_id,sequence,report_json) VALUES(?,?,?)').run(input.id,report.sequence,canonicalJson(report));
+        history.push(report);
+      }
+      if (canonicalJson(previousBoard) !== canonicalJson(publicBoard(board))) conflict('Checkpoint board does not match committed report history.');
+      if (input.reports.length === 0 && canonicalJson(current!.board) !== canonicalJson(board)) conflict('Board changes require a committed phase report.');
+      const definition = getChallenge(current!.challengeId,current!.challengeVersion)!.definition;
+      const score = scoreChallenge(definition,{challengeId:definition.id,challengeVersion:definition.version,
+        lifecycle:input.lifecycle === 'ABANDONED' || input.lifecycle === 'EXPIRED' || input.lifecycle === 'STOPPED' ? 'ABANDONED' : input.lifecycle === 'COMPLETED' ? 'GAME_FINISHED' : 'ACTIVE',reports:history});
+      const lifecycle = score.outcome === 'SUCCESS' || score.outcome === 'FAILURE' ? 'COMPLETED' : input.lifecycle;
+      if (input.receipt) writeReceipt(input.receipt,true);
+      db.prepare(`UPDATE attempts SET board_json=?,phase_id=?,revision=revision+1,lifecycle=?,execution=?,score_json=?,updated_at=? WHERE id=?`).run(
+        canonicalJson(board),gamePhaseId({gameId:input.id,...board}),lifecycle,lifecycle === 'ACTIVE' ? input.execution : 'IDLE',canonicalJson(score),input.now,input.id);
+      return getAttempt(input.id);
+    });
+    case 'backup': {
+      const destination = resolve(input.destination);
+      safeFile(destination,true);
+      const pages = await backup(db,destination);
+      chmodSync(destination,0o600);
+      return {pages};
+    }
+    case 'close': db.close(); return null;
+  }
+}
+let queue: Promise<unknown> = Promise.resolve();
+parentPort!.on('message', (request: StoreRequest) => {
+  queue = queue.then(async () => {
+    try { parentPort!.postMessage({id:request.id,result:await handle(request)}); }
+    catch (error) {
+      const failure = error instanceof StoreError ? error
+        : (error as {errcode?:number}).errcode === 5 ? new StoreError('STORE_BUSY','Persistent storage is busy. Retry shortly.')
+        : new StoreError('STORE_UNAVAILABLE','Persistent storage operation failed. Inspect local health and recover before retrying an uncertain write.');
+      parentPort!.postMessage({id:request.id,error:{code:failure.code,message:failure.message}});
+    }
+  });
+});

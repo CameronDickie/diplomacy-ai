@@ -56,9 +56,12 @@ COPY --from=builder /app/shared/src ./source/shared/src
 COPY --from=engine-builder /src/engine ./source/engine
 COPY --from=engine-builder /go/pkg/mod/github.com/zond/godip@v0.6.5 ./source/third_party/godip
 
-RUN useradd --create-home --shell /usr/sbin/nologin appuser \
-  && chown -R appuser:appuser /app
+RUN groupadd --gid 10001 appuser \
+  && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin appuser \
+  && mkdir -p /data \
+  && chown -R appuser:appuser /app /data \
+  && chmod 700 /data
 USER appuser
 
 EXPOSE 3001
-CMD ["npm", "start"]
+CMD ["node", "server/dist/index.js"]

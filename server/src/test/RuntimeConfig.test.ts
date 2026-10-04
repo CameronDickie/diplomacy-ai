@@ -135,6 +135,7 @@ test('production renderer validates before writing, preserves source and replace
 });
 
 test('showcase server starts without Discord or provider secrets and serves health without login', async () => {
+  const databaseDirectory = mkdtempSync(resolve(tmpdir(), 'diplomacy-server-start-'));
   const listener = createServer();
   listener.listen(0, '127.0.0.1');
   await once(listener, 'listening');
@@ -142,7 +143,7 @@ test('showcase server starts without Discord or provider secrets and serves heal
   assert.ok(address && typeof address === 'object');
   await new Promise<void>(resolve => listener.close(() => resolve()));
   const child = spawn(process.execPath, [resolve(root, 'server/dist/index.js')], {
-    env: { ...showcase, HOST: '127.0.0.1', PORT: String(address.port), DIPLOMACY_ENV_FILE: '/dev/null' },
+    env: { ...showcase, HOST: '127.0.0.1', PORT: String(address.port), DIPLOMACY_ENV_FILE: '/dev/null', DIPLOMACY_DATABASE_PATH: resolve(databaseDirectory, 'test.sqlite') },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const closed = once(child, 'close');
@@ -168,5 +169,6 @@ test('showcase server starts without Discord or provider secrets and serves heal
     const [code, signal] = await closed;
     assert.equal(code, 0, 'SIGTERM closes the server cleanly');
     assert.equal(signal, null);
+    rmSync(databaseDirectory, { recursive: true, force: true });
   }
 });

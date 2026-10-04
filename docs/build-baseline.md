@@ -8,7 +8,7 @@ repository-root `npm ci` and `npm run check` commands.
 
 - Local Node.js: 26.9.0; npm: 12.0.2 (existing Homebrew installation).
 - Local Go: 1.27.1, installed with `brew install go`.
-- Documented minimums: Node.js 22.12 and Go 1.23. The CI matrix checks
+- Documented minimums: Node.js 22.16 and Go 1.23. The CI matrix checks
   Node 22 / Go 1.23 on Linux and Node 26 / Go 1.27 on macOS. Those remote
   combinations still need a GitHub Actions run after the workflow is pushed.
 

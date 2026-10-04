@@ -48,7 +48,7 @@ deadline defaults and disconnected-seat replacement still need decisions.
 
 ## Set up another computer
 
-Install Node.js 22.12 or newer, npm, Git, and Go 1.23 or newer. Clone the
+Install Node.js 22.16 or newer, npm, Git, and Go 1.23 or newer. Clone the
 repository using your GitHub SSH access:
 
 ```bash

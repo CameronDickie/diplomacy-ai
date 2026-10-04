@@ -8,6 +8,10 @@ engine/.cache
 .env.*
 !.env.example
 *.tsbuildinfo
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 
 # Generated Terraform providers; keep .terraform.lock.hcl tracked.
 .terraform/
