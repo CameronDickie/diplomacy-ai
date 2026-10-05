@@ -39,8 +39,13 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
   );
   const missingCount = Math.max(0, 7 - players.length);
   const isHost = game.gameState?.hostPlayerId === game.myPlayerId;
-  const aiControlsLocked = !auth.operator;
+  const aiControlsLocked = !auth.capabilities.providerSettings;
   const canEditLobbyAi = Boolean(isHost && game.gameState?.status === 'LOBBY' && !aiControlsLocked);
+
+  if (auth.profile === 'showcase') return <section className="card">
+    <h2>Daily challenges</h2>
+    <p>Challenge play is not available on this server yet.</p>
+  </section>;
 
   return (
     <section className="card">
@@ -81,14 +86,9 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
           <div className="stat-row"><span>Status</span><strong>{game.gameState.status}</strong></div>
           <div className="stat-row"><span>Your power</span><strong>{game.myPower ?? '-'}</strong></div>
           <div className="stat-row"><span>Submitted</span><strong>{game.gameState.submittedPowers.length}/{players.length}</strong></div>
-          {isHost && game.gameState.status === 'LOBBY' && (
+          {isHost && game.gameState.status === 'LOBBY' && auth.capabilities.providerSettings && (
             <div className="llm-config">
               <h3>Automated diplomacy</h3>
-              {aiControlsLocked && (
-                <p className="setup-lock-notice">
-                  Provider, negotiation and voice settings require an operator account.
-                </p>
-              )}
               <label>
                 LLM conversations per order phase
                 <select
@@ -177,63 +177,65 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
               <p className="field-help">
                 Off by default so private diplomatic activity does not reveal who is coordinating.
               </p>
-              <h3>Voice limits</h3>
-              <label>
-                Maximum session minutes
-                <input
-                  type="number"
-                  min={1}
-                  max={30}
-                  value={game.gameState.settings.voiceMaxSessionMinutes}
-                  disabled={aiControlsLocked}
-                  onChange={event => game.updateGameSettings({
-                    voiceMaxSessionMinutes: Number(event.target.value),
-                  })}
-                />
-              </label>
-              <label>
-                Maximum human turns
-                <input
-                  type="number"
-                  min={1}
-                  max={50}
-                  value={game.gameState.settings.voiceMaxTurns}
-                  disabled={aiControlsLocked}
-                  onChange={event => game.updateGameSettings({
-                    voiceMaxTurns: Number(event.target.value),
-                  })}
-                />
-              </label>
-              <label>
-                Idle timeout seconds
-                <input
-                  type="number"
-                  min={15}
-                  max={300}
-                  value={game.gameState.settings.voiceIdleTimeoutSeconds}
-                  disabled={aiControlsLocked}
-                  onChange={event => game.updateGameSettings({
-                    voiceIdleTimeoutSeconds: Number(event.target.value),
-                  })}
-                />
-              </label>
-              <label>
-                Auto-commit silence seconds
-                <input
-                  type="number"
-                  min={1}
-                  max={10}
-                  step={0.5}
-                  value={game.gameState.settings.voiceAutoCommitSilenceSeconds}
-                  disabled={aiControlsLocked}
-                  onChange={event => game.updateGameSettings({
-                    voiceAutoCommitSilenceSeconds: Number(event.target.value),
-                  })}
-                />
-              </label>
-              <p className="field-help">
-                Voice auto-listen commits a player's turn after this much silence.
-              </p>
+              {auth.capabilities.voice && <>
+                <h3>Voice limits</h3>
+                <label>
+                  Maximum session minutes
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={game.gameState.settings.voiceMaxSessionMinutes}
+                    disabled={aiControlsLocked}
+                    onChange={event => game.updateGameSettings({
+                      voiceMaxSessionMinutes: Number(event.target.value),
+                    })}
+                  />
+                </label>
+                <label>
+                  Maximum human turns
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={game.gameState.settings.voiceMaxTurns}
+                    disabled={aiControlsLocked}
+                    onChange={event => game.updateGameSettings({
+                      voiceMaxTurns: Number(event.target.value),
+                    })}
+                  />
+                </label>
+                <label>
+                  Idle timeout seconds
+                  <input
+                    type="number"
+                    min={15}
+                    max={300}
+                    value={game.gameState.settings.voiceIdleTimeoutSeconds}
+                    disabled={aiControlsLocked}
+                    onChange={event => game.updateGameSettings({
+                      voiceIdleTimeoutSeconds: Number(event.target.value),
+                    })}
+                  />
+                </label>
+                <label>
+                  Auto-commit silence seconds
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    step={0.5}
+                    value={game.gameState.settings.voiceAutoCommitSilenceSeconds}
+                    disabled={aiControlsLocked}
+                    onChange={event => game.updateGameSettings({
+                      voiceAutoCommitSilenceSeconds: Number(event.target.value),
+                    })}
+                  />
+                </label>
+                <p className="field-help">
+                  Voice auto-listen commits a player's turn after this much silence.
+                </p>
+              </>}
               <h3>Next LLM seat</h3>
               <label>
                 Country
@@ -291,36 +293,38 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                   onChange={event => setLlmPersona(event.target.value)}
                 />
               </label>
-              <label>
-                Realtime voice model
-                <input
-                  value={llmRealtimeModel}
-                  disabled={aiControlsLocked}
-                  onChange={event => setLlmRealtimeModel(event.target.value)}
-                />
-              </label>
-              <label>
-                Voice override
-                <input
-                  placeholder="Auto by country"
-                  value={llmVoice}
-                  disabled={aiControlsLocked}
-                  onChange={event => setLlmVoice(event.target.value)}
-                />
-              </label>
-              <p className="field-help">
-                Leave blank to give each country a stable default voice. Supported overrides:
-                alloy, ash, ballad, coral, echo, sage, shimmer, verse, marin, cedar.
-              </p>
-              <label>
-                Voice persona instructions
-                <textarea
-                  placeholder="Optional spoken style and pacing"
-                  value={llmVoiceInstructions}
-                  disabled={aiControlsLocked}
-                  onChange={event => setLlmVoiceInstructions(event.target.value)}
-                />
-              </label>
+              {auth.capabilities.voice && <>
+                <label>
+                  Realtime voice model
+                  <input
+                    value={llmRealtimeModel}
+                    disabled={aiControlsLocked}
+                    onChange={event => setLlmRealtimeModel(event.target.value)}
+                  />
+                </label>
+                <label>
+                  Voice override
+                  <input
+                    placeholder="Auto by country"
+                    value={llmVoice}
+                    disabled={aiControlsLocked}
+                    onChange={event => setLlmVoice(event.target.value)}
+                  />
+                </label>
+                <p className="field-help">
+                  Leave blank to give each country a stable default voice. Supported overrides:
+                  alloy, ash, ballad, coral, echo, sage, shimmer, verse, marin, cedar.
+                </p>
+                <label>
+                  Voice persona instructions
+                  <textarea
+                    placeholder="Optional spoken style and pacing"
+                    value={llmVoiceInstructions}
+                    disabled={aiControlsLocked}
+                    onChange={event => setLlmVoiceInstructions(event.target.value)}
+                  />
+                </label>
+              </>}
             </div>
           )}
           <div className="button-row">
@@ -328,36 +332,38 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
               disabled={missingCount === 0}
               onClick={() => game.addLlmPlayer({ provider: 'STUB', model: 'auto-hold-v0' })}
             >Add offline bot</button>}
-            <button
-              onClick={() => game.addLlmPlayer({
-                power: llmPower,
-                provider: llmProvider,
-                model: llmModel,
-                persona: llmPersona || null,
-                realtimeModel: llmRealtimeModel,
-                voice: llmVoice.trim() || undefined,
-                voiceInstructions: llmVoiceInstructions || null,
-              })}
-              disabled={!canEditLobbyAi || missingCount === 0}
-            >
-              Add LLM
-            </button>
-            <button
-              onClick={() => Array.from({ length: missingCount }).forEach(() =>
-                game.addLlmPlayer({
-                  power: 'RANDOM',
+            {auth.capabilities.providerSettings && <>
+              <button
+                onClick={() => game.addLlmPlayer({
+                  power: llmPower,
                   provider: llmProvider,
                   model: llmModel,
                   persona: llmPersona || null,
                   realtimeModel: llmRealtimeModel,
                   voice: llmVoice.trim() || undefined,
                   voiceInstructions: llmVoiceInstructions || null,
-                })
-              )}
-              disabled={!canEditLobbyAi || missingCount === 0}
-            >
-              Fill LLMs
-            </button>
+                })}
+                disabled={!canEditLobbyAi || missingCount === 0}
+              >
+                Add LLM
+              </button>
+              <button
+                onClick={() => Array.from({ length: missingCount }).forEach(() =>
+                  game.addLlmPlayer({
+                    power: 'RANDOM',
+                    provider: llmProvider,
+                    model: llmModel,
+                    persona: llmPersona || null,
+                    realtimeModel: llmRealtimeModel,
+                    voice: llmVoice.trim() || undefined,
+                    voiceInstructions: llmVoiceInstructions || null,
+                  })
+                )}
+                disabled={!canEditLobbyAi || missingCount === 0}
+              >
+                Fill LLMs
+              </button>
+            </>}
           </div>
           <button className="primary" onClick={game.startGame} disabled={!isHost || players.length < 7 || game.gameState.status !== 'LOBBY'}>
             Start Game

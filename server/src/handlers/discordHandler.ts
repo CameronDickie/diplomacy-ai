@@ -52,6 +52,8 @@ export function attachDiscordHandlers(
     });
   });
 
+  if (!voice || !bots) return;
+
   onClientEvent(socket, 'start_voice_session', async ({ gameId, toPower }) => {
     await withPlayerAsync(socket, gameManager, gameId, async (room, player) => {
       if (!voice || !bots) throw new Error('Discord voice is not configured');

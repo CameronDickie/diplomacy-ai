@@ -3,7 +3,7 @@ import type { useGameSocket } from '../hooks/useGameSocket.js';
 type GameSocket = ReturnType<typeof useGameSocket>;
 
 export function DiscordPanel({ game }: { game: GameSocket }) {
-  if (!game.gameState) return null;
+  if (!game.gameState || !game.capabilities.discord) return null;
   const isHost = game.gameState.hostPlayerId === game.myPlayerId;
   const status = game.discordStatus;
 

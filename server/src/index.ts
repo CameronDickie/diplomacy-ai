@@ -14,12 +14,7 @@ import { installSocketPolicy } from './auth/socketPolicy.js';
 import { GameManager } from './GameManager.js';
 import { attachHandlers } from './handlers/connectionHandler.js';
 import { DiplomacyService } from './diplomacy/DiplomacyService.js';
-import { DiscordLinkService } from './discord/DiscordLinkService.js';
-import {
-  DiscordBotManager,
-  readDiscordBotConfig,
-} from './discord/DiscordBotManager.js';
-import { VoiceSessionManager } from './voice/VoiceSessionManager.js';
+import { createIntegrations } from './integrations.js';
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const rootEnvFile = process.env.DIPLOMACY_ENV_FILE ?? resolve(currentDirectory, '../../.env');
@@ -61,30 +56,7 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
 
 const gameManager = new GameManager();
 const diplomacy = new DiplomacyService(gameManager);
-const discordConfig = config.discord.enabled ? readDiscordBotConfig() : null;
-const discordLinks = new DiscordLinkService(
-  gameManager,
-  discordConfig?.guildId ?? null,
-  new Set(
-    discordConfig
-      ? Object.keys(discordConfig.powerTokens) as Array<keyof typeof discordConfig.powerTokens>
-      : []
-  ),
-  config.discord.voiceEnabled
-);
-const discordBots = discordConfig
-  ? new DiscordBotManager(discordConfig, gameManager, discordLinks, diplomacy)
-  : null;
-const voice = discordBots
-  ? new VoiceSessionManager(
-      gameManager,
-      discordLinks,
-      discordBots,
-      config.discord.voiceEnabled,
-      config.discord.voiceDebug,
-      config.discord.autoListen
-    )
-  : null;
+const integrations = await createIntegrations(config, gameManager, diplomacy);
 
 app.use(express.json({ limit: '64kb' }));
 
@@ -117,21 +89,19 @@ io.on('connection', socket => {
   installSocketPolicy(socket, auth);
   attachHandlers(socket, io, gameManager, {
     diplomacy,
-    discordLinks,
-    discordBots,
-    voice,
+    integrations,
   });
 });
 
 const PORT = config.port;
 httpServer.listen(PORT, config.host, () => {
   console.log(`Diplomacy server listening on port ${PORT}`);
-  if (!discordBots) {
+  if (!integrations) {
     console.log('Discord integration disabled');
     return;
   }
-  void discordBots.start().catch(error => {
-    console.error('Discord integration failed to start:', error);
+  void integrations.bots.start().catch(() => {
+    console.error('Discord integration failed to start. Check the private integration configuration.');
   });
 });
 
@@ -144,7 +114,7 @@ async function shutdown(): Promise<void> {
   const socketsClosed = new Promise<void>(resolve => io.close(() => resolve()));
   for (const room of gameManager.getRooms()) room.dispose();
   try {
-    await Promise.all([shutdownGodip(), discordBots?.stop(), socketsClosed, store.close()]);
+    await Promise.all([shutdownGodip(), integrations?.bots.stop(), socketsClosed, store.close()]);
     // Close any remaining private-profile voice connections without starting
     // reconciliation/provider work during shutdown.
     process.exit(0);

@@ -12,7 +12,7 @@ interface AuthContextValue extends PlayerSession {
 }
 const AuthContext = createContext<AuthContextValue | null>(null);
 const apiBase = import.meta.env.VITE_SERVER_URL || '';
-const empty: PlayerSession = { authenticated: false, enabled: true, profile: 'showcase', user: null, operator: false, providers: [] };
+const empty: PlayerSession = { authenticated: false, enabled: true, profile: 'showcase', user: null, operator: false, providers: [], capabilities: { providerSettings: false, discord: false, voice: false } };
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<PlayerSession>(empty);
   const [status, setStatus] = useState<AuthStatus>('CHECKING');
@@ -60,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch(`${apiBase}/api/auth/logout`, { method: 'POST', credentials: 'include' });
       if (!response.ok) throw new Error('Sign-out could not be completed. Please retry.');
-      const next = { ...session, authenticated: false, user: null, operator: false };
+      const next = { ...session, authenticated: false, user: null, operator: false, capabilities: empty.capabilities };
       setSession(next); changed(next); setStatus('LOGIN');
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Sign-out failed.'); }
     finally { setSubmitting(false); }

@@ -277,9 +277,7 @@ test('every transport handler rejects malformed input without throwing or creati
   const socket = new FakeSocket('malformed-socket');
   attachHandlers(socket as unknown as Socket<ClientToServerEvents, ServerToClientEvents>, fakeIO(), manager, {
     diplomacy: new DiplomacyService(manager),
-    discordLinks: new DiscordLinkService(manager, null),
-    discordBots: null,
-    voice: null,
+    integrations: null,
   });
   for (const [event, handler] of socket.handlers) {
     if (event === 'disconnect') continue;

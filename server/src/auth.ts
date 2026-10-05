@@ -118,6 +118,11 @@ export class AuthService {
           profile: this.config.profile, operator: principal?.operator ?? false,
           user: principal ? { id: principal.player.id, displayName: principal.player.displayName, provider: principal.player.provider } : null,
           providers: Object.keys(this.credentials) as Provider[],
+          capabilities: {
+            providerSettings: !!principal?.operator && this.config.profile !== 'showcase',
+            discord: !!principal?.operator && this.config.profile !== 'showcase' && this.config.discord.enabled,
+            voice: !!principal?.operator && this.config.profile !== 'showcase' && this.config.discord.enabled && this.config.discord.voiceEnabled,
+          },
         };
         response.json(payload);
       }).catch(() => response.status(503).json({ message: 'Sign-in is temporarily unavailable.' }));

@@ -60,7 +60,16 @@ Only configured GitHub subjects are operators. Operator does not mean room host,
 and room host does not mean operator. Private provider setup/integration commands
 require operator authority. Local anonymous offline bots remain available.
 Showcase rejects legacy free-form room commands for everyone, including operators;
-the owned challenge service must supply its preset and admission path.
+the owned challenge service must supply its preset and admission path. Until
+DIC-54 supplies that UI, showcase displays a challenge-unavailable placeholder
+and never opens the legacy room socket or resumes a saved private room.
+
+`/api/auth/session` returns explicit `providerSettings`, `discord` and `voice`
+capabilities. All are false for guests/ordinary players and in showcase mode.
+Private/local operators receive integration capabilities only when those
+services are explicitly enabled. The browser hides unavailable controls; fresh
+server authorization remains authoritative on every action. Disabled services
+have no registered handlers, constructors or SDK imports.
 
 HTTP mutations require an exact trusted Origin. Socket upgrades require an
 allowed Origin too (CORS alone does not protect WebSockets). Same-origin polling

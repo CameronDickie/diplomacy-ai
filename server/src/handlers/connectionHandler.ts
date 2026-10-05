@@ -7,9 +7,7 @@ import { attachOrderHandlers } from './orderHandler.js';
 import { attachDiplomacyHandlers } from './diplomacyHandler.js';
 import { attachDiscordHandlers } from './discordHandler.js';
 import type { DiplomacyService } from '../diplomacy/DiplomacyService.js';
-import type { DiscordLinkService } from '../discord/DiscordLinkService.js';
-import type { DiscordBotManager } from '../discord/DiscordBotManager.js';
-import type { VoiceSessionManager } from '../voice/VoiceSessionManager.js';
+import type { Integrations } from '../integrations.js';
 import { requireRoomAccess } from './authz.js';
 
 export function attachHandlers(
@@ -18,9 +16,7 @@ export function attachHandlers(
   gameManager: GameManager,
   services: {
     diplomacy: DiplomacyService;
-    discordLinks: DiscordLinkService;
-    discordBots: DiscordBotManager | null;
-    voice: VoiceSessionManager | null;
+    integrations: Integrations | null;
   }
 ): void {
   console.log(`Client connected: ${socket.id}`);
@@ -28,14 +24,10 @@ export function attachHandlers(
   attachGameHandlers(socket, io, gameManager);
   attachOrderHandlers(socket, io, gameManager);
   attachDiplomacyHandlers(socket, io, gameManager, services.diplomacy);
-  attachDiscordHandlers(
-    socket,
-    io,
-    gameManager,
-    services.discordLinks,
-    services.discordBots,
-    services.voice
-  );
+  if (services.integrations) {
+    const { links, bots, voice } = services.integrations;
+    attachDiscordHandlers(socket, io, gameManager, links, bots, voice);
+  }
 
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`);

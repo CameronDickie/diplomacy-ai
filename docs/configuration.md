@@ -117,7 +117,13 @@ tokens use `DISCORD_<POWER>_TOKEN` for AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY,
 RUSSIA and TURKEY. `DISCORD_VOICE_ENABLED=false` is separate; true requires
 Discord, all seven tokens, `OPENAI_API_KEY`, and explicit paid enablement.
 `DISCORD_VOICE_DEBUG=false` and `DISCORD_VOICE_AUTO_LISTEN=true` are preserved.
-Showcase rejects enabling either integration.
+Showcase rejects enabling either integration. Disabled integrations are skipped
+before dynamic SDK imports, credential reads, construction, connections and
+handler registration. Browser integration hooks additionally require a current
+operator session; room hosts do not inherit that authority. The session response
+reports `providerSettings`, `discord` and `voice` capabilities so unavailable
+controls and automatic Discord status requests are omitted. Voice remains
+interlocked with paid startup while its private subsystem is deferred.
 
 `DIPLOMACY_NOTIFY_MODE=outbox` is the safe default. `resend` requires
 `RESEND_API_KEY`, `DIPLOMACY_NOTIFY_FROM`, and `DIPLOMACY_NOTIFY_TO`; those values

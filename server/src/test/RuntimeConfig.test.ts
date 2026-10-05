@@ -142,7 +142,7 @@ test('showcase server starts without Discord or provider secrets and serves heal
   const address = listener.address();
   assert.ok(address && typeof address === 'object');
   await new Promise<void>(resolve => listener.close(() => resolve()));
-  const child = spawn(process.execPath, [resolve(root, 'server/dist/index.js')], {
+  const child = spawn(process.execPath, ['--experimental-loader', resolve(root, 'server/dist/test/fixtures/forbidIntegrations.js'), resolve(root, 'server/dist/index.js')], {
     env: { ...showcase, HOST: '127.0.0.1', PORT: String(address.port), DIPLOMACY_ENV_FILE: '/dev/null', DIPLOMACY_DATABASE_PATH: resolve(databaseDirectory, 'test.sqlite') },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -162,6 +162,7 @@ test('showcase server starts without Discord or provider secrets and serves heal
     }
     assert.equal(healthy, true, output);
     assert.match(output, /Discord integration disabled/);
+    assert.equal(output.includes('INTEGRATION_MODULE_LOADED'), false);
     const auth = await fetch(`http://127.0.0.1:${address.port}/api/auth/session`);
     assert.equal((await auth.json() as { authenticated: boolean }).authenticated, false);
   } finally {

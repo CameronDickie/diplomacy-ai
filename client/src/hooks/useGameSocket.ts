@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useAuth } from './useAuth.js';
 import { io, Socket } from 'socket.io-client';
 import { gamePhaseId } from '@diplomacy/shared';
 import type {
@@ -44,6 +45,10 @@ function now(): string {
 }
 
 export function useGameSocket() {
+  const { capabilities, profile, status } = useAuth();
+  const legacyEnabled = profile !== 'showcase' && status !== 'CHECKING' && status !== 'ERROR';
+  const capabilitiesRef = useRef(capabilities);
+  capabilitiesRef.current = capabilities;
   const [socket, setSocket] = useState<AppSocket | null>(null);
   const [connection, setConnection] = useState('connecting');
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -118,6 +123,7 @@ export function useGameSocket() {
   }
 
   useEffect(() => {
+    if (!legacyEnabled) { setSocket(null); setConnection('idle'); return; }
     let sessionReplaced = false;
     const nextSocket = io(import.meta.env.VITE_SERVER_URL || undefined, {
       withCredentials: true,
@@ -158,7 +164,7 @@ export function useGameSocket() {
       setDiplomaticMessages([]);
       setPhaseHistory([]);
       saveSession(payload);
-      nextSocket.emit('request_discord_link_status', { gameId: payload.gameId });
+      if (capabilitiesRef.current.discord) nextSocket.emit('request_discord_link_status', { gameId: payload.gameId });
       log('incoming', 'game_created', { gameId: payload.gameId, power: payload.power });
     });
     nextSocket.on('game_joined', payload => {
@@ -170,7 +176,7 @@ export function useGameSocket() {
       setDiplomaticMessages([]);
       setPhaseHistory([]);
       saveSession(payload);
-      nextSocket.emit('request_discord_link_status', { gameId: payload.gameId });
+      if (capabilitiesRef.current.discord) nextSocket.emit('request_discord_link_status', { gameId: payload.gameId });
       log('incoming', 'game_joined', { power: payload.power });
     });
     nextSocket.on('game_resumed', payload => {
@@ -180,7 +186,7 @@ export function useGameSocket() {
       setMyPower(payload.power);
       setGameState(payload.gameState);
       setPhaseHistory([]);
-      nextSocket.emit('request_discord_link_status', { gameId: payload.gameId });
+      if (capabilitiesRef.current.discord) nextSocket.emit('request_discord_link_status', { gameId: payload.gameId });
       log('incoming', 'game_resumed', { gameId: payload.gameId, power: payload.power });
     });
     nextSocket.on('resume_error', payload => {
@@ -216,7 +222,7 @@ export function useGameSocket() {
     nextSocket.on('player_joined', payload => {
       setGameState(state => {
         if (!state) return state;
-        nextSocket.emit('request_discord_link_status', { gameId: state.gameId });
+        if (capabilitiesRef.current.discord) nextSocket.emit('request_discord_link_status', { gameId: state.gameId });
         return { ...state, players: payload.allPlayers };
       });
       log('incoming', 'player_joined', `${payload.player.power} ${payload.player.kind}`);
@@ -361,9 +367,10 @@ export function useGameSocket() {
       window.removeEventListener('diplomacy-auth-changed', reconnectAfterAuth);
       nextSocket.disconnect();
     };
-  }, []);
+  }, [legacyEnabled]);
 
   return useMemo(() => ({
+    capabilities,
     connection,
     gameState,
     gameId,
@@ -464,38 +471,39 @@ export function useGameSocket() {
       });
     },
     createDiscordGuildBindCode() {
-      if (!gameId) return;
+      if (!gameId || !capabilities.discord) return;
       socket?.emit('create_discord_guild_bind_code', { gameId });
     },
     createDiscordPlayerLinkCode() {
-      if (!gameId) return;
+      if (!gameId || !capabilities.discord) return;
       socket?.emit('create_discord_player_link_code', { gameId });
     },
     refreshDiscordStatus() {
-      if (!gameId) return;
+      if (!gameId || !capabilities.discord) return;
       socket?.emit('request_discord_link_status', { gameId });
     },
     startVoiceSession(toPower: Power) {
-      if (!gameId) return;
+      if (!gameId || !capabilities.voice) return;
       socket?.emit('start_voice_session', { gameId, toPower });
     },
     beginVoiceInput() {
-      if (!gameId) return;
+      if (!gameId || !capabilities.voice) return;
       socket?.emit('begin_voice_input', { gameId });
     },
     commitVoiceInput() {
-      if (!gameId) return;
+      if (!gameId || !capabilities.voice) return;
       socket?.emit('commit_voice_input', { gameId });
     },
     interruptVoiceResponse() {
-      if (!gameId) return;
+      if (!gameId || !capabilities.voice) return;
       socket?.emit('interrupt_voice_response', { gameId });
     },
     endVoiceSession() {
-      if (!gameId) return;
+      if (!gameId || !capabilities.voice) return;
       socket?.emit('end_voice_session', { gameId });
     },
   }), [
+    capabilities,
     connection,
     conversationPresence,
     discordGuildBindCode,

@@ -2,7 +2,14 @@
 
 The Discord integration targets one local server, one Discord guild, and one
 active Diplomacy game. The browser remains the interface for the map, orders,
-hosting, Discord linking, and voice controls.
+hosting, Discord linking, and voice controls. This is an optional private/local
+integration. Showcase deployments reject enabling Discord or voice, load neither
+integration nor SDK, and register none of their browser handlers.
+
+Browser linking and voice hooks require a signed-in operator configured with
+`DIPLOMACY_ADMIN_GITHUB_USER_IDS`; hosting a room does not grant that role. See
+[authentication](authentication.md). Ordinary players cannot create link codes.
+Supporting broader private Discord participation is deferred work (DIC-75).
 
 ## Applications
 
@@ -34,8 +41,12 @@ power bots.
 ## Environment
 
 Copy the Discord variables from `.env.example` into the server environment.
-`DISCORD_GUILD_ID` and `DISCORD_COORDINATOR_TOKEN` enable text integration.
-Power bots without tokens remain disabled and log a startup warning.
+Select `DIPLOMACY_PROFILE=private` (or `local`) and explicitly set
+`DISCORD_ENABLED=true`. Supply `DISCORD_GUILD_ID` and
+`DISCORD_COORDINATOR_TOKEN`. Tokens alone do not enable anything. Power bots
+without tokens remain disabled and log a startup warning. Disabled integrations
+need no Discord secrets, do not read those credentials or construct clients, and
+have no browser handlers or controls.
 
 Keep voice disabled during initial text testing:
 
@@ -43,12 +54,11 @@ Keep voice disabled during initial text testing:
 DISCORD_VOICE_ENABLED=false
 ```
 
-Voice additionally requires `OPENAI_API_KEY`. Enable it only after all bots
-connect successfully:
-
-```env
-DISCORD_VOICE_ENABLED=true
-```
+Voice additionally requires all seven power-bot tokens, `OPENAI_API_KEY`, and
+explicit paid-provider enablement. Paid startup remains interlocked until the
+budget/admission implementation is integrated. Keep voice disabled for MVP
+verification: the retained implementation and flow below are for future private
+use; voice repair and paid voice testing are outside the showcase MVP.
 
 Voice sessions auto-listen by default after the linked player joins the
 temporary voice channel, commit after the lobby-configured silence threshold,
@@ -72,9 +82,9 @@ The server uses the current DAVE-capable `@discordjs/voice` release,
 ## Linking Flow
 
 1. Create a browser game.
-2. As host, choose **Create server bind code** in the Discord panel.
+2. As an authenticated operator and room host, choose **Create server bind code** in the Discord panel.
 3. In Discord, run `/game bind code:<code>` with the coordinator.
-4. Each human chooses **Create player link code** in the browser.
+4. Each operator playing a human seat chooses **Create player link code** in the browser.
 5. That player runs `/link code:<code>` with the coordinator.
 6. The player can now DM any online LLM power bot.
 
@@ -102,7 +112,7 @@ stops speaking. Manual **Listen** and **Done** controls remain available as a
 fallback. Final human and assistant transcripts become private diplomatic
 messages. Raw audio is not persisted.
 
-The host can configure session duration, turn count, and idle timeout in the
+An operator who hosts the room can configure session duration, turn count, and idle timeout in the
 lobby. Temporary channels are removed when the session ends or times out.
 
 ## Troubleshooting

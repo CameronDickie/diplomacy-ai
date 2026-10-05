@@ -156,6 +156,7 @@ function PowerVoiceControls({
   game: GameSocket;
   player: Player;
 }) {
+  if (!game.capabilities.voice) return null;
   const voice = game.voiceSession;
   const activeForPower = voice.sessionId && voice.power === player.power;
   const canStart =

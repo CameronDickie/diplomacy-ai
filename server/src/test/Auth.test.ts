@@ -112,7 +112,7 @@ async function fixture(t: test.TestContext, options: FixtureOptions = {}) {
 test('anonymous local mode is never authenticated and missing providers have no bypass', async t => {
   const f = await fixture(t, { environment: { DIPLOMACY_PROFILE: 'local' } });
   const result = await (await f.request('/api/auth/session')).json();
-  assert.deepEqual(result, { authenticated: false, enabled: false, profile: 'local', user: null, operator: false, providers: [] });
+  assert.deepEqual(result, { authenticated: false, enabled: false, profile: 'local', user: null, operator: false, providers: [], capabilities: { providerSettings: false, discord: false, voice: false } });
   assert.equal((await f.request('/api/auth/github')).status, 503);
   assert.equal((await f.request('/api/owned', '', { method: 'POST', headers: { Origin: f.config.returnOrigin } })).status, 401);
   assert.equal((await f.request('/api/auth/login', '', { method: 'POST', headers: { Origin: f.config.returnOrigin } })).status, 404);
@@ -139,6 +139,7 @@ test('GitHub login binds state and S256 PKCE to a browser, pins redirects, and s
   assert.equal(f.calls[1].init.headers && (f.calls[1].init.headers as Record<string,string>).Authorization, 'Bearer private-provider-token');
   const session = await (await f.request('/api/auth/session', cookie.split(';')[0])).json();
   assert.equal(session.authenticated, true); assert.equal(session.operator, true); assert.equal(session.user.provider, 'github');
+  assert.deepEqual(session.capabilities, { providerSettings: true, discord: false, voice: false });
   assert.equal(JSON.stringify(session).includes('22545470'), false);
   assert.equal((await f.finish(flow)).headers.get('location'), `${f.config.returnOrigin}/?auth=failed`);
   assert.equal(f.calls.length, 2, 'state is one-time');
@@ -154,6 +155,7 @@ test('Google verifies signed ID tokens, separates identical subjects/emails, and
   const g = await f.auth.resolve(github.cookie), other = await f.auth.resolve(google.cookie);
   assert.ok(g && other); assert.notEqual(g.player.id, other.player.id);
   assert.equal(other.operator, false); assert.equal(other.player.provider, 'google');
+  assert.deepEqual((await (await f.request('/api/auth/session', google.cookie)).json()).capabilities, { providerSettings: false, discord: false, voice: false });
   assert.equal(google.flow.location.searchParams.get('scope'), 'openid profile email');
   assert.equal(google.flow.location.searchParams.get('access_type'), 'online');
   const denied = await f.request('/api/admin', google.cookie, { method: 'POST', headers: { Origin: f.config.returnOrigin } });
@@ -263,6 +265,7 @@ test('logout disconnects passive socket subscriptions immediately', async t => {
 test('showcase denies legacy commands even to an operator and ignores client-supplied authority', async t => {
   const f = await fixture(t, { environment: { ...env, DIPLOMACY_PROFILE: 'showcase' } });
   for (const cookie of ['', (await f.login()).cookie]) {
+    assert.deepEqual((await (await f.request('/api/auth/session', cookie)).json()).capabilities, { providerSettings: false, discord: false, voice: false });
     let listener: ((payload: unknown) => Promise<void>) | undefined;
     const errors: Array<{ code: string }> = [];
     const fake = { data: { authenticated: true, operator: true }, on: (_event: string, fn: typeof listener) => { listener = fn; }, emit: (_event: string, error: { code: string }) => errors.push(error) };
@@ -294,4 +297,15 @@ test('provider responses are bounded and failures reveal no provider details', a
   const address = server.address(); assert.ok(address && typeof address === 'object');
   try { await assert.rejects(boundedFetch(fetch, `http://127.0.0.1:${address.port}`, { signal: AbortSignal.timeout(30) })); }
   finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+
+test('private integration capabilities require explicit enablement and operator identity', async t => {
+  const f = await fixture(t, { environment: { ...env, DISCORD_ENABLED: 'true', DISCORD_GUILD_ID: 'synthetic', DISCORD_COORDINATOR_TOKEN: 'synthetic' } });
+  const owner = await f.login();
+  const session = await (await f.request('/api/auth/session', owner.cookie)).json();
+  assert.deepEqual(session.capabilities, { providerSettings: true, discord: true, voice: false });
+  assert.equal(JSON.stringify(session).includes('synthetic'), false);
+  const player = await f.login('google');
+  assert.deepEqual((await (await f.request('/api/auth/session', player.cookie)).json()).capabilities, { providerSettings: false, discord: false, voice: false });
 });
