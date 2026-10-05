@@ -51,6 +51,23 @@ CREATE TABLE receipts (
  state_json TEXT NOT NULL CHECK(json_valid(state_json)), created_at INTEGER NOT NULL,
  PRIMARY KEY(attempt_id,player_id,request_id)
 ) STRICT;
+` }, { version: 2, sql: `
+CREATE TABLE phase_jobs (
+ id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
+ phase_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision>=0),
+ status TEXT NOT NULL CHECK(status IN ('DECIDING','RESOLVING','RECOVERING','COMMITTED','CANCELLED')),
+ player_id TEXT NOT NULL REFERENCES players(id), request_id TEXT NOT NULL,
+ board_json TEXT NOT NULL CHECK(json_valid(board_json)),
+ definition_json TEXT NOT NULL CHECK(json_valid(definition_json)),
+ human_action_json TEXT NOT NULL CHECK(json_valid(human_action_json)),
+ decisions_json TEXT CHECK(decisions_json IS NULL OR json_valid(decisions_json)),
+ report_offset INTEGER NOT NULL, created_at INTEGER NOT NULL,
+ UNIQUE(attempt_id,phase_id),
+ UNIQUE(attempt_id,player_id,request_id)
+) STRICT;
+CREATE INDEX phase_jobs_pending ON phase_jobs(status);
+CREATE TRIGGER phase_inputs_immutable BEFORE UPDATE OF attempt_id,phase_id,player_id,request_id,board_json,definition_json,human_action_json,report_offset,created_at ON phase_jobs BEGIN
+ SELECT RAISE(ABORT,'immutable phase input'); END;
 ` }];
 
 export function verifyMigrationHistory(db: DatabaseSync, requireExisting = false): number {

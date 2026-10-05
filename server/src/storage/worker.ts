@@ -8,6 +8,8 @@ import type { PublicPhaseReport, SubmissionState } from '@diplomacy/shared';
 import { canonicalJson, parseBoard } from '../fixtures/BoardFixture.js';
 import { scoreChallenge } from '../challenge/TunisPilot.js';
 import { migrate, verifyMigrationHistory } from './migrations.js';
+import { PhaseRepository } from './phases.js';
+import type { StoreOperations } from './contracts.js';
 import { parseChallenge, publicBoard, publicReport } from './publicData.js';
 import { StoreError, type StoreRequest, type StoredAttempt, type StoredPlayer, type StoredReceipt, type StoredChallenge } from './contracts.js';
 
@@ -104,10 +106,50 @@ function reports(id: string): PublicPhaseReport[] {
   return db.prepare('SELECT report_json FROM reports WHERE attempt_id=? ORDER BY sequence').all(id).map(r => JSON.parse(String(r.report_json)));
 }
 
+function phases(): PhaseRepository {
+  return new PhaseRepository(db, {attempt:getAttempt,challenge:getChallenge,receipt:getReceipt,writeReceipt,checkpoint});
+}
+function checkpoint(input: StoreOperations['checkpoint']['input']): StoredAttempt {
+  validTime(input.now);
+  const current = getAttempt(input.id);
+  if (!current || current.revision !== input.expectedRevision || current.phaseId !== input.expectedPhaseId || current.lifecycle !== 'ACTIVE') conflict('Attempt changed or is already terminal. Reload its committed state.');
+  if (input.receipt && (input.receipt.attemptId !== input.id || input.receipt.playerId !== current!.playerId || input.receipt.state.phaseId !== input.expectedPhaseId)) conflict('Receipt does not belong to this attempt and phase.');
+  const board = parseBoard(input.board);
+  if (input.reports.length > 4) invalid('Too many phase reports in one checkpoint.');
+  const history = reports(input.id);
+  let previousBoard = publicBoard(current!.board);
+  for (const [index, rawReport] of input.reports.entries()) {
+    const report = publicReport(rawReport);
+    if (canonicalJson(report.before) !== canonicalJson(previousBoard)) conflict('Report does not follow the committed board.');
+    if (index === 0 && (report.year !== current!.board.year || report.season !== current!.board.season || report.phase !== current!.board.phase)) conflict('Report does not match the committed phase.');
+    previousBoard = report.after;
+    if (report.sequence !== history.length+1) conflict('Phase reports must be appended in order.');
+    db.prepare('INSERT INTO reports(attempt_id,sequence,report_json) VALUES(?,?,?)').run(input.id,report.sequence,canonicalJson(report));
+    history.push(report);
+  }
+  if (canonicalJson(previousBoard) !== canonicalJson(publicBoard(board))) conflict('Checkpoint board does not match committed report history.');
+  if (input.reports.length === 0 && canonicalJson(current!.board) !== canonicalJson(board)) conflict('Board changes require a committed phase report.');
+  const definition = getChallenge(current!.challengeId,current!.challengeVersion)!.definition;
+  const score = scoreChallenge(definition,{challengeId:definition.id,challengeVersion:definition.version,
+    lifecycle:input.lifecycle === 'ABANDONED' || input.lifecycle === 'EXPIRED' || input.lifecycle === 'STOPPED' ? 'ABANDONED' : input.lifecycle === 'COMPLETED' ? 'GAME_FINISHED' : 'ACTIVE',reports:history});
+  const lifecycle = score.outcome === 'SUCCESS' || score.outcome === 'FAILURE' ? 'COMPLETED' : input.lifecycle;
+  if (input.receipt) writeReceipt(input.receipt,true);
+  db.prepare(`UPDATE attempts SET board_json=?,phase_id=?,revision=revision+1,lifecycle=?,execution=?,score_json=?,updated_at=? WHERE id=?`).run(
+    canonicalJson(board),gamePhaseId({gameId:input.id,...board}),lifecycle,lifecycle === 'ACTIVE' ? input.execution : 'IDLE',canonicalJson(score),input.now,input.id);
+  return getAttempt(input.id)!;
+}
+
 async function handle(request: StoreRequest): Promise<unknown> {
   await boot;
   const {operation,input} = request;
   switch (operation) {
+    case 'beginPhase': return transaction(() => phases().begin(input));
+    case 'phaseJob': return phases().get(input.operationId);
+    case 'pendingPhaseJobs': return phases().pending();
+    case 'saveDecisions': return transaction(() => phases().decisions(input));
+    case 'recoverPhase': return transaction(() => phases().recover(input));
+    case 'commitPhase': return transaction(() => phases().commit(input));
+    case 'terminateAttempt': return transaction(() => phases().terminate(input));
     case 'health': return { schemaVersion, journalMode: String(db.prepare('PRAGMA journal_mode').get()?.journal_mode) };
     case 'identity': return transaction(() => {
       if (!['github','google'].includes(input.provider)) invalid('Unknown identity provider.');
@@ -142,6 +184,7 @@ async function handle(request: StoreRequest): Promise<unknown> {
           const active = attempt(row);
           const definition = getChallenge(active.challengeId,active.challengeVersion)!.definition;
           const score = scoreChallenge(definition,{challengeId:active.challengeId,challengeVersion:active.challengeVersion,lifecycle:'ABANDONED',reports:reports(active.id)});
+          phases().cancel(active.id);
           db.prepare("UPDATE attempts SET lifecycle='STOPPED',execution='IDLE',revision=revision+1,score_json=?,updated_at=? WHERE id=?").run(canonicalJson(score),input.now,active.id);
         }
       }
@@ -184,35 +227,7 @@ async function handle(request: StoreRequest): Promise<unknown> {
     case 'receipt': return getReceipt(input.attemptId,input.playerId,input.requestId);
     case 'recordReceipt': return transaction(() => writeReceipt(input));
     case 'reports': return reports(input.attemptId);
-    case 'checkpoint': return transaction(() => {
-      validTime(input.now);
-      const current = getAttempt(input.id);
-      if (!current || current.revision !== input.expectedRevision || current.phaseId !== input.expectedPhaseId || current.lifecycle !== 'ACTIVE') conflict('Attempt changed or is already terminal. Reload its committed state.');
-      if (input.receipt && (input.receipt.attemptId !== input.id || input.receipt.playerId !== current!.playerId || input.receipt.state.phaseId !== input.expectedPhaseId)) conflict('Receipt does not belong to this attempt and phase.');
-      const board = parseBoard(input.board);
-      if (input.reports.length > 4) invalid('Too many phase reports in one checkpoint.');
-      const history = reports(input.id);
-      let previousBoard = publicBoard(current!.board);
-      for (const [index, rawReport] of input.reports.entries()) {
-        const report = publicReport(rawReport);
-        if (canonicalJson(report.before) !== canonicalJson(previousBoard)) conflict('Report does not follow the committed board.');
-        if (index === 0 && (report.year !== current!.board.year || report.season !== current!.board.season || report.phase !== current!.board.phase)) conflict('Report does not match the committed phase.');
-        previousBoard = report.after;
-        if (report.sequence !== history.length+1) conflict('Phase reports must be appended in order.');
-        db.prepare('INSERT INTO reports(attempt_id,sequence,report_json) VALUES(?,?,?)').run(input.id,report.sequence,canonicalJson(report));
-        history.push(report);
-      }
-      if (canonicalJson(previousBoard) !== canonicalJson(publicBoard(board))) conflict('Checkpoint board does not match committed report history.');
-      if (input.reports.length === 0 && canonicalJson(current!.board) !== canonicalJson(board)) conflict('Board changes require a committed phase report.');
-      const definition = getChallenge(current!.challengeId,current!.challengeVersion)!.definition;
-      const score = scoreChallenge(definition,{challengeId:definition.id,challengeVersion:definition.version,
-        lifecycle:input.lifecycle === 'ABANDONED' || input.lifecycle === 'EXPIRED' || input.lifecycle === 'STOPPED' ? 'ABANDONED' : input.lifecycle === 'COMPLETED' ? 'GAME_FINISHED' : 'ACTIVE',reports:history});
-      const lifecycle = score.outcome === 'SUCCESS' || score.outcome === 'FAILURE' ? 'COMPLETED' : input.lifecycle;
-      if (input.receipt) writeReceipt(input.receipt,true);
-      db.prepare(`UPDATE attempts SET board_json=?,phase_id=?,revision=revision+1,lifecycle=?,execution=?,score_json=?,updated_at=? WHERE id=?`).run(
-        canonicalJson(board),gamePhaseId({gameId:input.id,...board}),lifecycle,lifecycle === 'ACTIVE' ? input.execution : 'IDLE',canonicalJson(score),input.now,input.id);
-      return getAttempt(input.id);
-    });
+    case 'checkpoint': return transaction(() => checkpoint(input));
     case 'backup': {
       const destination = resolve(input.destination);
       safeFile(destination,true);

@@ -1,3 +1,4 @@
+import type { PhaseAction, PhaseDecisions, PhaseFence, PhaseJob } from '../attempts/types.js';
 import type { BoardFixture } from '../fixtures/BoardFixture.js';
 import type { ChallengeDefinition, ChallengeScore } from '../challenge/TunisPilot.js';
 import type { PublicPhaseReport, SubmissionState } from '@diplomacy/shared';
@@ -36,6 +37,13 @@ export interface StoredReceipt {
   createdAt: number;
 }
 export interface StoreOperations {
+  beginPhase: { input: { id: string; playerId: string; expectedRevision: number; phaseId: string; requestId: string; operationId: string; action: PhaseAction; now: number }; output: { job: PhaseJob; receipt: StoredReceipt; duplicate: boolean } };
+  phaseJob: { input: { operationId: string }; output: PhaseJob | null };
+  pendingPhaseJobs: { input: {}; output: PhaseJob[] };
+  saveDecisions: { input: { fence: PhaseFence; decisions: PhaseDecisions; now: number }; output: PhaseJob };
+  recoverPhase: { input: { fence: PhaseFence; now: number }; output: PhaseJob };
+  commitPhase: { input: { fence: PhaseFence; board: BoardFixture; reports: PublicPhaseReport[]; finished: boolean; now: number }; output: StoredAttempt };
+  terminateAttempt: { input: { id: string; playerId: string; lifecycle: 'ABANDONED' | 'EXPIRED' | 'STOPPED'; now: number }; output: StoredAttempt };
   health: { input: {}; output: { schemaVersion: number; journalMode: string } };
   identity: { input: { provider: StoredPlayer['provider']; subject: string; displayName: string; now: number }; output: StoredPlayer };
   createSession: { input: { tokenHash: string; playerId: string; expiresAt: number; now: number }; output: null };

@@ -34,7 +34,7 @@ function temporary() {
 test('SQLite migrations, provider identities and hashed revocable sessions survive reopening', async () => {
   const tmp=temporary();let store=await Store.open(tmp.path);
   try {
-    assert.deepEqual(await store.call('health',{}),{schemaVersion:1,journalMode:'wal'});
+    assert.deepEqual(await store.call('health',{}),{schemaVersion:2,journalMode:'wal'});
     const github=await store.call('identity',{provider:'github',subject:'123',displayName:'Same display name',now});
     const google=await store.call('identity',{provider:'google',subject:'123',displayName:'Same display name',now});
     assert.notEqual(github.id,google.id,'no name/email-based linking across providers');
@@ -145,7 +145,7 @@ test('database write contention leaves HTTP responsive and the RPC queue bounded
     await write;locker.exec('ROLLBACK');
     const results=await queue;
     assert.ok(results.filter(r=>r.status==='rejected' && r.reason.code==='STORE_BUSY').length>=7);
-    assert.equal((await store.call('health',{})).schemaVersion,1);
+    assert.equal((await store.call('health',{})).schemaVersion,2);
   } finally {locker.close();http.close();await store.close();tmp.remove();}
 });
 
@@ -181,5 +181,22 @@ test('ban atomically stops active attempts and fences later writes', async () =>
     const stopped=(await store.call('attempt',{id:attempt.id}))!;
     assert.equal(stopped.lifecycle,'STOPPED');assert.equal(stopped.revision,1);
     await assert.rejects(store.call('checkpoint',{id:attempt.id,expectedRevision:0,expectedPhaseId:attempt.phaseId,board:attempt.board,execution:'ACCEPTING',lifecycle:'ACTIVE',reports:[],now:now+2}),{code:'STORE_CONFLICT'});
+  } finally {await store.close();tmp.remove();}
+});
+
+test('phase-job migration upgrades a v1 database without changing existing attempts or sessions', async () => {
+  const tmp=temporary();let store=await Store.open(tmp.path);
+  try {
+    const {attempt,player}=await seed(store);
+    const tokenHash=hashToken(newToken());await store.call('createSession',{tokenHash,playerId:player.id,now,expiresAt:now+1000});
+    await store.close();
+    // Restore the exact v1 schema/history while preserving its seeded records.
+    const db=new DatabaseSync(tmp.path);
+    db.exec('DROP TABLE phase_jobs; DELETE FROM schema_migrations WHERE version=2; PRAGMA user_version=1;');db.close();
+    store=await Store.open(tmp.path);
+    assert.equal((await store.call('health',{})).schemaVersion,2);
+    assert.deepEqual(await store.call('attempt',{id:attempt.id}),attempt);
+    assert.equal((await store.call('session',{tokenHash,now}))?.player.id,player.id);
+    assert.deepEqual(await store.call('pendingPhaseJobs',{}),[]);
   } finally {await store.close();tmp.remove();}
 });

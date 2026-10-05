@@ -7,11 +7,12 @@ fails startup. There is no fallback to an empty in-memory database.
 
 The repository currently stores stable provider identities, hashed revocable
 sessions, immutable challenge versions, rules-only attempt snapshots, public
-phase reports and idempotent submission receipts. It can reopen these records
-and perform revision-checked atomic checkpoints. It does **not yet connect the
-legacy room flow to durable challenge admission or phase recovery**. DIC-51 and
-DIC-60 integrate those boundaries. DIC-59 stays open until the actual challenge
-flow survives a server restart. Provider accounting/reservations and retention
+phase reports, idempotent submission receipts and frozen phase jobs. The
+[attempt coordinator](attempts.md) now commits and recovers those phase jobs,
+including real process-kill tests. It does **not yet connect the browser to
+owned challenge admission**; legacy rooms remain in memory. DIC-54 integrates
+the owned flow. DIC-59 stays open until that browser flow survives a server
+restart. Provider accounting/reservations and retention
 cleanup remain separate work; paid startup is still disabled by its interlock.
 
 ## Runtime and files
@@ -30,8 +31,8 @@ See the [Node SQLite API](https://nodejs.org/download/release/latest-jod/docs/ap
 
 SQLite uses WAL, foreign keys, FULL synchronous durability and bound query
 parameters. Database/backup files are mode 600; newly created directories are
-700. Database symlinks and non-regular files are rejected. Session/reconnect
-secrets are stored only as SHA-256 digests. Public report projections omit
+700. Database symlinks and non-regular files are rejected. Application sessions use keyed HMAC-SHA256 digests; reconnect
+secrets use SHA-256 digests. Public report projections omit
 extra session/chat/provider fields. Backups still contain private account and
 session-hash data: keep them private, outside the repository and image context.
 SQLite files and data directories are excluded from Git and Docker builds.
@@ -81,5 +82,7 @@ restored total as a refill when the financial ledger is integrated.
 Tests exercise restart, identity separation, session expiration/revocation/ban,
 receipt replay, atomic rollback, pinned definitions, terminal-state protection,
 backup/restore, migration mismatch, private-field projection and lock contention
-with responsive HTTP. Public login, attempt recovery, spend reservations and
-retention require their own integration evidence before release.
+with responsive HTTP. Login has HTTP/socket and real-provider browser evidence.
+Phase recovery has coordinator/process-crash evidence. The complete browser
+attempt flow, spend reservations and retention still require their own
+integration evidence before release.
