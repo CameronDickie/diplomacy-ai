@@ -142,3 +142,13 @@ supported settings except the host-local env-file override. Values are single
 quoted to stop Compose `$` interpolation; apostrophes, NUL and carriage returns
 are rejected instead of silently corrupting a credential. The server and deploy
 script use the same validator. Deployment remains a separate operator action.
+
+## Development reloads
+
+`npm run dev` builds first, then runs the TypeScript compiler and
+`scripts/watch-server.cjs` together. The watcher uses Node's recursive `fs.watch`
+on compiled server output (including the SQLite worker), shared output and
+runtime configuration. Changes are debounced; the old server receives SIGTERM
+and must exit before its replacement starts. Shutdown stops the child too.
+No nodemon, glob parser, ts-node or tsx runtime is needed. The regression suite
+checks worker/shared/config reloads and graceful shutdown on macOS and Linux.
