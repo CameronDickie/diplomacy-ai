@@ -39,7 +39,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
   );
   const missingCount = Math.max(0, 7 - players.length);
   const isHost = game.gameState?.hostPlayerId === game.myPlayerId;
-  const aiControlsLocked = !auth.authenticated;
+  const aiControlsLocked = !auth.operator;
   const canEditLobbyAi = Boolean(isHost && game.gameState?.status === 'LOBBY' && !aiControlsLocked);
 
   return (
@@ -86,7 +86,7 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
               <h3>Automated diplomacy</h3>
               {aiControlsLocked && (
                 <p className="setup-lock-notice">
-                  Sign in to configure AI seats, model selection, negotiation, or voice.
+                  Provider, negotiation and voice settings require an operator account.
                 </p>
               )}
               <label>
@@ -255,8 +255,8 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                   disabled={aiControlsLocked}
                   onChange={event => {
                     const provider = event.target.value as LlmProviderId;
-                    if (provider === 'OPENAI' && !auth.authenticated) return;
-                    if (provider === 'GEMINI' && !auth.authenticated) return;
+                    if (provider === 'OPENAI' && !auth.operator) return;
+                    if (provider === 'GEMINI' && !auth.operator) return;
                     setLlmProvider(provider);
                     setLlmModel(provider === 'OPENAI'
                       ? 'gpt-5.4-mini'
@@ -264,8 +264,8 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                   }}
                 >
                   <option value="STUB">Stub (auto-hold)</option>
-                  <option value="OPENAI" disabled={!auth.authenticated}>OpenAI</option>
-                  <option value="GEMINI" disabled={!auth.authenticated}>Gemini</option>
+                  <option value="OPENAI" disabled={!auth.operator}>OpenAI</option>
+                  <option value="GEMINI" disabled={!auth.operator}>Gemini</option>
                 </select>
               </label>
               <label>
@@ -324,6 +324,10 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
             </div>
           )}
           <div className="button-row">
+            {auth.profile === 'local' && !auth.operator && isHost && game.gameState.status === 'LOBBY' && <button
+              disabled={missingCount === 0}
+              onClick={() => game.addLlmPlayer({ provider: 'STUB', model: 'auto-hold-v0' })}
+            >Add offline bot</button>}
             <button
               onClick={() => game.addLlmPlayer({
                 power: llmPower,

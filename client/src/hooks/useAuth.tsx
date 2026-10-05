@@ -1,114 +1,74 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import type { PlayerSession } from '@diplomacy/shared';
 
 type AuthStatus = 'CHECKING' | 'AUTHENTICATED' | 'LOGIN' | 'ERROR';
-
-interface SessionResponse {
-  authenticated?: boolean;
-  enabled?: boolean;
-  message?: string;
-}
-
-interface AuthContextValue {
-  authenticated: boolean;
-  enabled: boolean;
+interface AuthContextValue extends PlayerSession {
   message: string | null;
   status: AuthStatus;
   submitting: boolean;
-  login: (username: string, password: string) => Promise<boolean>;
+  loginUrl: (provider: 'github' | 'google') => string;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
-
 const AuthContext = createContext<AuthContextValue | null>(null);
 const apiBase = import.meta.env.VITE_SERVER_URL || '';
-const AUTH_CHANGED_EVENT = 'diplomacy-auth-changed';
-
-async function requestSession(): Promise<SessionResponse> {
-  const response = await fetch(`${apiBase}/api/auth/session`, {
-    credentials: 'include',
-  });
-  const payload = await response.json().catch(() => ({})) as SessionResponse;
-  if (!response.ok && response.status >= 500) {
-    throw new Error(payload.message ?? 'Authentication check failed');
-  }
-  return payload;
-}
-
+const empty: PlayerSession = { authenticated: false, enabled: true, profile: 'showcase', user: null, operator: false, providers: [] };
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<PlayerSession>(empty);
   const [status, setStatus] = useState<AuthStatus>('CHECKING');
-  const [enabled, setEnabled] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-
+  const sequence = useRef(0);
+  const identity = useRef<string | null>(null);
+  function changed(next: PlayerSession) {
+    const key = next.user ? `${next.user.id}:${next.operator}` : null;
+    if (identity.current !== key) {
+      identity.current = key;
+      window.dispatchEvent(new CustomEvent('diplomacy-auth-changed', { detail: { signedOut: key === null } }));
+    }
+  }
   async function refresh(): Promise<void> {
+    const request = ++sequence.current;
     try {
-      const session = await requestSession();
-      setEnabled(session.enabled ?? true);
-      setStatus(session.authenticated ? 'AUTHENTICATED' : 'LOGIN');
-      setMessage(session.authenticated ? null : session.message ?? null);
+      const response = await fetch(`${apiBase}/api/auth/session`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Sign-in is temporarily unavailable. Please retry.');
+      const next = await response.json() as PlayerSession;
+      if (request !== sequence.current) return;
+      setSession(next); setStatus(next.authenticated ? 'AUTHENTICATED' : 'LOGIN'); changed(next);
     } catch (error) {
-      setStatus('ERROR');
-      setMessage(error instanceof Error ? error.message : 'Authentication check failed');
+      if (request !== sequence.current) return;
+      setSession(empty); changed(empty); setStatus('ERROR');
+      setMessage(error instanceof Error ? error.message : 'Sign-in is unavailable.');
     }
   }
-
   useEffect(() => {
-    void refresh();
-  }, []);
-
-  async function login(username: string, password: string): Promise<boolean> {
-    setSubmitting(true);
-    setMessage(null);
-    try {
-      const response = await fetch(`${apiBase}/api/auth/login`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-      const payload = await response.json().catch(() => ({})) as SessionResponse;
-      setEnabled(payload.enabled ?? true);
-      if (!response.ok || !payload.authenticated) {
-        setMessage(payload.message ?? 'Invalid login credentials');
-        setStatus('LOGIN');
-        return false;
-      }
-      setStatus('AUTHENTICATED');
-      window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
-      return true;
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Login failed');
-      setStatus('ERROR');
-      return false;
-    } finally {
-      setSubmitting(false);
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('auth')) {
+      setMessage('Sign-in did not complete. Please try again.');
+      url.searchParams.delete('auth'); window.history.replaceState(null, '', url);
     }
-  }
-
+    void refresh();
+    const visible = () => { if (document.visibilityState === 'visible') void refresh(); };
+    const expired = () => { void refresh(); };
+    document.addEventListener('visibilitychange', visible);
+    window.addEventListener('diplomacy-session-expired', expired);
+    return () => { sequence.current++; document.removeEventListener('visibilitychange', visible); window.removeEventListener('diplomacy-session-expired', expired); };
+  }, []);
   async function logout(): Promise<void> {
-    await fetch(`${apiBase}/api/auth/logout`, {
-      method: 'POST',
-      credentials: 'include',
-    }).catch(() => undefined);
-    setStatus(enabled ? 'LOGIN' : 'AUTHENTICATED');
-    setMessage(null);
-    window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
+    sequence.current++;
+    setSubmitting(true); setMessage(null);
+    try {
+      const response = await fetch(`${apiBase}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+      if (!response.ok) throw new Error('Sign-out could not be completed. Please retry.');
+      const next = { ...session, authenticated: false, user: null, operator: false };
+      setSession(next); changed(next); setStatus('LOGIN');
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Sign-out failed.'); }
+    finally { setSubmitting(false); }
   }
-
-  const value = useMemo<AuthContextValue>(() => ({
-    authenticated: status === 'AUTHENTICATED',
-    enabled,
-    login,
-    logout,
-    message,
-    refresh,
-    status,
-    submitting,
-  }), [enabled, message, status, submitting]);
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ ...session, status, message, submitting, refresh, logout,
+    loginUrl: provider => `${apiBase}/api/auth/${provider}`,
+  }}>{children}</AuthContext.Provider>;
 }
-
 export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
   if (!context) throw new Error('useAuth must be used within AuthProvider');

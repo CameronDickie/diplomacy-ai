@@ -224,7 +224,7 @@ export class GameRoom {
   requiresAuthenticatedAccess(): boolean {
     return (
       this.state.accessMode === 'AUTHENTICATED_AI' ||
-      this.state.players.some(player => player.kind === 'LLM')
+      this.state.players.some(player => player.kind === 'LLM' && player.provider !== 'STUB')
     );
   }
 
@@ -399,7 +399,7 @@ export class GameRoom {
       voiceInstructions: options.voiceInstructions?.trim() || null,
     };
     this.state.players.push(player);
-    this.enableAuthenticatedAiAccess();
+    if (player.provider !== 'STUB') this.enableAuthenticatedAiAccess();
     this.llmMemories.set(available, {
       power: available,
       revision: 0,

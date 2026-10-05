@@ -1438,3 +1438,14 @@ fieldset.order-builder { min-width: 0; margin: 0; border: 0; padding: 0; }
   }
   .replay-controls > div { flex-basis: 100%; text-align: center; }
 }
+
+.auth-provider-link {
+  display: block;
+  text-align: center;
+  padding: 0.65rem 1rem;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  color: inherit;
+  text-decoration: none;
+}
+.auth-provider-link:hover, .auth-provider-link:focus-visible { background: #ffffff18; }

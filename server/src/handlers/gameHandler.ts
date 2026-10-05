@@ -1,9 +1,10 @@
 import type { Server, Socket } from 'socket.io';
+import { isLocalEvent } from '../auth/socketPolicy.js';
 import { onClientEvent } from './clientEvent.js';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
 import type { GameManager } from '../GameManager.js';
 import {
-  requireAuthenticatedAi,
+  requireOperator,
   requireRoomAccess,
   settingsRequireAuthenticatedAi,
 } from './authz.js';
@@ -175,7 +176,9 @@ export function attachGameHandlers(
       return;
     }
 
-    if (!requireAuthenticatedAi(socket)) return;
+    const offlineSeat = isLocalEvent() && (provider === undefined || provider === 'STUB') &&
+      (model === undefined || model === 'idle' || model === 'auto-hold-v0');
+    if (!offlineSeat && !requireOperator(socket)) return;
 
     const validation = room.validateLlmPlayerOptions({ provider, model });
     if (!validation.ok) {
@@ -218,8 +221,8 @@ export function attachGameHandlers(
       socket.emit('error', { message: 'Only the host can change game settings', code: 'HOST_REQUIRED' });
       return;
     }
+    if (!requireOperator(socket)) return;
     const enablesAuthenticatedAi = settingsRequireAuthenticatedAi(settings);
-    if (enablesAuthenticatedAi && !requireAuthenticatedAi(socket)) return;
     if (!room.updateGameSettings(settings)) {
       socket.emit('error', {
         message: 'Invalid game settings or the game has already started',

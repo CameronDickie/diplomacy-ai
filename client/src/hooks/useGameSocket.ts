@@ -139,6 +139,10 @@ export function useGameSocket() {
       sendingSubmission.current = false;
       setConnection('disconnected');
       log('system', 'disconnect', reason);
+      if (reason === 'io server disconnect') {
+        clearPrivateState();
+        window.dispatchEvent(new Event('diplomacy-session-expired'));
+      }
     });
     nextSocket.on('connect_error', error => {
       setConnection('error');
@@ -336,7 +340,17 @@ export function useGameSocket() {
       log('error', payload.code, payload.message);
     });
 
-    const reconnectAfterAuth = () => {
+    function clearPrivateState() {
+      localStorage.removeItem(SESSION_KEY);
+      setGameState(null); setGameId(null); setMyPlayerId(null); setMyPower(null);
+      setDiplomaticMessages([]); setPhaseHistory([]); setLogs([]); setSubmission(null); setLlmStatuses({});
+      setDiscordGuildBindCode(null); setDiscordPlayerLinkCode(null);
+      setConversationPresence({ active: false, status: 'IDLE', conversationId: null, participants: null, messageCount: 0, maxMessages: 0 });
+      setDiscordStatus({ configured: false, voiceEnabled: false, guildBound: false, linked: false, discordDisplayName: null, powerBotAvailability: {} });
+      setVoiceSession(previous => ({ ...previous, sessionId: null, status: 'IDLE', power: null, channelId: null, channelUrl: null, startedAt: null, debug: [], error: null }));
+    }
+    const reconnectAfterAuth = (event: Event) => {
+      if ((event as CustomEvent<{ signedOut?: boolean }>).detail?.signedOut) clearPrivateState();
       if (sessionReplaced) return;
       nextSocket.disconnect();
       nextSocket.connect();

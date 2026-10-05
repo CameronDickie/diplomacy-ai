@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { type ErrorRequestHandler } from 'express';
 import { readRuntimeConfig, assertRuntimeReady } from '../../config/runtime.cjs';
 import { shutdownGodip } from './adjudication/GodipAdjudicator.js';
 import { Store } from './storage/Store.js';
@@ -9,7 +9,8 @@ import { loadEnvFile } from 'process';
 import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
-import { createAuthRouter, requireSiteAuth, verifyAuthCookieHeader } from './auth.js';
+import { AuthService } from './auth.js';
+import { installSocketPolicy } from './auth/socketPolicy.js';
 import { GameManager } from './GameManager.js';
 import { attachHandlers } from './handlers/connectionHandler.js';
 import { DiplomacyService } from './diplomacy/DiplomacyService.js';
@@ -45,7 +46,12 @@ try {
   process.exit(1);
 }
 
+const auth = new AuthService(store, config);
+
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
+  allowRequest: (request, done) => {
+    done(null, auth.allowsSocketRequest(request.headers));
+  },
   cors: {
     origin: config.corsOrigins,
     methods: ['GET', 'POST'],
@@ -80,7 +86,7 @@ const voice = discordBots
     )
   : null;
 
-app.use(express.json());
+app.use(express.json({ limit: '64kb' }));
 
 app.get('/healthz', async (_request, response) => {
   try {
@@ -89,8 +95,15 @@ app.get('/healthz', async (_request, response) => {
   } catch { response.status(503).json({ ok: false, code: 'STORAGE_UNAVAILABLE' }); }
 });
 
-app.use('/api/auth', createAuthRouter());
-app.use('/api', requireSiteAuth);
+app.use('/api', auth.httpBoundary);
+app.use('/api/auth', auth.router());
+// Never let unknown API URLs fall through to the SPA's index page.
+app.use('/api', (_request, response) => { response.status(404).json({ code: 'NOT_FOUND' }); });
+
+const safeHttpError: ErrorRequestHandler = (_error, _request, response, _next) => {
+  response.status(400).json({ code: 'INVALID_REQUEST', message: 'The request could not be parsed.' });
+};
+app.use(safeHttpError);
 
 const clientDirectory = resolve(currentDirectory, '../../client/dist');
 if (existsSync(clientDirectory)) {
@@ -101,7 +114,7 @@ if (existsSync(clientDirectory)) {
 }
 
 io.on('connection', socket => {
-  socket.data.authenticated = verifyAuthCookieHeader(socket.handshake.headers.cookie).authenticated;
+  installSocketPolicy(socket, auth);
   attachHandlers(socket, io, gameManager, {
     diplomacy,
     discordLinks,

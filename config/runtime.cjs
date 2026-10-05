@@ -151,9 +151,6 @@ function readRuntimeConfig(env = process.env, options = {}) {
     for (const power of POWERS) requireValue(env, `DISCORD_${power}_TOKEN`);
     if (!llm.paidEnabled) fail('DISCORD_VOICE_ENABLED', 'requires explicit paid AI enablement');
   }
-  if (authEnabled && mode !== 'showcase') {
-    for (const name of ['DIPLOMACY_AUTH_USERNAME', 'DIPLOMACY_AUTH_PASSWORD_SALT', 'DIPLOMACY_AUTH_PASSWORD_HASH', 'DIPLOMACY_AUTH_SESSION_SECRET']) requireValue(env, name);
-  }
   const callbackOrigin = origin(env, 'DIPLOMACY_AUTH_CALLBACK_ORIGIN', 'http://localhost:3001', production);
   const returnOrigin = origin(env, 'DIPLOMACY_AUTH_RETURN_ORIGIN', 'http://localhost:5173', production);
   const corsOrigins = list(value(env, 'CORS_ORIGINS', returnOrigin));

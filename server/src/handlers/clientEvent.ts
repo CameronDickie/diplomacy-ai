@@ -1,3 +1,4 @@
+import { withSocketAccess } from '../auth/socketPolicy.js';
 import type { Socket } from 'socket.io';
 import { ALL_POWERS, TERRITORY_MAP } from '@diplomacy/shared';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
@@ -123,7 +124,7 @@ export function onClientEvent<E extends Event>(
         });
         return;
       }
-      await handler(raw as Parameters<ClientToServerEvents[E]>[0]);
+      await withSocketAccess(socket, event, () => handler(raw as Parameters<ClientToServerEvents[E]>[0]));
     } catch (error) {
       // Never log raw commands: they may contain private press or session tokens.
       console.error(`Client event ${event} failed:`, error instanceof Error ? error.name : 'Unknown error');

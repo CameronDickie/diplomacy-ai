@@ -19,47 +19,37 @@ Remote files live under `/srv/diplomacy` by default:
   caddy/
 ```
 
-The current application state is intentionally ephemeral. The `data/` directory
-is reserved for the planned SQLite persistence milestone.
+SQLite now stores player identities and revocable sessions in `data/`. Legacy
+rooms remain ephemeral until the owned challenge recovery work is integrated.
+See [storage/backup instructions](storage.md); use a durable private volume.
 
 ## Environment
 
 Production environment values are rendered from a local ignored env file into
 the remote `env/app.env`. The renderer copies only the approved allowlist.
 
-Minimum production values:
+Example offline showcase preparation (supply real credentials privately):
 
-```bash
+```dotenv
+DIPLOMACY_PROFILE=showcase
+DIPLOMACY_PAID_AI_ENABLED=false
+DIPLOMACY_AUTH_CALLBACK_ORIGIN=https://diplomacy.camerondickie.ca
+DIPLOMACY_AUTH_RETURN_ORIGIN=https://diplomacy.camerondickie.ca
 CORS_ORIGINS=https://diplomacy.camerondickie.ca
-DIPLOMACY_AUTH_ENABLED=true
-DIPLOMACY_AUTH_USERNAME=...
-DIPLOMACY_AUTH_PASSWORD_SALT=...
-DIPLOMACY_AUTH_PASSWORD_HASH=...
 DIPLOMACY_AUTH_SESSION_SECRET=...
-OPENAI_API_KEY=...
-DISCORD_GUILD_ID=...
-DISCORD_COORDINATOR_TOKEN=...
+DIPLOMACY_GITHUB_CLIENT_ID=...
+DIPLOMACY_GITHUB_CLIENT_SECRET=...
+DIPLOMACY_GOOGLE_CLIENT_ID=...
+DIPLOMACY_GOOGLE_CLIENT_SECRET=...
+DIPLOMACY_ADMIN_GITHUB_USER_IDS=...
+DISCORD_ENABLED=false
 DISCORD_VOICE_ENABLED=false
 ```
 
-Generate the auth values locally:
-
-```bash
-npm run generate:auth-env
-```
-
-For Discord voice, set `DISCORD_VOICE_ENABLED=true` and provide all seven power
-bot tokens:
-
-```bash
-DISCORD_AUSTRIA_TOKEN=...
-DISCORD_ENGLAND_TOKEN=...
-DISCORD_FRANCE_TOKEN=...
-DISCORD_GERMANY_TOKEN=...
-DISCORD_ITALY_TOKEN=...
-DISCORD_RUSSIA_TOKEN=...
-DISCORD_TURKEY_TOKEN=...
-```
+See [OAuth configuration and verification](authentication.md). Shared-password
+login has been retired. Missing OAuth providers are disabled; no password or
+local-mode setting can grant operator privileges. Showcase prohibits Discord
+and voice. Private integrations have a separate [setup guide](discord-local-setup.md).
 
 Keep `DISCORD_VOICE_DEBUG=false` in production unless actively diagnosing an
 audio issue. Leave `VITE_SERVER_URL` unset when the client and server share the

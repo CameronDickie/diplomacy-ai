@@ -15,6 +15,7 @@ import { attachDiscordHandlers } from '../handlers/discordHandler.js';
 import { attachGameHandlers } from '../handlers/gameHandler.js';
 import { attachOrderHandlers } from '../handlers/orderHandler.js';
 import { attachHandlers } from '../handlers/connectionHandler.js';
+import { bindSocketPolicy } from '../auth/socketPolicy.js';
 import { onClientEvent } from '../handlers/clientEvent.js';
 import { DiplomacyService } from '../diplomacy/DiplomacyService.js';
 
@@ -34,6 +35,11 @@ class FakeSocket {
 
   constructor(readonly id: string, authenticated = false) {
     this.data.authenticated = authenticated;
+    // Synthetic server-side resolver. Socket data alone is never production authority.
+    bindSocketPolicy(this, { profile: 'local', resolve: async () => this.data.authenticated ? {
+      player: { id, provider: 'github', subject: '123', displayName: 'Test operator', bannedAt: null },
+      operator: true, expiresAt: Date.now() + 60000,
+    } : null });
   }
 
   on(event: string, handler: Handler): void {
@@ -239,7 +245,7 @@ function socketWithDiscordHandlers(
   manager: GameManager,
   links: DiscordLinkService
 ): FakeSocket {
-  const socket = new FakeSocket(id);
+  const socket = new FakeSocket(id, true);
   attachDiscordHandlers(
     socket as unknown as Socket<ClientToServerEvents, ServerToClientEvents>,
     fakeIO(),
@@ -468,3 +474,33 @@ function paidSetupManager(): GameManager {
     DIPLOMACY_PAID_AI_ENABLED: 'true', LLM_TOTAL_BUDGET_USD: '5',
   }) });
 }
+
+
+test('local anonymous practice can add offline bots without gaining operator capabilities', async () => {
+  const manager = new GameManager();
+  const room = manager.createGame();
+  room.addPlayer('local-socket', 'France', 'FRANCE');
+  const socket = socketWithGameHandlers('local-socket', manager);
+  await invoke(socket, 'add_llm_player', { gameId: room.gameId, provider: 'STUB', model: 'auto-hold-v0' });
+  assert.equal(room.getState().players.length, 2);
+  assert.equal(room.requiresAuthenticatedAccess(), false);
+  await invoke(socket, 'add_llm_player', { gameId: room.gameId, provider: 'OPENAI', model: 'gpt-6-luna' });
+  assertLastError(socket, 'AUTH_REQUIRED');
+  assert.equal(room.getState().players.length, 2);
+});
+
+test('signed-in room hosts cannot configure providers without a server-owned operator role', async () => {
+  const manager = paidSetupManager();
+  const room = manager.createGame();
+  room.addPlayer('ordinary-host', 'France', 'FRANCE');
+  const socket = socketWithGameHandlers('ordinary-host', manager, true);
+  bindSocketPolicy(socket, { profile: 'private', resolve: async () => ({
+    player: { id: 'player', provider: 'google', subject: '123', displayName: 'Owner', bannedAt: null },
+    operator: false, expiresAt: Date.now() + 60000,
+  }) });
+  await invoke(socket, 'add_llm_player', { gameId: room.gameId, provider: 'OPENAI', model: 'gpt-6-luna' });
+  assertLastError(socket, 'OPERATOR_REQUIRED');
+  await invoke(socket, 'update_game_settings', { gameId: room.gameId, llmNegotiationPlannerModel: 'gpt-6-luna' });
+  assertLastError(socket, 'OPERATOR_REQUIRED');
+  assert.equal(room.getState().players.length, 1);
+});

@@ -4,18 +4,13 @@ import type {
   GameSettings,
   ServerToClientEvents,
 } from '@diplomacy/shared';
-import { verifyAuthCookieHeader } from '../auth.js';
+import { eventPrincipal } from '../auth/socketPolicy.js';
 import type { GameRoom } from '../GameRoom.js';
 
 type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
 export function isSocketAuthenticated(socket: AppSocket): boolean {
-  const authenticated = (socket.data as { authenticated?: boolean } | undefined)?.authenticated;
-  if (typeof authenticated === 'boolean') return authenticated;
-  const cookieHeader = (socket as unknown as {
-    handshake?: { headers?: { cookie?: string } };
-  }).handshake?.headers?.cookie;
-  return verifyAuthCookieHeader(cookieHeader).authenticated;
+  return eventPrincipal() !== null;
 }
 
 export function modelRequiresAuthenticatedAi(model: string | undefined): boolean {
@@ -30,7 +25,7 @@ export function settingsRequireAuthenticatedAi(settings: Partial<GameSettings>):
 
 export function requireAuthenticatedAi(
   socket: AppSocket,
-  message = 'Sign in before enabling AI features for this game'
+  message = 'Sign in to access this game'
 ): boolean {
   if (isSocketAuthenticated(socket)) return true;
   socket.emit('error', { message, code: 'AUTH_REQUIRED' });
@@ -43,4 +38,12 @@ export function requireRoomAccess(socket: AppSocket, room: GameRoom): boolean {
     socket,
     'Sign in to access games that use AI seats'
   );
+}
+
+/** Provider configuration is an operator capability, independent of room hosting. */
+export function requireOperator(socket: AppSocket): boolean {
+  const principal = eventPrincipal();
+  if (principal?.operator) return true;
+  socket.emit('error', { code: principal ? 'OPERATOR_REQUIRED' : 'AUTH_REQUIRED', message: 'Only an operator can configure AI providers.' });
+  return false;
 }

@@ -13,10 +13,10 @@ explicit profile and rejects `local`.
 
 - `local`: loopback listener, offline STUB seats, no authentication by default.
 - `private`: authentication required, configurable provider/model allowlists,
-  optional explicitly enabled Discord. The legacy password login is retained.
+  optional explicitly enabled Discord. Players sign in through OAuth.
 - `showcase`: authentication required; only STUB and server-owned OpenAI
-  `gpt-6-luna` policy; Discord/voice cannot be enabled. Until DIC-51 adds player
-  OAuth, its legacy auth endpoints remain closed without password credentials.
+  `gpt-6-luna` policy; Discord/voice cannot be enabled. OAuth player login is
+  available; legacy free-form room commands are disabled in this profile.
 
 `DIPLOMACY_PAID_AI_ENABLED` defaults to `false` in every profile. Existing keys
 never enable paid calls. A temporary startup interlock rejects `true` until
@@ -47,7 +47,7 @@ silently ignored. Comma-separated lists are trimmed and deduplicated.
 | `DIPLOMACY_AUTH_ENABLED` | Required in private/showcase/production; local default false |
 | `DIPLOMACY_AUTH_COOKIE_SECURE` | True and mandatory in production |
 | `DIPLOMACY_AUTH_SESSION_SECRET` | At least 32 characters if configured; required with login credentials |
-| `DIPLOMACY_AUTH_USERNAME`, `DIPLOMACY_AUTH_PASSWORD_SALT`, `DIPLOMACY_AUTH_PASSWORD_HASH` | Required for the enabled private/local password gate; use `npm run generate:auth-env` |
+| `DIPLOMACY_AUTH_USERNAME`, `DIPLOMACY_AUTH_PASSWORD_SALT`, `DIPLOMACY_AUTH_PASSWORD_HASH` | Retired; ignored. The shared password grants no application access. |
 | `DIPLOMACY_GITHUB_CLIENT_ID`, `DIPLOMACY_GITHUB_CLIENT_SECRET` | Both required if either is supplied; required for paid showcase |
 | `DIPLOMACY_GOOGLE_CLIENT_ID`, `DIPLOMACY_GOOGLE_CLIENT_SECRET` | Same rule as GitHub |
 | `DIPLOMACY_ADMIN_GITHUB_USER_IDS` | Comma-separated immutable numeric IDs; at least one for paid showcase |
@@ -76,8 +76,9 @@ Room removal and server shutdown cancel pending rules work.
 
 The SQLite repository starts before HTTP and health fails when storage is
 unavailable. See [storage operation](storage.md). Attempt-flow integration,
-admission, lifecycle, OAuth and notifications remain separate work items;
-declaring settings does not mean those features are implemented.
+admission, lifecycle and notifications remain separate work items;
+declaring settings does not mean those features are implemented. OAuth sessions
+now use this storage; see [authentication](authentication.md).
 
 ## AI policy
 
