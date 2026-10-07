@@ -68,6 +68,18 @@ CREATE TABLE phase_jobs (
 CREATE INDEX phase_jobs_pending ON phase_jobs(status);
 CREATE TRIGGER phase_inputs_immutable BEFORE UPDATE OF attempt_id,phase_id,player_id,request_id,board_json,definition_json,human_action_json,report_offset,created_at ON phase_jobs BEGIN
  SELECT RAISE(ABORT,'immutable phase input'); END;
+` }, { version: 3, sql: `
+ALTER TABLE attempts ADD COLUMN mode TEXT NOT NULL DEFAULT 'PRACTICE' CHECK(mode IN ('PRACTICE'));
+CREATE TABLE start_receipts (
+ player_id TEXT NOT NULL REFERENCES players(id), request_id TEXT NOT NULL,
+ attempt_id TEXT NOT NULL REFERENCES attempts(id), challenge_id TEXT NOT NULL,
+ challenge_version INTEGER NOT NULL, created_at INTEGER NOT NULL,
+ PRIMARY KEY(player_id,request_id)
+) STRICT;
+CREATE TABLE account_starts (
+ player_id TEXT NOT NULL REFERENCES players(id), utc_day TEXT NOT NULL,
+ accepted INTEGER NOT NULL CHECK(accepted>=0), PRIMARY KEY(player_id,utc_day)
+) STRICT;
 ` }];
 
 export function verifyMigrationHistory(db: DatabaseSync, requireExisting = false): number {

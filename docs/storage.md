@@ -9,11 +9,10 @@ The repository currently stores stable provider identities, hashed revocable
 sessions, immutable challenge versions, rules-only attempt snapshots, public
 phase reports, idempotent submission receipts and frozen phase jobs. The
 [attempt coordinator](attempts.md) now commits and recovers those phase jobs,
-including real process-kill tests. It does **not yet connect the browser to
-owned challenge admission**; legacy rooms remain in memory. DIC-54 integrates
-the owned flow. DIC-59 stays open until that browser flow survives a server
-restart. Provider accounting/reservations and retention
-cleanup remain separate work; paid startup is still disabled by its interlock.
+including real process-kill tests. Owned offline challenge admission and browser
+resume now use this repository, including durable start receipts and UTC start
+counters. Legacy rooms remain in memory. Provider accounting/reservations and
+retention cleanup remain separate work; paid startup is still interlocked.
 
 ## Runtime and files
 
@@ -83,6 +82,7 @@ Tests exercise restart, identity separation, session expiration/revocation/ban,
 receipt replay, atomic rollback, pinned definitions, terminal-state protection,
 backup/restore, migration mismatch, private-field projection and lock contention
 with responsive HTTP. Login has HTTP/socket and real-provider browser evidence.
-Phase recovery has coordinator/process-crash evidence. The complete browser
-attempt flow, spend reservations and retention still require their own
-integration evidence before release.
+Phase recovery has coordinator/process-crash evidence. The offline browser
+attempt survives API restart and completes with saved results/replay. Spend
+reservations, funded recovery and retention still need their own integration
+evidence before release.

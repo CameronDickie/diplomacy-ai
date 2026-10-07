@@ -13,3 +13,4 @@ export * from './constants/adjacency.js';
 export * from './constants/startingPositions.js';
 export { gamePhaseId } from './phase.js';
 export * from './types/auth.js';
+export * from './types/challenge.js';

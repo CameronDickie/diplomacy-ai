@@ -21,7 +21,7 @@ const freeze = <T>(value: T): T => {
   return value;
 };
 type HookStage = 'intent' | 'decisions' | 'resolved' | 'committed';
-type Options = { maxRunning?: number; timeoutMs?: number; now?: () => number; boundary?: (stage: HookStage, job: PhaseJob) => Promise<void> };
+type Options = { maxRunning?: number; idleExpireMs?:number; timeoutMs?: number; now?: () => number; boundary?: (stage: HookStage, job: PhaseJob) => Promise<void> };
 
 /** SQLite is authority. In-memory promises only coalesce work and deliver cancellation. */
 export class AttemptService {
@@ -63,7 +63,7 @@ export class AttemptService {
       await this.rules.validate(attempt.board,challenge!.definition.humanPower,action,AbortSignal.any([validation.signal,AbortSignal.timeout(this.options.timeoutMs ?? 30_000)]));
       if (this.closed) throw new StoreError('STORE_UNAVAILABLE','Phase service is shutting down.');
       const accepted = await this.store.call('beginPhase',{id:attempt.id,playerId:input.playerId,expectedRevision:input.revision,phaseId:input.phaseId,
-        requestId:input.requestId,operationId:randomUUID(),action,now:this.now()});
+        requestId:input.requestId,operationId:randomUUID(),action,idleBefore:this.options.idleExpireMs ? this.now()-this.options.idleExpireMs : undefined,now:this.now()});
       if (!accepted.duplicate) this.launch(accepted.job,false);
       return accepted.receipt;
     } finally { this.validating--; this.validationControllers.delete(validation); validation.abort(); }
@@ -112,17 +112,17 @@ export class AttemptService {
       await this.store.call('recoverPhase',{fence:job,now:this.now()}).catch(() => {});
     } finally { clearTimeout(timer); controller.abort(); }
   }
-  async recover(): Promise<void> {
-    const jobs = await this.store.call('pendingPhaseJobs',{});
+  async recover(attemptId?:string): Promise<void> {
+    const jobs = (await this.store.call('pendingPhaseJobs',{})).filter(job=>!attemptId||job.attemptId===attemptId);
     // One bounded batch at a time. A failed recovery remains visible; no automatic retry loop.
     const concurrency = Math.max(1,this.options.maxRunning ?? 3);
     for (let index=0; index<jobs.length && !this.closed; index+=concurrency)
       await Promise.all(jobs.slice(index,index+concurrency).map(job => this.launch(job,true)));
   }
   async wait(attemptId: string): Promise<void> { await this.running.get(attemptId)?.done; }
-  async terminate(id:string,playerId:string,lifecycle:'ABANDONED'|'EXPIRED'|'STOPPED'): Promise<StoredAttempt> {
-    const result = await this.store.call('terminateAttempt',{id,playerId,lifecycle,now:this.now()});
-    this.running.get(id)?.controller.abort();
+  async terminate(id:string,playerId:string,lifecycle:'ABANDONED'|'EXPIRED'|'STOPPED',idleBefore?:number): Promise<StoredAttempt> {
+    const result = await this.store.call('terminateAttempt',{id,playerId,lifecycle,idleBefore,now:this.now()});
+    if(result.lifecycle !== 'ACTIVE') this.running.get(id)?.controller.abort();
     return result;
   }
   async banPlayer(playerId:string,banned=true): Promise<void> {

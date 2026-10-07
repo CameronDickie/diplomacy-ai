@@ -2,7 +2,7 @@ import { parentPort, workerData } from 'node:worker_threads';
 import { DatabaseSync, backup } from 'node:sqlite';
 import { chmodSync, closeSync, lstatSync, mkdirSync, openSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, randomBytes } from 'node:crypto';
 import { gamePhaseId } from '@diplomacy/shared';
 import type { PublicPhaseReport, SubmissionState } from '@diplomacy/shared';
 import { canonicalJson, parseBoard } from '../fixtures/BoardFixture.js';
@@ -66,7 +66,7 @@ function player(row: Row): StoredPlayer {
   return { id: String(row.id), provider: row.provider as StoredPlayer['provider'], subject: String(row.subject), displayName: String(row.display_name), bannedAt: row.banned_at === null ? null : Number(row.banned_at) };
 }
 function attempt(row: Row): StoredAttempt {
-  return { id: String(row.id), playerId: String(row.player_id), challengeId: String(row.challenge_id), challengeVersion: Number(row.challenge_version), revision: Number(row.revision), phaseId: String(row.phase_id), lifecycle: row.lifecycle as StoredAttempt['lifecycle'], execution: row.execution as StoredAttempt['execution'], board: parseBoard(JSON.parse(String(row.board_json))), score: row.score_json === null ? null : JSON.parse(String(row.score_json)), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at), lastActivityAt: Number(row.last_activity_at) };
+  return { mode: 'PRACTICE', id: String(row.id), playerId: String(row.player_id), challengeId: String(row.challenge_id), challengeVersion: Number(row.challenge_version), revision: Number(row.revision), phaseId: String(row.phase_id), lifecycle: row.lifecycle as StoredAttempt['lifecycle'], execution: row.execution as StoredAttempt['execution'], board: parseBoard(JSON.parse(String(row.board_json))), score: row.score_json === null ? null : JSON.parse(String(row.score_json)), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at), lastActivityAt: Number(row.last_activity_at) };
 }
 function getAttempt(id: string): StoredAttempt | null {
   const row = db.prepare('SELECT * FROM attempts WHERE id=?').get(id);
@@ -106,6 +106,19 @@ function reports(id: string): PublicPhaseReport[] {
   return db.prepare('SELECT report_json FROM reports WHERE attempt_id=? ORDER BY sequence').all(id).map(r => JSON.parse(String(r.report_json)));
 }
 
+function createAttempt(input: StoreOperations['createAttempt']['input']): StoredAttempt {
+  validText(input.id,100); validTime(input.now); validHash(input.reconnectTokenHash);
+  const definition = getChallenge(input.challengeId,input.challengeVersion);
+  if (!definition) invalid('Unknown challenge version.');
+  const owner = db.prepare('SELECT id FROM players WHERE id=? AND banned_at IS NULL').get(input.playerId);
+  if (!owner) throw new StoreError('STORE_FORBIDDEN', 'Player is unavailable.');
+  const board = definition!.board;
+  const phaseId = gamePhaseId({gameId:input.id,...board});
+  db.prepare(`INSERT INTO attempts(id,player_id,challenge_id,challenge_version,phase_id,lifecycle,execution,board_json,reconnect_token_hash,created_at,updated_at,last_activity_at)
+    VALUES(?,?,?,?,?,'ACTIVE','ACCEPTING',?,?,?,?,?)`).run(input.id,input.playerId,input.challengeId,input.challengeVersion,phaseId,canonicalJson(board),input.reconnectTokenHash,input.now,input.now,input.now);
+  return getAttempt(input.id)!;
+}
+
 function phases(): PhaseRepository {
   return new PhaseRepository(db, {attempt:getAttempt,challenge:getChallenge,receipt:getReceipt,writeReceipt,checkpoint});
 }
@@ -143,6 +156,42 @@ async function handle(request: StoreRequest): Promise<unknown> {
   await boot;
   const {operation,input} = request;
   switch (operation) {
+    case 'admitAttempt': return transaction(() => {
+      validText(input.id,100); validText(input.requestId,100); validTime(input.now);
+      for (const limit of [input.maxActive,input.maxPerAccount,input.dailyLimit]) if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) invalid('Invalid admission limit.');
+      if (!db.prepare('SELECT id FROM players WHERE id=? AND banned_at IS NULL').get(input.playerId)) throw new StoreError('STORE_FORBIDDEN','Player is unavailable.');
+      const prior = db.prepare('SELECT * FROM start_receipts WHERE player_id=? AND request_id=?').get(input.playerId,input.requestId);
+      if (prior) {
+        if (prior.challenge_id !== input.challengeId || prior.challenge_version !== input.challengeVersion) conflict('Start request ID was already used for another challenge.');
+        return getAttempt(String(prior.attempt_id));
+      }
+      const active = (playerId?: string) => Number((playerId
+        ? db.prepare("SELECT count(*) AS n FROM attempts WHERE lifecycle='ACTIVE' AND player_id=?").get(playerId)
+        : db.prepare("SELECT count(*) AS n FROM attempts WHERE lifecycle='ACTIVE'").get())!.n);
+      if (active(input.playerId) >= input.maxPerAccount) throw new StoreError('ACTIVE_ATTEMPT_EXISTS','Resume or finish your active attempt before starting another.');
+      if (active() >= input.maxActive) throw new StoreError('CAPACITY_FULL','All game slots are in use. Please try again later.');
+      const day = new Date(input.now).toISOString().slice(0,10);
+      const starts = Number(db.prepare('SELECT accepted FROM account_starts WHERE player_id=? AND utc_day=?').get(input.playerId,day)?.accepted ?? 0);
+      if (starts >= input.dailyLimit) throw new StoreError('DAILY_LIMIT','Your daily start allowance is used. Try again after midnight UTC.');
+      const created = createAttempt({...input,reconnectTokenHash:hash(randomBytes(32).toString('hex'))});
+      db.prepare('INSERT INTO start_receipts(player_id,request_id,attempt_id,challenge_id,challenge_version,created_at) VALUES(?,?,?,?,?,?)').run(input.playerId,input.requestId,created.id,input.challengeId,input.challengeVersion,input.now);
+      db.prepare('INSERT INTO account_starts(player_id,utc_day,accepted) VALUES(?,?,1) ON CONFLICT(player_id,utc_day) DO UPDATE SET accepted=accepted+1').run(input.playerId,day);
+      return created;
+    });
+    case 'ownedAttempts': return db.prepare('SELECT * FROM attempts WHERE player_id=? ORDER BY created_at DESC,id DESC LIMIT 30').all(input.playerId).map(attempt);
+    case 'latestSubmission': {
+      const job = db.prepare('SELECT id,request_id FROM phase_jobs WHERE attempt_id=? AND player_id=? AND phase_id=?').get(input.attemptId,input.playerId,input.phaseId);
+      if (!job) return null;
+      return {receipt:getReceipt(input.attemptId,input.playerId,String(job.request_id)),action:phases().get(String(job.id))!.humanAction};
+    }
+    case 'touchAttempt': return transaction(() => {
+      validTime(input.now);
+      const current = getAttempt(input.id);
+      if (!current || current.playerId !== input.playerId || !db.prepare('SELECT id FROM players WHERE id=? AND banned_at IS NULL').get(input.playerId)) throw new StoreError('STORE_FORBIDDEN','Attempt is unavailable.');
+      if (current.lifecycle !== 'ACTIVE' || current.revision !== input.expectedRevision || current.lastActivityAt <= input.idleBefore) conflict('This attempt changed. Reload before continuing.');
+      db.prepare('UPDATE attempts SET last_activity_at=MAX(last_activity_at,?) WHERE id=?').run(input.now,input.id);
+      return getAttempt(input.id);
+    });
     case 'beginPhase': return transaction(() => phases().begin(input));
     case 'phaseJob': return phases().get(input.operationId);
     case 'pendingPhaseJobs': return phases().pending();
@@ -203,18 +252,7 @@ async function handle(request: StoreRequest): Promise<unknown> {
       return null;
     });
     case 'challenge': return getChallenge(input.id,input.version);
-    case 'createAttempt': return transaction(() => {
-      validText(input.id,100); validTime(input.now); validHash(input.reconnectTokenHash);
-      const definition = getChallenge(input.challengeId,input.challengeVersion);
-      if (!definition) invalid('Unknown challenge version.');
-      const owner = db.prepare('SELECT id FROM players WHERE id=? AND banned_at IS NULL').get(input.playerId);
-      if (!owner) throw new StoreError('STORE_FORBIDDEN', 'Player is unavailable.');
-      const board = definition!.board;
-      const phaseId = gamePhaseId({gameId:input.id,...board});
-      db.prepare(`INSERT INTO attempts(id,player_id,challenge_id,challenge_version,phase_id,lifecycle,execution,board_json,reconnect_token_hash,created_at,updated_at,last_activity_at)
-        VALUES(?,?,?,?,?,'ACTIVE','ACCEPTING',?,?,?,?,?)`).run(input.id,input.playerId,input.challengeId,input.challengeVersion,phaseId,canonicalJson(board),input.reconnectTokenHash,input.now,input.now,input.now);
-      return getAttempt(input.id);
-    });
+    case 'createAttempt': return transaction(() => createAttempt(input));
     case 'attempt': {
       const result = getAttempt(input.id);
       return result && (input.playerId === undefined || result.playerId === input.playerId) ? result : null;

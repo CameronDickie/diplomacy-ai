@@ -60,9 +60,10 @@ Only configured GitHub subjects are operators. Operator does not mean room host,
 and room host does not mean operator. Private provider setup/integration commands
 require operator authority. Local anonymous offline bots remain available.
 Showcase rejects legacy free-form room commands for everyone, including operators;
-the owned challenge service must supply its preset and admission path. Until
-DIC-54 supplies that UI, showcase displays a challenge-unavailable placeholder
-and never opens the legacy room socket or resumes a saved private room.
+the owned challenge service supplies its fixed offline-practice preset and
+transactional admission path. Showcase renders that challenge UI and never opens
+the legacy room socket or resumes a saved private room. Sponsored Luna play
+remains interlocked until financial accounting is integrated.
 
 `/api/auth/session` returns explicit `providerSettings`, `discord` and `voice`
 capabilities. All are false for guests/ordinary players and in showcase mode.

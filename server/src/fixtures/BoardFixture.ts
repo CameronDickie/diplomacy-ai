@@ -96,7 +96,7 @@ export function parseBoard(input: unknown): BoardFixture {
     }));
     const dislodgedBy = unit.dislodgedBy === null ? null : province(unit.dislodgedBy, `${path}.dislodgedBy`);
     if (unit.mustRetreat) {
-      if (phase !== 'RETREATS' || dislodgedBy === null || retreatOptions.length === 0) fail(path, 'retreating units require a retreat phase, dislodger and legal destinations');
+      if (phase !== 'RETREATS' || retreatOptions.length === 0) fail(path, 'retreating units require a retreat phase and legal destinations');
     } else if (dislodgedBy !== null || retreatOptions.length || Object.keys(retreatCoasts).length) fail(path, 'active units cannot carry retreat metadata');
     return { id: unit.id as string, type, power: member(unit.power, ALL_POWERS, `${path}.power`), territory, coast: unitCoast, mustRetreat: unit.mustRetreat as boolean, retreatOptions: retreatOptions.sort(), retreatCoasts, dislodgedBy };
   });

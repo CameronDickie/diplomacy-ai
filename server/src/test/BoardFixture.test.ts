@@ -87,6 +87,9 @@ test('Godip rejects invented legal retreats and inconsistent dislodger/bounce co
   const missingAttacker = structuredClone(original);
   missingAttacker.retreatContext.dislodgers = {};
   await assert.rejects(importBoard(missingAttacker), /Godip:.*dislodgedBy/);
+  const hiddenAttacker = structuredClone(original);
+  hiddenAttacker.units.find((u: any) => u.mustRetreat).dislodgedBy = null;
+  await assert.rejects(importBoard(hiddenAttacker), /Godip:.*dislodgedBy/);
   const noOccupant = structuredClone(original);
   noOccupant.units = noOccupant.units.filter((u: any) => u.mustRetreat || u.territory !== 'BUR');
   await assert.rejects(importBoard(noOccupant), /enemy occupying/);

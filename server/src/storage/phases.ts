@@ -59,6 +59,7 @@ export class PhaseRepository {
       if (!row) conflict();
       return {job: this.get(String(row!.id))!, receipt: existing, duplicate: true};
     }
+    if (input.idleBefore !== undefined && attempt.lastActivityAt <= input.idleBefore) conflict();
     if (attempt.lifecycle !== 'ACTIVE' || attempt.execution !== 'ACCEPTING' || attempt.revision !== input.expectedRevision || attempt.phaseId !== input.phaseId || attempt.board.phase !== action.phase) conflict();
     const definition = this.hooks.challenge(attempt.challengeId,attempt.challengeVersion)!.definition;
     const revision = attempt.revision + 1;
@@ -110,6 +111,7 @@ export class PhaseRepository {
     const attempt = this.hooks.attempt(input.id);
     this.owner(attempt,input.playerId);
     if (attempt.lifecycle !== 'ACTIVE') return attempt;
+    if (input.lifecycle === 'EXPIRED' && input.idleBefore !== undefined && attempt.lastActivityAt > input.idleBefore) return attempt;
     const result = this.hooks.checkpoint({id:attempt.id,expectedRevision:attempt.revision,expectedPhaseId:attempt.phaseId,board:attempt.board,
       lifecycle:input.lifecycle,execution:'IDLE',reports:[],now:input.now});
     this.cancel(attempt.id);

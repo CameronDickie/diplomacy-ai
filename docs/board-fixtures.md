@@ -60,7 +60,7 @@ coasts. One active unit may occupy a province; a dislodged enemy may also be
 present there during retreats. Unit ids must be unique.
 
 Every unit includes explicit empty/default retreat fields when active. During
-retreats, `dislodgers` maps the attacker's origin to the dislodged province, and
+retreats, `dislodgers` maps retreat-blocking attack origins to dislodged provinces, and
 `bounces` maps a destination to all recorded source provinces. A destination
 list alone would lose Godip's bounce exception rules. Import reconstructs the
 Godip state and requires the supplied legal retreat destinations/coasts to match
@@ -110,3 +110,13 @@ fields, private-field rejection, forged retreats, CLI round trips and existing
 file protection. Movement and retreat legality are checked by Godip; build and
 retreat application continue through the existing server phase rules. These
 fixtures supplement, rather than replace, the broader Godip rules tests.
+
+Godip deliberately omits a retreat-blocking origin for a convoyed attack. Such a
+retreating unit has `dislodgedBy: null`; import still checks enemy occupancy,
+complete context and every legal retreat. A null value cannot hide an origin
+that is present in the context. The `allied-convoy` fixture exercises an English
+landing supported from the North Sea and convoyed by a French fleet, including
+export/reimport of the dislodged defender. `circular-moves` exercises a three-army
+friendly rotation. Both have deterministic `cooperate` witnesses; `split-coast`
+retains independent north/south witnesses. These are development regression
+positions, not additional public scenarios.

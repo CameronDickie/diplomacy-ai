@@ -100,7 +100,7 @@ export function challengeDefinition(fixture: ScenarioFixture): ChallengeDefiniti
 }
 
 /** In-memory human seats only: no .env loading, provider, DB, HTTP or socket IO. */
-export async function playWitness(fixture: ScenarioFixture, name: string) {
+export async function playWitness(fixture: ScenarioFixture, name: string, includeReports = false) {
   const witness = fixture.witnesses.find(w => w.name === name);
   if (!witness) s.fail('witness', 'unknown witness name');
   const room = await GameRoom.fromBoardFixture(fixture.board);
@@ -150,6 +150,6 @@ export async function playWitness(fixture: ScenarioFixture, name: string) {
     const score = definition ? scoreChallenge(definition, { challengeId: fixture.id, challengeVersion: fixture.version, lifecycle: room.getState().status === 'FINISHED' ? 'GAME_FINISHED' : 'ACTIVE', reports: room.getPhaseHistory() }) : null;
     if (witness!.expectedOutcome !== null && score?.outcome !== witness!.expectedOutcome) s.fail('witness.expectedOutcome', `expected ${witness!.expectedOutcome}, got ${score?.outcome}`);
     const board = exportBoard(room.getState());
-    return { fixtureId: fixture.id, fixtureVersion: fixture.version, witness: name, board, boardHash: boardHash(board), score };
+    return { fixtureId: fixture.id, fixtureVersion: fixture.version, witness: name, board, boardHash: boardHash(board), score, ...(includeReports ? {reports: room.getPhaseHistory()} : {}) };
   } finally { room.dispose(); }
 }

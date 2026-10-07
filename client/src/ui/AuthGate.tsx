@@ -3,7 +3,8 @@ import { useAuth } from '../hooks/useAuth.js';
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const auth = useAuth();
-  return <>
+  const challenge = auth.profile === 'showcase' || window.location.pathname === '/challenge';
+  return <div className={challenge ? 'challenge-root' : undefined}>
     {children}
     {(auth.enabled || auth.status === 'ERROR') && <section className="auth-popover" aria-label="Player account">
       <h2>{auth.authenticated ? 'Player account' : 'Sign in to play'}</h2>
@@ -22,5 +23,5 @@ export function AuthGate({ children }: { children: ReactNode }) {
       </>}
       {auth.message && <p role="alert" className="auth-error">{auth.message}</p>}
     </section>}
-  </>;
+  </div>;
 }

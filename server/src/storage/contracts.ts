@@ -14,6 +14,7 @@ export interface StoredSession { player: StoredPlayer; expiresAt: number }
 export type AttemptLifecycle = 'ACTIVE' | 'COMPLETED' | 'ABANDONED' | 'EXPIRED' | 'STOPPED';
 export type AttemptExecution = 'ACCEPTING' | 'DECIDING' | 'RESOLVING' | 'RECOVERING' | 'IDLE';
 export interface StoredAttempt {
+  mode: 'PRACTICE';
   id: string;
   playerId: string;
   challengeId: string;
@@ -37,13 +38,17 @@ export interface StoredReceipt {
   createdAt: number;
 }
 export interface StoreOperations {
-  beginPhase: { input: { id: string; playerId: string; expectedRevision: number; phaseId: string; requestId: string; operationId: string; action: PhaseAction; now: number }; output: { job: PhaseJob; receipt: StoredReceipt; duplicate: boolean } };
+  admitAttempt: { input: { id:string; playerId:string; requestId:string; challengeId:string; challengeVersion:number; now:number; maxActive:number; maxPerAccount:number; dailyLimit:number }; output: StoredAttempt };
+  ownedAttempts: { input: { playerId:string }; output: StoredAttempt[] };
+  latestSubmission: { input: { attemptId:string; playerId:string; phaseId:string }; output: {receipt:StoredReceipt;action:PhaseAction}|null };
+  touchAttempt: { input: { id:string; playerId:string; expectedRevision:number; idleBefore:number; now:number }; output: StoredAttempt };
+  beginPhase: { input: { id: string; playerId: string; expectedRevision: number; phaseId: string; requestId: string; operationId: string; action: PhaseAction; idleBefore?:number; now: number }; output: { job: PhaseJob; receipt: StoredReceipt; duplicate: boolean } };
   phaseJob: { input: { operationId: string }; output: PhaseJob | null };
   pendingPhaseJobs: { input: {}; output: PhaseJob[] };
   saveDecisions: { input: { fence: PhaseFence; decisions: PhaseDecisions; now: number }; output: PhaseJob };
   recoverPhase: { input: { fence: PhaseFence; now: number }; output: PhaseJob };
   commitPhase: { input: { fence: PhaseFence; board: BoardFixture; reports: PublicPhaseReport[]; finished: boolean; now: number }; output: StoredAttempt };
-  terminateAttempt: { input: { id: string; playerId: string; lifecycle: 'ABANDONED' | 'EXPIRED' | 'STOPPED'; now: number }; output: StoredAttempt };
+  terminateAttempt: { input: { id: string; playerId: string; lifecycle: 'ABANDONED' | 'EXPIRED' | 'STOPPED'; idleBefore?:number; now: number }; output: StoredAttempt };
   health: { input: {}; output: { schemaVersion: number; journalMode: string } };
   identity: { input: { provider: StoredPlayer['provider']; subject: string; displayName: string; now: number }; output: StoredPlayer };
   createSession: { input: { tokenHash: string; playerId: string; expiresAt: number; now: number }; output: null };
@@ -64,7 +69,7 @@ export interface StoreOperations {
 }
 export type StoreOperation = keyof StoreOperations;
 export type StoreRequest = { [K in StoreOperation]: { id: number; operation: K; input: StoreOperations[K]['input'] } }[StoreOperation];
-export type StoreErrorCode = 'STORE_UNAVAILABLE' | 'STORE_BUSY' | 'STORE_CONFLICT' | 'STORE_FORBIDDEN' | 'STORE_INVALID' | 'STORE_SCHEMA';
+export type StoreErrorCode = 'STORE_UNAVAILABLE' | 'STORE_BUSY' | 'STORE_CONFLICT' | 'STORE_FORBIDDEN' | 'STORE_INVALID' | 'STORE_SCHEMA' | 'CAPACITY_FULL' | 'ACTIVE_ATTEMPT_EXISTS' | 'DAILY_LIMIT';
 export class StoreError extends Error {
   constructor(readonly code: StoreErrorCode, message: string) { super(message); this.name = 'StoreError'; }
 }

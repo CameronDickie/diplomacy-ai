@@ -1,3 +1,5 @@
+import { useAuth } from '../hooks/useAuth.js';
+import { ChallengeApp } from './ChallengeApp.js';
 import { useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import type {
   Coast,
@@ -28,6 +30,10 @@ interface MapOrderMenuState {
 }
 
 export function App() {
+  const auth = useAuth();
+  return auth.profile === 'showcase' || window.location.pathname === '/challenge' ? <ChallengeApp/> : <LegacyApp/>;
+}
+function LegacyApp() {
   const game = useGameSocket();
   const [selectedTerritory, setSelectedTerritory] = useState<TerritoryId | null>(null);
   const [pendingOrders, setPendingOrders] = useState<Order[]>([]);

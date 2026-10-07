@@ -157,9 +157,19 @@ func validateBoard(input request) []string {
 	for i, unit := range input.Dislodged {
 		path := fmt.Sprintf("dislodged[%d]", i)
 		p := toGodipLocation(unit.Territory, unit.Coast)
-		attacker, ok := dislodgers[toGodipProvince(unit.DislodgedBy)]
-		if !ok || attacker != p.Super() {
-			add(path+".dislodgedBy", "must match the recorded dislodger")
+		// Godip records retreat-blocking origins, not every attack: a convoyed
+		// attack deliberately permits retreat to its origin (orders.move.Execute).
+		if unit.DislodgedBy != "" {
+			victim, ok := dislodgers[toGodipProvince(unit.DislodgedBy)]
+			if !ok || victim != p.Super() {
+				add(path+".dislodgedBy", "must match the recorded dislodger")
+			}
+		} else {
+			for _, victim := range dislodgers {
+				if victim.Super() == p.Super() {
+					add(path+".dislodgedBy", "cannot omit a recorded dislodger")
+				}
+			}
 		}
 		if occupant, _, found := state.Unit(p); !found || occupant.Nation == toGodipNation(unit.Power) {
 			add(path, "dislodged unit needs an enemy occupying its former province")

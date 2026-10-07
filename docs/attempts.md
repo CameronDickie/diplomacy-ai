@@ -6,10 +6,41 @@ bounded Godip executor. Its offline decision adapter holds, disbands retreats
 and waives builds (or removes the required units deterministically). This is a
 test policy, not the public Luna opponent.
 
-This service is not yet exposed through browser routes or wired into production
-startup. DIC-54 supplies the owned API/UI and admission integration. Legacy room
-sockets remain separate and disabled in showcase. Paid provider dispatch remains
-interlocked; no financial reservation is implied by saving a phase job.
+The server starts the challenge service before listening and recovers pending
+jobs against its configured SQLite database. Showcase renders the challenge UI;
+local/private deployments can open `/challenge` while retaining their legacy
+lobby at `/`. Legacy room sockets remain disabled in showcase. This intermediate
+flow is explicitly **offline practice**, not a funded or publicly released daily
+challenge. Paid dispatch remains interlocked; phase jobs are not financial
+reservations.
+
+## Owned practice flow
+
+Public `GET /api/challenges` and `/api/challenges/demo` expose the fixed Tunis
+pilot and an offline reference replay. Authenticated players start with
+`POST /api/attempts`, supplying only the catalog ID/version and a request ID.
+The server rejects model, board, budget and other payload overrides. A single
+transaction checks ban, three-global/one-account active limits, three accepted
+starts per UTC day, and duplicate receipts. Retry after uncertain delivery uses
+the same request ID. Accepted starts remain counted after abandonment/restart.
+
+`GET /api/attempts` lists the player's latest 30 attempts. Owned attempt routes
+provide the board, phase reports and a revision-fenced human legal catalog;
+orders, explicit activity, abandonment and recovery use protected POSTs.
+Every request checks authentication and ownership; catalog choices never include
+another power's units. Godip supplies move/support/convoy/coast choices, including
+friendly destinations and cooperative allied actions. A legal choice is not a
+promise that the move succeeds.
+
+Polling does not refresh activity. Selecting a unit, changing a choice, accepting
+a new submission or pressing “I'm still here” does. Warn at 25 idle minutes and
+expire at 30; mutation-time idle checks and a ten-second sweep close stale work.
+An activity update racing a sweep cannot revive an expired attempt or expire a
+recently active one. Login, the active board and completed results survive API
+restart. Logout clears private client state.
+
+Development catalog rotation and the funded Luna preset remain follow-up work.
+No owner-approved public catalog is implied by these fixtures.
 
 ## Authority and state transitions
 
@@ -59,7 +90,7 @@ current attempt/ban/fence authority and atomically reserve before dispatch,
 reconcile existing call IDs, retain unknown liabilities and count every retry.
 It must not interpret recovery/cancellation as a refund or a new allowance.
 The offline adapter needs no external reconciliation. DIC-58/60 remain open for
-verification with actual durable accounting, and DIC-59 for runtime integration.
+verification with actual durable accounting.
 
 One service instance bounds executing phases and concurrent validation (default
 three); one recovery batch attempts each pending job once. There is no unbounded
@@ -83,3 +114,10 @@ Schema migration 2 adds phase jobs without modifying migration 1; its upgrade
 test preserves existing players, sessions and attempts. Backups must remain
 private. Rolling back across schema versions requires a compatible backup;
 financial evidence must never be discarded or treated as fresh funding.
+
+Schema migration 3 adds practice-mode attempts, durable start receipts and UTC
+account counters. HTTP tests cover ownership, payload overrides, stale catalogs,
+concurrent admission, quota persistence, idle races and restart. Browser evidence
+covers real GitHub sign-in, four legal phases, API restart after the first phase,
+Fall 1902 success/Early capture, saved replay, mobile layout and logout. These
+checks use offline opponents and outbox mode, with no paid calls or live emails.

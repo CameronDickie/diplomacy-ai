@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import type { PlayerSession } from '@diplomacy/shared';
 
 type AuthStatus = 'CHECKING' | 'AUTHENTICATED' | 'LOGIN' | 'ERROR';
-interface AuthContextValue extends PlayerSession {
+export interface AuthContextValue extends PlayerSession {
   message: string | null;
   status: AuthStatus;
   submitting: boolean;

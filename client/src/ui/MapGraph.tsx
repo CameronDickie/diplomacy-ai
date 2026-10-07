@@ -3,7 +3,7 @@ import type { Coast, GameState, Order, TerritoryId, Unit } from '@diplomacy/shar
 import { POWER_COLORS, TERRITORY_BY_ID, territoryName } from '../lib/game.js';
 
 interface Props {
-  gameState: GameState | null;
+  gameState: Pick<GameState, 'units' | 'territories'> | null;
   selectedTerritory: TerritoryId | null;
   selectedUnit: Unit | null;
   validTargets: TerritoryId[];
@@ -457,7 +457,7 @@ export function MapGraph({
   );
 }
 
-function pendingSupplyControl(gameState: GameState): Array<{
+function pendingSupplyControl(gameState: Pick<GameState, 'units' | 'territories'>): Array<{
   territory: TerritoryId;
   power: Unit['power'];
 }> {

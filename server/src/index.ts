@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
 import { AuthService } from './auth.js';
+import { ChallengeService } from './challenge/ChallengeService.js';
 import { installSocketPolicy } from './auth/socketPolicy.js';
 import { GameManager } from './GameManager.js';
 import { attachHandlers } from './handlers/connectionHandler.js';
@@ -42,6 +43,9 @@ try {
 }
 
 const auth = new AuthService(store, config);
+let challenges: ChallengeService;
+try { challenges = await ChallengeService.open(store,config); }
+catch { console.error('Challenge startup failed. Check stored definitions and rules engine availability.'); await store.close(); process.exit(1); }
 
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   allowRequest: (request, done) => {
@@ -69,6 +73,7 @@ app.get('/healthz', async (_request, response) => {
 
 app.use('/api', auth.httpBoundary);
 app.use('/api/auth', auth.router());
+app.use('/api', challenges.router(auth));
 // Never let unknown API URLs fall through to the SPA's index page.
 app.use('/api', (_request, response) => { response.status(404).json({ code: 'NOT_FOUND' }); });
 
@@ -114,6 +119,7 @@ async function shutdown(): Promise<void> {
   const socketsClosed = new Promise<void>(resolve => io.close(() => resolve()));
   for (const room of gameManager.getRooms()) room.dispose();
   try {
+    await challenges.close();
     await Promise.all([shutdownGodip(), integrations?.bots.stop(), socketsClosed, store.close()]);
     // Close any remaining private-profile voice connections without starting
     // reconciliation/provider work during shutdown.
