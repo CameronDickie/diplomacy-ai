@@ -94,6 +94,11 @@ CREATE INDEX provider_calls_attempt ON provider_calls(attempt_id);
 CREATE UNIQUE INDEX provider_calls_response ON provider_calls(response_id) WHERE response_id IS NOT NULL;
 CREATE TRIGGER provider_intent_immutable BEFORE UPDATE OF id,operation_id,attempt_id,intent_json,created_at ON provider_calls BEGIN
  SELECT RAISE(ABORT,'immutable provider intent'); END;
+` }, { version: 5, sql: `
+CREATE TABLE deleted_identities (
+ identity_hash TEXT PRIMARY KEY CHECK(length(identity_hash)=64), utc_day TEXT NOT NULL,
+ accepted INTEGER NOT NULL CHECK(accepted>0), deleted_at INTEGER NOT NULL
+) STRICT;
 ` }];
 
 export function verifyMigrationHistory(db: DatabaseSync, requireExisting = false): number {

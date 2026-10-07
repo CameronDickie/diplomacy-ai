@@ -13,6 +13,7 @@ import type { ChallengeDefinition } from './TunisPilot.js';
 import { AttemptService, offlineDecisions } from '../attempts/AttemptService.js';
 import { PhaseRules } from '../attempts/PhaseRules.js';
 
+const HISTORY_PAGE=20;
 export class ChallengeService {
   readonly attempts: AttemptService;
   private rules = new PhaseRules();
@@ -20,6 +21,7 @@ export class ChallengeService {
   private demo: ChallengeReplay | undefined;
   private sweepTimer?: NodeJS.Timeout;
   private sweeping?: Promise<void>;
+  private nextRetention = 0;
   private constructor(private store:Store,private config:RuntimeConfig,private now:()=>number) {
     // Paid startup remains interlocked; this mode must never silently become sponsored.
     if(config.llm.paidEnabled)throw Error('Funded challenge adapter is not integrated.');
@@ -58,8 +60,20 @@ export class ChallengeService {
       const cutoff=this.now()-this.config.idleExpireMinutes*60_000;
       for(const attempt of await this.store.call('activeAttempts',{}))if(attempt.lastActivityAt<=cutoff)
         await this.attempts.terminate(attempt.id,attempt.playerId,'EXPIRED',cutoff);
+      await this.retain();
     })().finally(()=>{this.sweeping=undefined;});
     return this.sweeping;
+  }
+  /** Hourly, in bounded batches. A failed pass waits for the next hour, never a tight retry loop. */
+  private async retain():Promise<void> {
+    const now=this.now(),day=86_400_000,resultBefore=now-this.config.resultRetentionDays*day;
+    if(now<this.nextRetention)return;
+    this.nextRetention=now+3_600_000;
+    // Cleanup is housekeeping: a busy or failed pass must not fail the player request that triggered it.
+    try{for(let batch=0;batch<20;batch++){
+      const result=await this.store.call('sweepRetention',{now,resultBefore,diagnosticBefore:Math.max(resultBefore,now-this.config.diagnosticRetentionDays*day),limit:200});
+      if(!result.more)break;
+    }}catch{}
   }
   private async owned(id:string,playerId:string):Promise<StoredAttempt> {
     await this.sweep();
@@ -80,12 +94,22 @@ export class ChallengeService {
     };
     // Public GETs read only startup-packaged content: no store, session or provider work.
     const catalog:ChallengeCatalog={challenges:this.cards,sponsoredPlay:'UNAVAILABLE',limits:{maxActiveAttempts:this.config.maxActiveAttempts,maxActivePerAccount:this.config.maxActivePerAccount,
-      dailyStartLimit:this.config.dailyStartLimit,idleWarnMinutes:this.config.idleWarnMinutes,idleExpireMinutes:this.config.idleExpireMinutes}};
+      dailyStartLimit:this.config.dailyStartLimit,idleWarnMinutes:this.config.idleWarnMinutes,idleExpireMinutes:this.config.idleExpireMinutes,resultRetentionDays:this.config.resultRetentionDays}};
     router.get('/challenges',run(async(_req,res)=>{res.json(catalog);}));
     router.get('/challenges/demo',run(async(_req,res)=>{res.json(this.demo);}));
-    router.get('/attempts',auth.requirePlayer(),run(async(_req,res)=>{
-      await this.sweep();const items=await this.store.call('ownedAttempts',{playerId:player(res)});
-      res.json({attempts:await Promise.all(items.map(a=>this.view(a)))});
+    router.get('/attempts',auth.requirePlayer(),run(async(req,res)=>{
+      const cursor=typeof req.query.before==='string'?/^(\d{1,16})\.([-A-Za-z0-9_]{1,100})$/.exec(req.query.before):null;
+      if(req.query.before!==undefined&&!cursor)throw new StoreError('STORE_INVALID','Reload your attempt history.');
+      await this.sweep();
+      const items=await this.store.call('ownedAttempts',{playerId:player(res),limit:HISTORY_PAGE+1,...(cursor?{before:{createdAt:Number(cursor[1]),id:cursor[2]}}:{})});
+      const page=items.slice(0,HISTORY_PAGE),last=page.at(-1);
+      res.json({attempts:await Promise.all(page.map(a=>this.view(a))),next:items.length>HISTORY_PAGE&&last?`${last.createdAt}.${last.id}`:null});
+    }));
+    router.post('/account/delete',auth.requirePlayer(),run(async(req,res)=>{
+      const body=schema.fields(req.body,['confirm'],'account deletion');
+      if(body.confirm!=='DELETE')throw new StoreError('STORE_INVALID','Confirm account deletion to continue.');
+      auth.forget(await this.attempts.deleteAccount(player(res)),res);
+      res.json({deleted:true});
     }));
     router.post('/attempts',auth.requirePlayer(),run(async(req,res)=>{
       const body=schema.fields(req.body,['requestId','challengeId','challengeVersion'],'start');

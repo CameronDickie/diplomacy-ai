@@ -129,6 +129,12 @@ export class AttemptService {
     await this.store.call('banPlayer',{playerId,banned,now:this.now()});
     if (banned) for (const work of this.running.values()) if (work.playerId === playerId) work.controller.abort();
   }
+  /** Removes the account's rows first; aborted work then fails its fence and cannot dispatch or commit. */
+  async deleteAccount(playerId:string): Promise<string[]> {
+    const removed = await this.store.call('deleteAccount',{playerId,now:this.now()});
+    for (const work of this.running.values()) if (work.playerId === playerId) work.controller.abort();
+    return removed.sessions;
+  }
   async close(): Promise<void> {
     this.closed = true;
     for (const controller of this.validationControllers) controller.abort();

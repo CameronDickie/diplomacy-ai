@@ -1,5 +1,5 @@
 import { useEffect,useRef,useState } from 'react';
-import type { ChallengeAction,ChallengeAttemptView,ChallengeCard,ChallengeCatalog,ChallengeLegalCatalog,ChallengeReplay,PublicPhaseReport,SubmissionState } from '@diplomacy/shared';
+import type { ChallengeAction,ChallengeAttemptView,ChallengeCard,ChallengeCatalog,ChallengeHistoryPage,ChallengeLegalCatalog,ChallengeReplay,PublicPhaseReport,SubmissionState } from '@diplomacy/shared';
 import { useAuth } from './useAuth.js';
 const base=import.meta.env.VITE_SERVER_URL||'';
 export async function challengeRequest<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
@@ -15,6 +15,7 @@ export function useChallenge(){
   const [catalog,setCatalog]=useState<ChallengeCatalog|null>(null),[demo,setDemo]=useState<ChallengeReplay|null>(null);
   const [attempt,setAttempt]=useState<ChallengeAttemptView|null>(null),[history,setHistory]=useState<ChallengeAttemptView[]>([]);
   const [legal,setLegal]=useState<ChallengeLegalCatalog|null>(null),[reports,setReports]=useState<PublicPhaseReport[]>([]);
+  const [older,setOlder]=useState<string|null>(null);
   const [error,setError]=useState(''),[busy,setBusy]=useState(false),[loaded,setLoaded]=useState(false);
   const current=useRef(attempt);current.current=attempt;
   const startId=useRef<string|null>(null),pending=useRef<{phaseId:string;requestId:string;action:ChallengeAction}|null>(null);
@@ -27,9 +28,9 @@ export function useChallenge(){
   },[]);
   useEffect(()=>{
     const controller=new AbortController();
-    setAttempt(null);setHistory([]);setLegal(null);setReports([]);pending.current=null;startId.current=null;setError('');
-    if(identity)challengeRequest<{attempts:ChallengeAttemptView[]}>('/attempts',undefined,controller.signal).then(({attempts})=>{
-      if(identityRef.current!==identity)return;setHistory(attempts);setAttempt(attempts.find(a=>a.lifecycle==='ACTIVE')??null);
+    setAttempt(null);setHistory([]);setOlder(null);setLegal(null);setReports([]);pending.current=null;startId.current=null;setError('');
+    if(identity)challengeRequest<ChallengeHistoryPage>('/attempts',undefined,controller.signal).then(({attempts,next})=>{
+      if(identityRef.current!==identity)return;setHistory(attempts);setOlder(next);setAttempt(attempts.find(a=>a.lifecycle==='ACTIVE')??null);
     }).catch(e=>{if(!controller.signal.aborted)setError(e.message);});
     return()=>controller.abort();
   },[identity]);
@@ -67,16 +68,26 @@ export function useChallenge(){
     const next=await challengeRequest<ChallengeAttemptView>(`/attempts/${id}`);
     if(identityRef.current!==owner)return;
     setAttempt(next);
-    const list=await challengeRequest<{attempts:ChallengeAttemptView[]}>('/attempts');
-    if(identityRef.current===owner)setHistory(list.attempts);
+    const list=await challengeRequest<ChallengeHistoryPage>('/attempts');
+    if(identityRef.current===owner){setHistory(list.attempts);setOlder(list.next);}
   }
-  return {auth,cards:catalog?.challenges??[],limits:catalog?.limits??null,sponsoredPlay:catalog?.sponsoredPlay??null,demo,attempt,history,legal,reports,error,busy,loaded,clearError:()=>setError(''),
+  return {auth,older,cards:catalog?.challenges??[],limits:catalog?.limits??null,sponsoredPlay:catalog?.sponsoredPlay??null,demo,attempt,history,legal,reports,error,busy,loaded,clearError:()=>setError(''),
     start:(card:ChallengeCard)=>mutate(async owner=>{
       startId.current??=crypto.randomUUID();
       const result=await challengeRequest<ChallengeAttemptView>('/attempts',{requestId:startId.current,challengeId:card.id,challengeVersion:card.version});
       if(identityRef.current===owner){startId.current=null;setAttempt(result);await refresh(result.id,owner);}
     }),
-    resume:(id:string)=>mutate(async owner=>{await refresh(id,owner);}),
+    resume:(id:string)=>mutate(async owner=>{
+      const next=await challengeRequest<ChallengeAttemptView>(`/attempts/${id}`);
+      if(identityRef.current===owner)setAttempt(next);
+    }),
+    loadOlder:()=>mutate(async owner=>{
+      if(!older)return;
+      const page=await challengeRequest<ChallengeHistoryPage>(`/attempts?before=${encodeURIComponent(older)}`);
+      if(identityRef.current===owner){setHistory(items=>[...items,...page.attempts.filter(a=>!items.some(item=>item.id===a.id))]);setOlder(page.next);}
+    }),
+    // The server has already removed the session; refreshing auth clears every piece of owned state above.
+    deleteAccount:()=>mutate(async()=>{await challengeRequest('/account/delete',{confirm:'DELETE'});await auth.refresh();}),
     submit:(action:ChallengeAction)=>mutate(async owner=>{
       const saved=current.current;if(!saved)return;
       const old=pending.current;

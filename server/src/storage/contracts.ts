@@ -47,7 +47,9 @@ export interface StoreOperations {
   providerCallsForOperation: { input: { operationId:string }; output: ProviderCallRecord[] };
   providerCallTotals: { input: { operationId:string }; output: ProviderTotals };
   admitAttempt: { input: { id:string; playerId:string; requestId:string; challengeId:string; challengeVersion:number; now:number; maxActive:number; maxPerAccount:number; dailyLimit:number }; output: StoredAttempt };
-  ownedAttempts: { input: { playerId:string }; output: StoredAttempt[] };
+  ownedAttempts: { input: { playerId:string; before?:{createdAt:number;id:string}; limit?:number }; output: StoredAttempt[] };
+  sweepRetention: { input: { now:number; resultBefore:number; diagnosticBefore:number; limit:number }; output: { attempts:number; diagnostics:number; sessions:number; more:boolean } };
+  deleteAccount: { input: { playerId:string; now:number }; output: { sessions:string[]; attempts:number } };
   latestSubmission: { input: { attemptId:string; playerId:string; phaseId:string }; output: {receipt:StoredReceipt;action:PhaseAction}|null };
   touchAttempt: { input: { id:string; playerId:string; expectedRevision:number; idleBefore:number; now:number }; output: StoredAttempt };
   beginPhase: { input: { id: string; playerId: string; expectedRevision: number; phaseId: string; requestId: string; operationId: string; action: PhaseAction; idleBefore?:number; now: number }; output: { job: PhaseJob; receipt: StoredReceipt; duplicate: boolean } };

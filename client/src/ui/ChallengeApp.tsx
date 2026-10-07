@@ -8,10 +8,11 @@ export function ChallengeApp(){
   const game=useChallenge(),a=game.attempt,card=a?.challenge??game.cards[0];
   const [selected,setSelected]=useState<string|null>(null),[choices,setChoices]=useState<Record<string,string>>({});
   const [retreats,setRetreats]=useState<Record<string,string>>({}),[builds,setBuilds]=useState<Record<string,string>>({}),[disbands,setDisbands]=useState<string[]>([]);
-  const [replay,setReplay]=useState<{reports:PublicPhaseReport[];index:number;after:boolean;reference:boolean}|null>(null),[confirmAbandon,setConfirmAbandon]=useState(false);
+  const [replay,setReplay]=useState<{reports:PublicPhaseReport[];index:number;after:boolean;reference:boolean}|null>(null),[confirmAbandon,setConfirmAbandon]=useState(false),[confirmDelete,setConfirmDelete]=useState(false);
   const [clock,setClock]=useState(Date.now());
   useEffect(()=>{const timer=setInterval(()=>setClock(Date.now()),1000);return()=>clearInterval(timer);},[]);
   useEffect(()=>{setChoices({});setRetreats({});setBuilds({});setDisbands([]);setSelected(null);setReplay(null);setConfirmAbandon(false);},[a?.id,a?.phaseId,game.auth.user?.id]);
+  useEffect(()=>setConfirmDelete(false),[game.auth.user?.id]);
   const board=a?.board??card?.board;
   const report=replay?.reports[replay.index];
   const shown=report?(replay!.after?report.after:report.before):board;
@@ -52,10 +53,15 @@ export function ChallengeApp(){
           {confirmAbandon?<div><p>End this attempt? Its saved result will remain available.</p><button onClick={()=>void game.abandon()} disabled={game.busy}>End attempt</button><button onClick={()=>setConfirmAbandon(false)}>Keep playing</button></div>:<button className="subtle" onClick={()=>setConfirmAbandon(true)}>Abandon attempt</button>}
         </>}
         {!game.auth.authenticated&&<p>Sign in with Google or GitHub to save your attempt. The reference replay needs no account.</p>}
-        {a&&a.lifecycle!=='ACTIVE'&&<Outcome attempt={a}/>}
+        {a&&a.lifecycle!=='ACTIVE'&&<Outcome attempt={a} limits={game.limits}/>}
         <button onClick={()=>game.demo&&setReplay({reports:game.demo.reports,index:0,after:false,reference:true})} disabled={!game.demo||replay?.reference}>Watch reference replay</button>
         {card&&<Guide card={card} limits={game.limits} open={(!a||a.lifecycle!=='ACTIVE')&&!replay&&window.matchMedia('(min-width:651px)').matches}/>}
-        {game.history.length>0&&<section><h2>Your attempts</h2>{game.history.map(item=><button className="attempt-history" key={item.id} onClick={()=>void game.resume(item.id)} disabled={game.busy}>{item.challenge.title}<small>{item.lifecycle} · {item.board.year} {item.board.season}</small></button>)}</section>}
+        {game.history.length>0&&<section><h2>Your attempts</h2>{game.history.map(item=><button className="attempt-history" key={item.id} onClick={()=>void game.resume(item.id)} disabled={game.busy}>{item.challenge.title}<small>{item.lifecycle} · {item.board.year} {item.board.season}</small></button>)}
+          {game.older&&<button className="subtle" onClick={()=>void game.loadOlder()} disabled={game.busy}>Show older attempts</button>}</section>}
+        {game.auth.authenticated&&<section className="challenge-account"><h2>Your account</h2>
+          {confirmDelete?<><p>Delete your account? This signs you out and permanently removes your sign-in identity, any attempt in progress and all saved attempts. Today’s used starts still count if you sign in again.</p>
+            <button onClick={()=>void game.deleteAccount()} disabled={game.busy}>Delete account and data</button><button onClick={()=>setConfirmDelete(false)}>Keep my account</button></>
+            :<button className="subtle" onClick={()=>setConfirmDelete(true)}>Delete account and data…</button>}</section>}
       </aside>
       <section className="challenge-board" aria-label="Challenge board">
         <a className="map-attribution" href="/legal.html">Map: Godip contributors · GPL-3.0</a>
@@ -95,11 +101,13 @@ export function ChallengeApp(){
     </div>
   </main>;
 }
-function Outcome({attempt}:{attempt:ChallengeAttemptView}){
+function Outcome({attempt,limits}:{attempt:ChallengeAttemptView;limits:ChallengeLimits|null}){
   const score=attempt.score;
   return <section className="challenge-outcome" aria-label="Attempt result"><h2>{score?.outcome==='SUCCESS'?'Objective complete':attempt.lifecycle==='EXPIRED'?'Attempt expired':attempt.lifecycle==='ABANDONED'?'Attempt abandoned':score?.outcome==='FAILURE'?'Challenge finished':'Attempt stopped'}</h2>
     {score?.completedYear&&<p>Fall {score.completedYear}</p>}{score?.achievementIds.includes('EARLY_CAPTURE')&&<strong>Achievement: Early capture</strong>}
-    <p>This was offline practice. Your phase reports are saved below.</p></section>;
+    {attempt.lifecycle==='EXPIRED'&&<p>It closed after {limits?`${limits.idleExpireMinutes} minutes`:'a period'} without an action from you and cannot be resumed. You can start a new attempt if you have starts left today.</p>}
+    {attempt.lifecycle==='STOPPED'&&<p>The site operator closed this attempt.</p>}
+    <p>This was offline practice. Your phase reports are saved{limits?` for ${limits.resultRetentionDays} days`:''}.</p></section>;
 }
 function Guide({card,limits,open}:{card:ChallengeCard;limits:ChallengeLimits|null;open:boolean}){
   const power=card.humanPower[0]+card.humanPower.slice(1).toLowerCase(),n=(count:number,noun:string)=>`${count} ${noun}${count===1?'':'s'}`;
@@ -118,9 +126,10 @@ function Guide({card,limits,open}:{card:ChallengeCard;limits:ChallengeLimits|nul
     <p>When sponsored play is offered it will run on a fixed budget. If that budget runs out or play is paused, you will be told and no new sponsored attempts will start; the replay and your saved results stay available. Luna opponents are never silently swapped for practice opponents.</p>
     {limits&&<><h3>Limits</h3>
     <p>{n(limits.maxActivePerAccount,'active attempt')} per account and {n(limits.dailyStartLimit,'start')} per account per UTC day; an abandoned start still counts. The site runs at most {n(limits.maxActiveAttempts,'attempt')} at once. There is no queue: if it is full, try again later.</p>
-    <p>You are warned after {limits.idleWarnMinutes} minutes without an action and the attempt expires at {limits.idleExpireMinutes}. Only your own actions count; leaving the page open does not. Expired and finished attempts stay readable.</p></>}
+    <p>You are warned after {limits.idleWarnMinutes} minutes without an action and the attempt expires at {limits.idleExpireMinutes}. Only your own actions count; leaving the page open does not. Expired and finished attempts stay readable for {limits.resultRetentionDays} days, then are deleted.</p></>}
     <h3>Privacy</h3>
     <p>Signing in stores your Google or GitHub account identifier and display name, and accounts are never linked by email. Your attempts are visible only to you. The site operator can view attempt boards, settled reports and capacity to run the service.</p>
+    <p>You can delete your account at any time under “Your account”. That removes your identity, sessions and attempts; anonymous usage and cost records with no link to you are kept for accounting.</p>
     <p className="muted">Development pilot: an AI-generated test scenario. A public daily schedule has not been announced.</p>
   </details>;
 }

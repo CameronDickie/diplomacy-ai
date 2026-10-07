@@ -86,3 +86,39 @@ Phase recovery has coordinator/process-crash evidence. The offline browser
 attempt survives API restart and completes with saved results/replay. Spend
 reservations, funded recovery and retention still need their own integration
 evidence before release.
+
+## Retention and account deletion
+
+`sweepRetention` runs from the challenge sweep at startup and then at most
+hourly, in bounded batches inside one transaction each. Ages are measured from
+the write that closed the attempt; an `ACTIVE` attempt is never removed.
+
+| Data | Kept for | Removed |
+| -- | -- | -- |
+| Closed attempt, board, score, reports | `DIPLOMACY_RESULT_RETENTION_DAYS` (30) | attempt row and everything cascading from it, plus its start receipt |
+| Phase jobs (frozen inputs, opponent decisions) and submission receipts | `DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS` (7) | per closed attempt; the result stays readable |
+| Expired or revoked sessions | diagnostic window after expiry/revocation | session rows |
+| Daily start counters, deleted-identity markers | until their UTC day has passed | rows for earlier days |
+| `provider_calls` | **not pruned yet** | — |
+
+`provider_calls` has no owner column and no foreign key to attempts, so it
+survives both cleanup and account deletion as pseudonymous evidence, and a late
+bill still reconciles against it. It is deliberately excluded from cleanup:
+`DIPLOMACY_RECEIPT_RETENTION_DAYS` must only be applied once a cumulative ledger
+(DIC-64) holds known spend and unresolved liabilities independently of the
+detailed rows. Pruning before that would turn cleanup into a refill.
+
+`POST /api/account/delete` with `{"confirm":"DELETE"}` removes the player,
+sessions, attempts (in progress or saved), reports, receipts, phase jobs and
+start counters in one transaction, then aborts that player's in-flight work and
+drops its live sockets. Afterwards the fence checks in `prepareProviderCall` /
+`dispatchProviderCall` reject, so no new paid job can begin for the removed
+attempt. Two rules prevent deletion being used as a workaround:
+
+- Today's accepted starts are kept under `sha256(provider:subject)` in
+  `deleted_identities` and restored if the same identity signs in again the same
+  UTC day. The marker is removed once that day has passed.
+- A banned identity cannot be deleted, so a ban outlives its account.
+
+Owned history is paged: `GET /api/attempts` returns 20 attempts and a `next`
+cursor for `?before=`.

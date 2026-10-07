@@ -113,7 +113,7 @@ test('public catalog and reference replay need no login or provider, publish the
   globalThis.fetch=((input:Parameters<typeof fetch>[0],init?:Parameters<typeof fetch>[1])=>{const url=String(input instanceof Request?input.url:input);if(!url.startsWith('http://127.0.0.1:'))outbound.push(url);return realFetch(input,init);}) as typeof fetch;
   t.after(()=>{globalThis.fetch=realFetch;});
   const catalog=await (await f.request('/challenges')).json() as ChallengeCatalog;
-  assert.deepEqual(catalog.limits,{maxActiveAttempts:f.config.maxActiveAttempts,maxActivePerAccount:f.config.maxActivePerAccount,dailyStartLimit:f.config.dailyStartLimit,idleWarnMinutes:f.config.idleWarnMinutes,idleExpireMinutes:f.config.idleExpireMinutes});
+  assert.deepEqual(catalog.limits,{maxActiveAttempts:f.config.maxActiveAttempts,maxActivePerAccount:f.config.maxActivePerAccount,dailyStartLimit:f.config.dailyStartLimit,idleWarnMinutes:f.config.idleWarnMinutes,idleExpireMinutes:f.config.idleExpireMinutes,resultRetentionDays:30});
   assert.equal(catalog.sponsoredPlay,'UNAVAILABLE');assert.deepEqual(Object.keys(catalog).sort(),['challenges','limits','sponsoredPlay']);
   const response=await f.request('/challenges/demo');assert.equal(response.status,200);assert.equal(response.headers.get('set-cookie'),null);
   const text=await response.text(),demo=JSON.parse(text) as ChallengeReplay;

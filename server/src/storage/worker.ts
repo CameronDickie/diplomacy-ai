@@ -10,6 +10,7 @@ import { canonicalJson, parseBoard } from '../fixtures/BoardFixture.js';
 import { scoreChallenge } from '../challenge/TunisPilot.js';
 import { migrate, verifyMigrationHistory } from './migrations.js';
 import { PhaseRepository } from './phases.js';
+import { RetentionRepository } from './retention.js';
 import type { StoreOperations } from './contracts.js';
 import { parseChallenge, publicBoard, publicReport } from './publicData.js';
 import { StoreError, type StoreRequest, type StoredAttempt, type StoredPlayer, type StoredReceipt, type StoredChallenge } from './contracts.js';
@@ -186,7 +187,15 @@ async function handle(request: StoreRequest): Promise<unknown> {
       db.prepare('INSERT INTO account_starts(player_id,utc_day,accepted) VALUES(?,?,1) ON CONFLICT(player_id,utc_day) DO UPDATE SET accepted=accepted+1').run(input.playerId,day);
       return created;
     });
-    case 'ownedAttempts': return db.prepare('SELECT * FROM attempts WHERE player_id=? ORDER BY created_at DESC,id DESC LIMIT 30').all(input.playerId).map(attempt);
+    case 'ownedAttempts': {
+      const limit = input.limit ?? 30, before = input.before ?? {createdAt:Number.MAX_SAFE_INTEGER,id:''};
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 31 || typeof before.id !== 'string' || before.id.length > 100) invalid('Invalid history page.');
+      validTime(before.createdAt);
+      return db.prepare('SELECT * FROM attempts WHERE player_id=? AND (created_at<? OR (created_at=? AND id<?)) ORDER BY created_at DESC,id DESC LIMIT ?')
+        .all(input.playerId,before.createdAt,before.createdAt,before.id,limit).map(attempt);
+    }
+    case 'sweepRetention': return transaction(() => new RetentionRepository(db).sweep(input));
+    case 'deleteAccount': return transaction(() => new RetentionRepository(db).deleteAccount(input));
     case 'latestSubmission': {
       const job = db.prepare('SELECT id,request_id FROM phase_jobs WHERE attempt_id=? AND player_id=? AND phase_id=?').get(input.attemptId,input.playerId,input.phaseId);
       if (!job) return null;
@@ -215,6 +224,7 @@ async function handle(request: StoreRequest): Promise<unknown> {
       if (!row) {
         const id = randomUUID();
         db.prepare('INSERT INTO players(id,provider,subject,display_name,created_at,last_seen_at) VALUES(?,?,?,?,?,?)').run(id,input.provider,input.subject,input.displayName,input.now,input.now);
+        new RetentionRepository(db).restoreStarts(id,input.provider,input.subject,input.now);
       } else db.prepare('UPDATE players SET display_name=?,last_seen_at=? WHERE id=?').run(input.displayName,input.now,row.id);
       row = db.prepare('SELECT * FROM players WHERE provider=? AND subject=?').get(input.provider,input.subject);
       return player(row!);
