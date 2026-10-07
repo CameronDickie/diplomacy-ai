@@ -12,6 +12,7 @@ import { importScenario, challengeDefinition, playWitness } from '../fixtures/Sc
 import type { ChallengeDefinition } from './TunisPilot.js';
 import { AttemptService, offlineDecisions } from '../attempts/AttemptService.js';
 import { PhaseRules } from '../attempts/PhaseRules.js';
+import { RateLimiter, type RateCategory } from '../limits/RateLimiter.js';
 
 const HISTORY_PAGE=20;
 export class ChallengeService {
@@ -22,9 +23,11 @@ export class ChallengeService {
   private sweepTimer?: NodeJS.Timeout;
   private sweeping?: Promise<void>;
   private nextRetention = 0;
+  private limits: RateLimiter;
   private constructor(private store:Store,private config:RuntimeConfig,private now:()=>number) {
     // Paid startup remains interlocked; this mode must never silently become sponsored.
     if(config.llm.paidEnabled)throw Error('Funded challenge adapter is not integrated.');
+    this.limits=new RateLimiter(config.trustedProxy,now);
     this.attempts=new AttemptService(store,offlineDecisions(this.rules),this.rules,{maxRunning:config.maxActiveAttempts,idleExpireMs:config.idleExpireMinutes*60_000,now});
   }
   static async open(store:Store,config:RuntimeConfig,now=Date.now):Promise<ChallengeService> {
@@ -84,6 +87,8 @@ export class ChallengeService {
   router(auth:AuthService):express.Router {
     const router=express.Router();
     const player=(res:Response)=>(res.locals.principal as Principal).player.id;
+    // Address bucket first so unauthenticated floods are bounded, then the account bucket.
+    const guarded=(category:Exclude<RateCategory,'public'>)=>[this.limits.address(category),auth.requirePlayer(),this.limits.identity(category)];
     const run=(handler:(req:Request,res:Response)=>Promise<void>)=>(req:Request,res:Response)=>{
       void handler(req,res).catch(error=>{
         if(error instanceof FixtureError){res.status(400).json({code:'INVALID_REQUEST',message:'Choose valid challenge fields and current legal actions.'});return;}
@@ -93,7 +98,7 @@ export class ChallengeService {
       });
     };
     // Public GETs make no session or provider call; the catalog adds two counters so availability is honest.
-    router.get('/challenges',run(async(_req,res)=>{
+    router.get('/challenges',this.limits.address('public'),run(async(_req,res)=>{
       const [active,paid]=await Promise.all([this.store.call('activeAttempts',{}),this.store.call('paidState',{})]);
       const catalog:ChallengeCatalog={challenges:this.cards,sponsoredPlay:!this.config.llm.paidEnabled?'NOT_OFFERED':paid.stopped?'PAUSED':'OPEN',
         capacity:active.length>=this.config.maxActiveAttempts?'FULL':'OPEN',limits:{maxActiveAttempts:this.config.maxActiveAttempts,maxActivePerAccount:this.config.maxActivePerAccount,
@@ -101,13 +106,13 @@ export class ChallengeService {
       res.json(catalog);
     }));
     // One owner notice per account per pause; the store refuses unless sponsored play is actually stopped.
-    router.post('/credit-request',auth.requirePlayer(),run(async(req,res)=>{
+    router.post('/credit-request',guarded('account'),run(async(req,res)=>{
       schema.fields(req.body,[],'credit request');
       if(!this.config.llm.paidEnabled)throw new StoreError('STORE_CONFLICT','Sponsored play is not offered yet, so there is nothing to request.');
       res.json(await this.store.call('requestCredit',{playerId:player(res),now:this.now()}));
     }));
-    router.get('/challenges/demo',run(async(_req,res)=>{res.json(this.demo);}));
-    router.get('/attempts',auth.requirePlayer(),run(async(req,res)=>{
+    router.get('/challenges/demo',this.limits.address('public'),run(async(_req,res)=>{res.json(this.demo);}));
+    router.get('/attempts',guarded('read'),run(async(req,res)=>{
       const cursor=typeof req.query.before==='string'?/^(\d{1,16})\.([-A-Za-z0-9_]{1,100})$/.exec(req.query.before):null;
       if(req.query.before!==undefined&&!cursor)throw new StoreError('STORE_INVALID','Reload your attempt history.');
       await this.sweep();
@@ -115,13 +120,13 @@ export class ChallengeService {
       const page=items.slice(0,HISTORY_PAGE),last=page.at(-1);
       res.json({attempts:await Promise.all(page.map(a=>this.view(a))),next:items.length>HISTORY_PAGE&&last?`${last.createdAt}.${last.id}`:null});
     }));
-    router.post('/account/delete',auth.requirePlayer(),run(async(req,res)=>{
+    router.post('/account/delete',guarded('account'),run(async(req,res)=>{
       const body=schema.fields(req.body,['confirm'],'account deletion');
       if(body.confirm!=='DELETE')throw new StoreError('STORE_INVALID','Confirm account deletion to continue.');
       auth.forget(await this.attempts.deleteAccount(player(res)),res);
       res.json({deleted:true});
     }));
-    router.post('/attempts',auth.requirePlayer(),run(async(req,res)=>{
+    router.post('/attempts',guarded('start'),run(async(req,res)=>{
       const body=schema.fields(req.body,['requestId','challengeId','challengeVersion'],'start');
       if(typeof body.requestId!=='string'||!/^[-a-zA-Z0-9_]{1,100}$/.test(body.requestId))throw new StoreError('STORE_INVALID','A valid start request ID is required.');
       const selected=this.cards.find(c=>c.id===body.challengeId && c.version===body.challengeVersion);
@@ -131,8 +136,8 @@ export class ChallengeService {
         now:this.now(),maxActive:this.config.maxActiveAttempts,maxPerAccount:this.config.maxActivePerAccount,dailyLimit:this.config.dailyStartLimit});
       res.json(await this.view(attempt));
     }));
-    router.get('/attempts/:id',auth.requirePlayer(),run(async(req,res)=>{res.json(await this.view(await this.owned(req.params.id,player(res))));}));
-    router.get('/attempts/:id/legal',auth.requirePlayer(),run(async(req,res)=>{
+    router.get('/attempts/:id',guarded('read'),run(async(req,res)=>{res.json(await this.view(await this.owned(req.params.id,player(res))));}));
+    router.get('/attempts/:id/legal',guarded('legal'),run(async(req,res)=>{
       const attempt=await this.owned(req.params.id,player(res));
       if(attempt.lifecycle!=='ACTIVE'||attempt.execution!=='ACCEPTING'||attempt.board.phase!=='ORDERS')throw new StoreError('STORE_CONFLICT','Legal movement choices are unavailable for this phase.');
       const challenge=(await this.store.call('challenge',{id:attempt.challengeId,version:attempt.challengeVersion}))!;
@@ -141,29 +146,29 @@ export class ChallengeService {
       if(latest.revision!==attempt.revision||latest.lifecycle!=='ACTIVE')throw new StoreError('STORE_CONFLICT','Phase changed while loading legal choices. Reload.');
       res.json({attemptId:attempt.id,phaseId:attempt.phaseId,revision:attempt.revision,options});
     }));
-    router.post('/attempts/:id/orders',auth.requirePlayer(),run(async(req,res)=>{
+    router.post('/attempts/:id/orders',guarded('command'),run(async(req,res)=>{
       const body=schema.fields(req.body,['revision','phaseId','requestId','action'],'submission');
       if(!Number.isSafeInteger(body.revision)||typeof body.phaseId!=='string'||typeof body.requestId!=='string')throw new StoreError('STORE_INVALID','A current phase and request ID are required.');
       await this.owned(req.params.id,player(res));
       const receipt=await this.attempts.submit({attemptId:req.params.id,playerId:player(res),revision:body.revision as number,phaseId:body.phaseId,requestId:body.requestId,action:body.action});
       res.json(receipt.state);
     }));
-    router.post('/attempts/:id/activity',auth.requirePlayer(),run(async(req,res)=>{
+    router.post('/attempts/:id/activity',guarded('command'),run(async(req,res)=>{
       const body=schema.fields(req.body,['revision'],'activity');
       if(!Number.isSafeInteger(body.revision))throw new StoreError('STORE_INVALID','A current revision is required.');
       await this.owned(req.params.id,player(res));
       res.json(await this.view(await this.store.call('touchAttempt',{id:req.params.id,playerId:player(res),expectedRevision:body.revision as number,idleBefore:this.now()-this.config.idleExpireMinutes*60_000,now:this.now()})));
     }));
-    router.post('/attempts/:id/abandon',auth.requirePlayer(),run(async(req,res)=>{
+    router.post('/attempts/:id/abandon',guarded('command'),run(async(req,res)=>{
       schema.fields(req.body,[],'abandon');await this.owned(req.params.id,player(res));
       res.json(await this.view(await this.attempts.terminate(req.params.id,player(res),'ABANDONED')));
     }));
-    router.post('/attempts/:id/recover',auth.requirePlayer(),run(async(req,res)=>{
+    router.post('/attempts/:id/recover',guarded('command'),run(async(req,res)=>{
       schema.fields(req.body,[],'recover');const owned=await this.owned(req.params.id,player(res));
       if(owned.lifecycle!=='ACTIVE'||owned.execution!=='RECOVERING')throw new StoreError('STORE_CONFLICT','This attempt does not need recovery.');
       await this.attempts.recover(owned.id);res.json(await this.view(await this.owned(req.params.id,player(res))));
     }));
-    router.get('/attempts/:id/reports',auth.requirePlayer(),run(async(req,res)=>{
+    router.get('/attempts/:id/reports',guarded('read'),run(async(req,res)=>{
       await this.owned(req.params.id,player(res));res.json({reports:await this.store.call('reports',{attemptId:req.params.id})});
     }));
     return router;

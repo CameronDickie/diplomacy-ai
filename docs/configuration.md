@@ -57,6 +57,7 @@ silently ignored. Comma-separated lists are trimmed and deduplicated.
 | `DIPLOMACY_ENGINE_MAX_QUEUE` | 16; integer 0–256 |
 | `DIPLOMACY_ENGINE_TIMEOUT_MS` | 10000; integer 50–120000 |
 | `DIPLOMACY_ENGINE_MAX_OUTPUT_BYTES` | 4194304; integer 1024–16777216 |
+| `DIPLOMACY_TRUSTED_PROXY` | `none`; or `private` to take the client address from the right-most `X-Forwarded-For` entry when the direct peer is a private-network proxy |
 | `DIPLOMACY_MAX_ACTIVE_ATTEMPTS` | 3; integer 1–100 |
 | `DIPLOMACY_MAX_ACTIVE_PER_ACCOUNT` | 1; positive integer no greater than global capacity |
 | `DIPLOMACY_DAILY_START_LIMIT` | 3; integer 1–100 |

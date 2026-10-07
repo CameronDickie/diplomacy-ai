@@ -31,6 +31,7 @@ export interface RuntimeConfig {
   engine: { path: string; concurrency: number; maxQueue: number; timeoutMs: number; maxOutputBytes: number };
   notifyMode: 'outbox' | 'resend';
   admins: string[];
+  trustedProxy: 'none' | 'private';
   idleWarnMinutes: number;
   idleExpireMinutes: number;
   maxActiveAttempts: number;

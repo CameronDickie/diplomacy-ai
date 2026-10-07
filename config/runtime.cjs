@@ -42,6 +42,7 @@ const SUPPORTED_ENV_NAMES = [
   'DIPLOMACY_MAX_ACTIVE_ATTEMPTS', 'DIPLOMACY_MAX_ACTIVE_PER_ACCOUNT',
   'DIPLOMACY_DAILY_START_LIMIT', 'DIPLOMACY_IDLE_WARN_MINUTES', 'DIPLOMACY_IDLE_EXPIRE_MINUTES',
   'DIPLOMACY_RESULT_RETENTION_DAYS', 'DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS', 'DIPLOMACY_RECEIPT_RETENTION_DAYS',
+  'DIPLOMACY_TRUSTED_PROXY',
 ];
 
 function fail(name, requirement) {
@@ -181,6 +182,8 @@ function readRuntimeConfig(env = process.env, options = {}) {
   if (notifyMode === 'resend') {
     for (const name of ['RESEND_API_KEY', 'DIPLOMACY_NOTIFY_FROM', 'DIPLOMACY_NOTIFY_TO']) requireValue(env, name);
   }
+  const trustedProxy = value(env, 'DIPLOMACY_TRUSTED_PROXY', 'none');
+  if (!['none', 'private'].includes(trustedProxy)) fail('DIPLOMACY_TRUSTED_PROXY', 'must be none or private');
   const idleWarnMinutes = number(env, 'DIPLOMACY_IDLE_WARN_MINUTES', 25, 1, 1440, true);
   const idleExpireMinutes = number(env, 'DIPLOMACY_IDLE_EXPIRE_MINUTES', 30, 2, 1440, true);
   if (idleWarnMinutes >= idleExpireMinutes) fail('DIPLOMACY_IDLE_WARN_MINUTES', 'must be less than DIPLOMACY_IDLE_EXPIRE_MINUTES');
@@ -195,7 +198,7 @@ function readRuntimeConfig(env = process.env, options = {}) {
     discord: { enabled: discordEnabled, voiceEnabled,
       voiceDebug: bool(env, 'DISCORD_VOICE_DEBUG', false), autoListen: bool(env, 'DISCORD_VOICE_AUTO_LISTEN', true) },
     engine: readEngineConfig(env),
-    notifyMode, admins, idleWarnMinutes, idleExpireMinutes, maxActiveAttempts, maxActivePerAccount,
+    notifyMode, admins, trustedProxy, idleWarnMinutes, idleExpireMinutes, maxActiveAttempts, maxActivePerAccount,
     dailyStartLimit: number(env, 'DIPLOMACY_DAILY_START_LIMIT', 3, 1, 100, true),
     resultRetentionDays: number(env, 'DIPLOMACY_RESULT_RETENTION_DAYS', 30, 1, 365, true),
     diagnosticRetentionDays: number(env, 'DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS', 7, 1, 365, true),

@@ -7,6 +7,7 @@ import type { Store } from '../storage/Store.js';
 import { StoreError } from '../storage/contracts.js';
 import { publicBoard } from '../storage/publicData.js';
 import { fixtureSchema as schema, FixtureError } from '../fixtures/BoardFixture.js';
+import { RateLimiter } from '../limits/RateLimiter.js';
 import { localDelivery, Notifier, resendDelivery, type Delivery } from './Notifier.js';
 
 const validId = (value: string): string => { if (!/^[A-Za-z0-9:_-]{1,100}$/.test(value)) throw new StoreError('STORE_INVALID','Unknown identifier.'); return value; };
@@ -24,7 +25,8 @@ export class OperatorService {
   }
   router(auth: AuthService): express.Router {
     const router = express.Router();
-    router.use(auth.requirePlayer(true));
+    const limits = new RateLimiter(this.config.trustedProxy,this.now);
+    router.use(limits.address('operator'),auth.requirePlayer(true),limits.identity('operator'));
     const operator = (res: Response) => (res.locals.principal as Principal).player.id;
     const run = (handler: (req: Request, res: Response) => Promise<void>) => (req: Request, res: Response) => {
       void handler(req,res).catch(error => {

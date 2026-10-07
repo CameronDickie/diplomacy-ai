@@ -8,6 +8,8 @@ services:
       NODE_ENV: production
       PORT: "3001"
       DIPLOMACY_ENGINE_PATH: /app/engine/bin/diplomacy-engine
+      # The app is only exposed to Caddy on the compose network, never published directly.
+      DIPLOMACY_TRUSTED_PROXY: private
     volumes:
       - ./data:/data
     expose:
