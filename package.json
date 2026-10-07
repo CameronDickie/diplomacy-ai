@@ -19,6 +19,7 @@
     "build": "npm run build:engine && npm run build -w shared && npm run build -w server && npm run build -w client",
     "test:engine": "GOCACHE=$PWD/engine/.cache/go-build go -C engine test ./...",
     "check": "npm run build && npm test -w server && npm run test:engine",
+    "test:e2e": "playwright test --config e2e/playwright.config.ts",
     "generate:auth-env": "node scripts/generate-auth-env.cjs",
     "start": "npm start -w server"
   },
@@ -26,6 +27,7 @@
     "ws": "8.21.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "concurrently": "^8.2.2",
     "typescript": "^5.3.3"
   }

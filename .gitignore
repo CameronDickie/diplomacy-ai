@@ -19,3 +19,9 @@ infra/terraform/diplomacy/diplomacy.tfplan
 infra/terraform/diplomacy/terraform.tfstate
 infra/terraform/diplomacy/terraform.tfstate.*
 infra/terraform/diplomacy/terraform.tfvars
+
+# Browser test output and generated per-run test sessions.
+e2e/.state.json
+e2e/report/
+e2e/test-results/
+test-results/

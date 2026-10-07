@@ -79,6 +79,9 @@ page still shows the goal and the replay. With no `.env` the server uses the
 are working on the optional Discord integration; every setting is listed in
 [.env.example](.env.example) and [docs/configuration.md](docs/configuration.md).
 
+Browser tests (Chromium, mock opponents, temporary database) run after a build
+with `npx playwright install chromium` once and then `npm run test:e2e`.
+
 Useful commands after a build:
 
 ```bash
