@@ -23,7 +23,8 @@ needs fixing.
 | [deployment.md](deployment.md) | container image and Lightsail procedure |
 | [release-evidence.md](release-evidence.md) | what has been verified, how, and what still blocks release |
 | [provider-accounting.md](provider-accounting.md) | recording every provider call before interpreting it |
-| `luna-preset.md` | the fixed `gpt-6-luna` request and price contract (arrives with DIC-66) |
+| [luna-preset.md](luna-preset.md) | the fixed `gpt-6-luna` request and price contract |
+| [luna-context.md](luna-context.md) | what an opponent request contains, its choices and its size bounds |
 | [build-baseline.md](build-baseline.md) | CI matrix and reproducible build notes |
 | [public-showcase-tracking.md](public-showcase-tracking.md) | pointer to the Linear project |
 

@@ -131,6 +131,8 @@ test('normalized Responses billing reaches durable records before decision parsi
   const fixture = JSON.parse(await readFile(new URL('../../fixtures/development/tunis-expedition.v1.json', import.meta.url), 'utf8'));
   const content = { definition: challengeDefinition(fixture)!, board: fixture.board };
   await store.call('registerChallenge', { ...content, hash: createHash('sha256').update(canonicalJson(content)).digest('hex'), now });
+  // Synthetic funds: preparing a provider call reserves its worst-case cost.
+  await store.call('grantFunding', { amountNanousd: 1_000_000_000, authorizationRef: 'test-grant-0001', grantedBy: 'test', now });
   const player = await store.call('identity', { provider: 'github', subject: 'luna-test', displayName: 'Test', now });
   const attempt = await store.call('createAttempt', { id: 'luna-test', playerId: player.id, challengeId: content.definition.id,
     challengeVersion: 1, reconnectTokenHash: hashToken('test'), now });
