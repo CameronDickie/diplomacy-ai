@@ -19,9 +19,10 @@ Remote files live under `/srv/diplomacy` by default:
   caddy/
 ```
 
-SQLite now stores player identities and revocable sessions in `data/`. Legacy
-rooms remain ephemeral until the owned challenge recovery work is integrated.
-See [storage/backup instructions](storage.md); use a durable private volume.
+SQLite in `data/` is the authority for identities, sessions, attempts, phase
+reports, receipts, provider call records, operator state and queued
+notifications. Legacy rooms are memory only and are disabled in the showcase
+profile. See [storage and backup](storage.md); use a durable private volume.
 
 ## Environment
 
@@ -111,28 +112,65 @@ Preserve an existing remote env file:
 SYNC_LIGHTSAIL_ENV=false ./deploy_lightsail.sh
 ```
 
-## Smoke Test
+## Local container staging check
 
-After deploy:
+Before any external deployment, exercise the production image on your own
+machine:
 
-1. Open `https://diplomacy.camerondickie.ca`.
-2. Create a game and join from a second browser session.
-3. Confirm Socket.IO stays connected after a refresh.
-4. Use Discord `/link` and send one DM to a configured bot.
-5. If voice is enabled, start one voice conversation and confirm transcript and
-   audio response.
+```bash
+scripts/staging-check.sh
+```
 
-## Persistence TODO
+It builds the image and, using values generated for the run, checks: offline
+showcase configuration validates and a paid configuration is refused; the
+container runs as uid 10001 with a private data directory and database; notices
+and corresponding source are packaged; the client, credits and license pages
+load; the catalog and reference replay answer without an account; guests,
+foreign origins and non-operators are refused; a locally seeded test player
+starts the featured scenario, submits orders and gets a resolved phase; the
+operator overview reports capacity, known cost and unresolved liability; an
+online backup is taken while serving; a restart preserves every durable row; and
+a restore into an empty volume serves identical rows, the same attempt and the
+same spend figures. It needs Docker, makes no paid call, sends no email and
+removes its containers and volumes on exit. `SKIP_BUILD=1` reuses the image.
 
-Before relying on this for multi-week games, add SQLite-backed persistence under
-`/srv/diplomacy/data`.
+The seeded sessions are created directly in the staging database. The script
+does not exercise real GitHub or Google sign-in; do that by hand against the
+deployed origin.
 
-Persist:
+## Smoke test after deploy
 
-- games, players, orders, settings, phase state, and turn history
-- Discord guild bindings and linked users
-- chat messages and LLM memory
-- adjudication results and public phase summaries
+1. Open the site signed out: the scenario goal, "How this challenge works" and
+   the reference replay load. `/legal.html` shows credits and licenses.
+2. Sign in with GitHub and with Google in separate sessions. Each is its own
+   account.
+3. Start the featured scenario, submit a turn, reload the page and confirm the
+   attempt resumes. Finish or abandon it and open its saved phase reports.
+4. As the operator, open **Operator**: capacity, spend and the start
+   notification are shown; an ordinary account has no Operator button.
+5. Repeat steps 1 and 3 at phone width.
+6. Restart the app container and confirm the session and the attempt survive.
 
-Do not persist active voice sessions. Add import/export support around the
-existing turn-history JSON so ephemeral games can be backfilled later.
+## Rollback
+
+Take a backup before every upgrade ([operations runbook](operations.md)).
+Migrations only move forward, so rolling back means the previous image **and**
+the backup taken before the upgrade, restored into a new path. An older image
+refuses to start against a newer database with a schema error rather than
+running against it.
+
+## Owner gates
+
+Nothing in this repository performs these, and no document here authorizes
+them. Each needs an explicit owner decision recorded in Linear (DIC-72):
+
+- running `terraform apply`, `deploy_lightsail.sh`, or changing DNS;
+- rendering a production environment file with real credentials;
+- funding and enabling paid AI (also blocked in code until DIC-64);
+- sending live notification email (`DIPLOMACY_NOTIFY_MODE=resend`);
+- approving a public scenario catalog and calling the game "daily";
+- making the repository public, after a human review of its history;
+- linking the game from the personal site, which is a separate repository and
+  deployment and shares no code, cookies or credentials with this one.
+
+See [release-evidence.md](release-evidence.md) for what has been verified so far.

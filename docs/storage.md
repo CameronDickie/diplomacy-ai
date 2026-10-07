@@ -70,6 +70,8 @@ not a copy of the main file while WAL writes are pending. Backup and restore
 refuse to overwrite an existing destination. Restore checks database integrity
 and migration compatibility. A failed restore can leave its newly created
 private destination for inspection; choose another new path for a retry.
+Keep the backup file on a writable filesystem when restoring: it is a WAL-mode
+database and SQLite cannot open it from read-only media.
 
 To recover a deployment, stop the application, restore into a new path, verify
 health and the expected records, then point the stopped deployment at that
