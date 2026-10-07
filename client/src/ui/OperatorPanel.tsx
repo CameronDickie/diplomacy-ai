@@ -44,11 +44,14 @@ export function OperatorPanel(){
       <div><h2>Sponsored play</h2><strong>{paidLabel}</strong>
         <button disabled={busy} onClick={()=>void act('paid','/operator/paid',{stopped:!o.paid.stopped})}>{confirm==='paid'?(o.paid.stopped?'Confirm resume':'Confirm stop'):(o.paid.stopped?'Resume paid calls':'Stop new paid calls')}</button>
         <span>Stopping blocks every new provider call, including queued and recovered work. It never changes a budget.</span></div>
-      <div><h2>Spend</h2><dl>
-        <dt>Known cost</dt><dd>{usd(o.spend.knownCostNanousd)}</dd>
-        <dt>Unresolved liability</dt><dd>{usd(o.spend.unresolvedLiabilityNanousd)} · {o.spend.unresolvedCalls} calls</dd>
-        <dt>Reserved</dt><dd>{o.reservedNanousd===null?'Not tracked yet':usd(o.reservedNanousd)}</dd>
-        <dt>Provider calls</dt><dd>{o.spend.calls} · {o.spend.inputTokens} in / {o.spend.outputTokens} out tokens</dd></dl></div>
+      <div><h2>Budget</h2><dl>
+        <dt>Available</dt><dd>{usd(o.funding.availableNanousd)} of {usd(o.funding.ceilingNanousd)}</dd>
+        <dt>Settled (all time)</dt><dd>{usd(o.funding.settledNanousd)}</dd>
+        <dt>Reserved (in flight)</dt><dd>{usd(o.funding.reservedNanousd)}</dd>
+        <dt>Unknown liability</dt><dd>{usd(o.funding.unknownLiabilityNanousd)}</dd>
+        <dt>Per-attempt cap</dt><dd>{usd(o.funding.attemptCapNanousd)}</dd>
+        <dt>Recent calls</dt><dd>{o.spend.calls} · {o.spend.inputTokens} in / {o.spend.outputTokens} out tokens</dd></dl>
+        <span>Funds are added only by an explicit grant on the server. Nothing here refills on its own.</span></div>
       <div><h2>Notifications</h2><strong>{o.notifyMode==='outbox'?'Local outbox (nothing is emailed)':'Resend'}</strong>
         <span>{o.outbox.counts.PENDING+o.outbox.counts.SENDING} waiting · {o.outbox.counts.SENT} delivered · {o.outbox.counts.FAILED} failed</span></div>
     </div>
@@ -61,7 +64,7 @@ export function OperatorPanel(){
         <span role="cell">Active {ago(a.lastActivityAt,clock)}</span>
         <span role="cell" className="operator-actions">{actions(a)}</span></div>)}</div>}
     {detail&&mapState&&<div className="operator-spectate"><h2>Watching attempt {short(detail.attempt.id)}</h2>
-      <p>{report?`${report.year} ${report.season} ${report.phase.toLowerCase()} · result`:`Current board · ${detail.board.year} ${detail.board.season} ${detail.board.phase}`} · {detail.score?`${detail.score.outcome}`:'no score yet'} · cost {usd(detail.spend.knownCostNanousd)} known, {usd(detail.spend.unresolvedLiabilityNanousd)} unresolved</p>
+      <p>{report?`${report.year} ${report.season} ${report.phase.toLowerCase()} · result`:`Current board · ${detail.board.year} ${detail.board.season} ${detail.board.phase}`} · {detail.score?`${detail.score.outcome}`:'no score yet'} · cost {usd(detail.funding.settledNanousd)} settled, {usd(detail.funding.heldNanousd)} held</p>
       <div className="operator-steps"><button disabled={step===null} onClick={()=>setStep(null)}>Current</button>
         {detail.reports.map((r,i)=><button key={r.id} disabled={step===i} onClick={()=>setStep(i)}>{r.year} {r.season} {r.phase}</button>)}
         <button onClick={()=>{watching.current=null;setDetail(null);}}>Close</button></div>

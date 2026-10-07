@@ -25,6 +25,7 @@ async function setup(t:test.TestContext){
   const env={DIPLOMACY_PROFILE:'showcase',DIPLOMACY_AUTH_SESSION_SECRET:'test-secret-'.repeat(4)};
   const config=readRuntimeConfig(env),auth=new AuthService(store,config,env,undefined,()=>now);
   const service=await ChallengeService.open(store,config,()=>now);
+  await store.call('grantFunding',{amountNanousd:1_000_000_000,authorizationRef:'test-grant-0001',grantedBy:'test',now});
   const app=express();app.use(express.json());app.use('/api',auth.httpBoundary);app.use('/api/auth',auth.router());app.use('/api',service.router(auth));
   const server=createServer(app);server.listen(0,'127.0.0.1');await once(server,'listening');
   const address=server.address();assert.ok(address&&typeof address==='object');
@@ -56,7 +57,7 @@ test('retention removes diagnostics then results exactly at their boundaries, ne
   const ended=f.now();assert.equal(closed.lifecycle,'ABANDONED');
   assert.equal(f.count('phase_jobs'),1);assert.equal(f.count('receipts'),1);assert.equal(f.count('reports'),1);
   const sweep=(resultBefore:number,diagnosticBefore:number)=>f.store.call('sweepRetention',{now:ended+40*DAY,resultBefore,diagnosticBefore,limit:200});
-  assert.deepEqual(await sweep(ended-1,ended-1),{attempts:0,diagnostics:0,sessions:0,more:false});
+  assert.deepEqual(await sweep(ended-1,ended-1),{attempts:0,diagnostics:0,sessions:0,receipts:0,more:false});
   assert.equal((await sweep(ended-1,ended)).diagnostics,1);
   assert.equal(f.count('phase_jobs'),0);assert.equal(f.count('receipts'),0);assert.equal(f.count('reports'),1);
   // The saved result is still readable once its diagnostics are gone.

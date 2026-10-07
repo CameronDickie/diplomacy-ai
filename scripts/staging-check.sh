@@ -60,7 +60,7 @@ digest() {
   "$DOCKER" exec "$1" node -e '
     const {DatabaseSync}=require("node:sqlite"),{createHash}=require("node:crypto");
     const db=new DatabaseSync("/data/diplomacy.sqlite",{readOnly:true}),h=createHash("sha256");
-    for(const t of ["players","sessions","challenges","attempts","reports","receipts","phase_jobs","start_receipts","account_starts","provider_calls","operator_state","schema_migrations"])
+    for(const t of ["players","sessions","challenges","attempts","reports","receipts","phase_jobs","start_receipts","account_starts","provider_calls","operator_state","funding_grants","funding_pool","reservations","attempt_spend","schema_migrations"])
       h.update(t+JSON.stringify(db.prepare(`SELECT * FROM ${t} ORDER BY 1,2`).all(),(k,v)=>typeof v==="bigint"?String(v):v));
     console.log(h.digest("hex"));'
 }
@@ -124,6 +124,8 @@ SEEDED="$("$DOCKER" exec -e SEED_SECRET="$SECRET" "$APP" node --input-type=modul
     await store.call("createSession", { tokenHash: createHmac("sha256", process.env.SEED_SECRET).update(token).digest("hex"), playerId: player.id, now, expiresAt: now + 3600000 });
     out.push(token, player.id);
   }
+  // Synthetic funds so the two mock provider records below can hold reservations.
+  await store.call("grantFunding", { amountNanousd: 1000000, authorizationRef: "staging-mock-grant", grantedBy: "staging", now });
   const card = (await (await fetch("http://127.0.0.1:3001/api/challenges")).json()).challenges[0];
   const attempt = await store.call("createAttempt", { id: "staging-ledger", playerId: out[3], challengeId: card.id, challengeVersion: card.version, reconnectTokenHash: hashToken("staging"), now });
   const hold = attempt.board.units.filter(u => u.power === card.humanPower).map(u => `${u.territory}|HOLD`);
@@ -158,8 +160,8 @@ expect "phase report saved" "$GOT" 1
 GOT=$(status "http://127.0.0.1:$PORT/api/operator/overview" -H "Cookie: __Host-diplomacy_session=$PLAYER_COOKIE")
 expect "player cannot use operator routes" "$GOT" 403
 OVERVIEW="$(api GET /operator/overview "$OPERATOR_COOKIE")"
-GOT=$(printf '%s' "$OVERVIEW" | json 'v.activeAttempts+":"+v.spend.knownCostNanousd+":"+v.spend.unresolvedLiabilityNanousd+":"+v.reservedNanousd')
-expect "operator sees capacity and spend" "$GOT" "1:4321:100000:null"
+GOT=$(printf '%s' "$OVERVIEW" | json 'v.activeAttempts+":"+v.funding.settledNanousd+":"+v.funding.reservedNanousd+":"+v.funding.availableNanousd')
+expect "operator sees capacity and spend" "$GOT" "1:4321:100000:895679"
 GOT=$(printf '%s' "$OVERVIEW" | json 'v.outbox.recent.filter(m=>m.dedupeKey==="start:'"$ATTEMPT_ID"'").length')
 expect "start notice recorded once" "$GOT" 1
 
@@ -187,7 +189,7 @@ GOT=$(digest "$RESTORED")
 expect "restored volume holds identical rows" "$GOT" "$BEFORE"
 GOT=$(api GET "/attempts/$ATTEMPT_ID" "$PLAYER_COOKIE" | json 'v.board.season+":"+v.execution+":"+v.challenge.id')
 expect "restored attempt is playable state" "$GOT" "FALL:ACCEPTING:$CARD_ID"
-GOT=$(api GET /operator/overview "$OPERATOR_COOKIE" | json 'v.spend.knownCostNanousd+":"+v.spend.unresolvedLiabilityNanousd')
-expect "restored spend and liability unchanged" "$GOT" "4321:100000"
+GOT=$(api GET /operator/overview "$OPERATOR_COOKIE" | json 'v.funding.settledNanousd+":"+v.funding.reservedNanousd+":"+v.funding.availableNanousd')
+expect "restored spend and liability unchanged" "$GOT" "4321:100000:895679"
 
 printf '\n%d checks passed. Local containers and volumes are removed on exit.\n' "$PASSED"

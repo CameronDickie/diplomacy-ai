@@ -41,7 +41,22 @@ export class RetentionRepository {
     this.db.prepare('DELETE FROM deleted_identities WHERE utc_day<?').run(utcDay(input.now));
     this.db.prepare("DELETE FROM outbox WHERE state IN ('SENT','FAILED') AND created_at<=?").run(input.diagnosticBefore);
     this.db.prepare('DELETE FROM operator_audit WHERE at<=?').run(input.resultBefore);
-    return { attempts: expired.length, diagnostics: stale.length, sessions, more: [expired.length,stale.length,sessions].includes(input.limit) };
+    // Detailed receipts go only once their cost is in the ledger (settled) or provably nil (released).
+    // A held reservation and its call are never pruned, however old.
+    let receipts = 0;
+    if (input.receiptBefore !== undefined) {
+      time(input.receiptBefore);
+      if (input.receiptBefore > input.now) invalid();
+      const closed = this.db.prepare(`SELECT r.call_id FROM reservations r WHERE r.state<>'HELD' AND r.closed_at<=? ORDER BY r.closed_at LIMIT ?`).all(input.receiptBefore,input.limit);
+      for (const row of closed) {
+        this.db.prepare('DELETE FROM provider_calls WHERE id=?').run(row.call_id);
+        this.db.prepare('DELETE FROM reservations WHERE call_id=?').run(row.call_id);
+      }
+      receipts = closed.length;
+      // Per-attempt totals are only needed while the attempt can still spend.
+      this.db.prepare(`DELETE FROM attempt_spend WHERE attempt_id NOT IN (SELECT id FROM attempts) AND attempt_id NOT IN (SELECT attempt_id FROM reservations)`).run();
+    }
+    return { attempts: expired.length, diagnostics: stale.length, sessions, receipts, more: [expired.length,stale.length,sessions,receipts].includes(input.limit) };
   }
   deleteAccount(input: StoreOperations['deleteAccount']['input']): StoreOperations['deleteAccount']['output'] {
     time(input.now);

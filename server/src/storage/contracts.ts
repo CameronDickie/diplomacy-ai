@@ -38,6 +38,11 @@ export interface StoredReceipt {
   state: SubmissionState;
   createdAt: number;
 }
+/** Integer USD billionths. `reserved` is in flight; `unknownLiability` finished or answered without usable usage. */
+export interface FundingTotals {
+  grantedNanousd: number; ceilingNanousd: number; settledNanousd: number; reservedNanousd: number; unknownLiabilityNanousd: number;
+  availableNanousd: number; attemptCapNanousd: number; grants: number;
+}
 export interface PaidState { stopped: boolean; episode: number; updatedAt: number | null }
 export interface SpendTotals { calls:number; unresolvedCalls:number; knownCostNanousd:number; unresolvedLiabilityNanousd:number; inputTokens:number; outputTokens:number }
 export type OutboxKind = 'ATTEMPT_STARTED' | 'CREDIT_REQUEST';
@@ -54,8 +59,14 @@ export interface OperatorAttemptRow {
 }
 export type OperatorAction = 'ATTEMPT_STOP' | 'PLAYER_BAN' | 'PLAYER_UNBAN' | 'SPECTATE';
 export interface StoreOperations {
-  operatorOverview: { input: {}; output: { activeAttempts:number; attempts:OperatorAttemptRow[]; spend:SpendTotals; paid:PaidState; outbox:{counts:Record<OutboxMessage['state'],number>;recent:OutboxMessage[]}; audit:Array<{at:number;operatorId:string;action:string;target:string|null}> } };
-  operatorAttempt: { input: { id:string }; output: { attempt:OperatorAttemptRow; board:BoardFixture; score:ChallengeScore|null; reports:PublicPhaseReport[]; spend:SpendTotals } | null };
+  fundingTotals: { input: {}; output: FundingTotals };
+  attemptFunding: { input: { attemptId:string }; output: { settledNanousd:number; heldNanousd:number } };
+  grantFunding: { input: { amountNanousd:number; authorizationRef:string; grantedBy:string; now:number }; output: FundingTotals };
+  setFundingPolicy: { input: { attemptCapNanousd:number; ceilingLimitNanousd:number|null; now:number }; output: FundingTotals };
+  releaseProviderCall: { input: { id:string; now:number }; output: FundingTotals };
+  reconcileFunding: { input: { now:number }; output: { released:number } };
+  operatorOverview: { input: {}; output: { funding:FundingTotals; activeAttempts:number; attempts:OperatorAttemptRow[]; spend:SpendTotals; paid:PaidState; outbox:{counts:Record<OutboxMessage['state'],number>;recent:OutboxMessage[]}; audit:Array<{at:number;operatorId:string;action:string;target:string|null}> } };
+  operatorAttempt: { input: { id:string }; output: { attempt:OperatorAttemptRow; board:BoardFixture; score:ChallengeScore|null; reports:PublicPhaseReport[]; spend:SpendTotals; funding:{settledNanousd:number;heldNanousd:number} } | null };
   setPaidStopped: { input: { stopped:boolean; operatorId:string; now:number }; output: PaidState };
   recordOperatorAction: { input: { operatorId:string; action:OperatorAction; target:string; now:number }; output: null };
   paidState: { input: {}; output: PaidState };
@@ -71,7 +82,7 @@ export interface StoreOperations {
   providerCallTotals: { input: { operationId:string }; output: ProviderTotals };
   admitAttempt: { input: { id:string; playerId:string; requestId:string; challengeId:string; challengeVersion:number; now:number; maxActive:number; maxPerAccount:number; dailyLimit:number; replayOnly?:boolean }; output: StoredAttempt };
   ownedAttempts: { input: { playerId:string; before?:{createdAt:number;id:string}; limit?:number }; output: StoredAttempt[] };
-  sweepRetention: { input: { now:number; resultBefore:number; diagnosticBefore:number; limit:number }; output: { attempts:number; diagnostics:number; sessions:number; more:boolean } };
+  sweepRetention: { input: { now:number; resultBefore:number; diagnosticBefore:number; receiptBefore?:number; limit:number }; output: { attempts:number; diagnostics:number; sessions:number; receipts:number; more:boolean } };
   deleteAccount: { input: { playerId:string; now:number }; output: { sessions:string[]; attempts:number } };
   latestSubmission: { input: { attemptId:string; playerId:string; phaseId:string }; output: {receipt:StoredReceipt;action:PhaseAction}|null };
   touchAttempt: { input: { id:string; playerId:string; expectedRevision:number; idleBefore:number; now:number }; output: StoredAttempt };
@@ -102,7 +113,7 @@ export interface StoreOperations {
 }
 export type StoreOperation = keyof StoreOperations;
 export type StoreRequest = { [K in StoreOperation]: { id: number; operation: K; input: StoreOperations[K]['input'] } }[StoreOperation];
-export type StoreErrorCode = 'STORE_UNAVAILABLE' | 'STORE_BUSY' | 'STORE_CONFLICT' | 'STORE_FORBIDDEN' | 'STORE_INVALID' | 'STORE_SCHEMA' | 'CAPACITY_FULL' | 'ACTIVE_ATTEMPT_EXISTS' | 'DAILY_LIMIT';
+export type StoreErrorCode = 'STORE_UNAVAILABLE' | 'STORE_BUSY' | 'STORE_CONFLICT' | 'STORE_FORBIDDEN' | 'STORE_INVALID' | 'STORE_SCHEMA' | 'CAPACITY_FULL' | 'ACTIVE_ATTEMPT_EXISTS' | 'DAILY_LIMIT' | 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED';
 export class StoreError extends Error {
   constructor(readonly code: StoreErrorCode, message: string) { super(message); this.name = 'StoreError'; }
 }

@@ -11,10 +11,10 @@ header (details in [operator.md](operator.md)).
 
 1. **Capacity** — active attempts against the maximum. A full site answers new
    starts with "try again later"; there is no queue to drain.
-2. **Spend** — known cost and unresolved liability. Unresolved liability is the
-   worst case for calls whose bill has not arrived; it should fall to zero once
-   in-flight work settles. A value that stays above zero means a provider call
-   never reported usage and needs investigation before any budget is raised.
+2. **Budget** — available, settled, reserved and unknown liability. Reserved is
+   the worst case for calls in flight and falls as they settle. Unknown
+   liability is held for calls that ended without reporting usage; it stays
+   until a real bill arrives and needs investigation before any budget is raised.
 3. **Notifications** — anything `FAILED` was abandoned after eight tries.
 4. **Attempts** — stuck `RECOVERING` rows are covered under "After a crash".
 
@@ -31,13 +31,21 @@ Stopping never changes a budget, and resuming never adds one.
 
 ## Replenishment
 
-Adding money is not an operator-panel action and never happens automatically:
-no timer, restart, cleanup or account action refills anything. It is a
-deliberate owner change to the funded total in private configuration followed by
-a restart, after reading the spend figures above. The reservation ledger that
-enforces the total is not merged yet (DIC-64); until it is, the server refuses
-to start with `DIPLOMACY_PAID_AI_ENABLED=true`, so there is nothing to
-replenish. This section will gain the exact procedure with that change.
+Adding money is never automatic: no timer, restart, cleanup or account action
+refills anything, and the operator page cannot do it. It is a deliberate owner
+action on the host, recorded permanently under a reference you choose
+([funding.md](funding.md)):
+
+```bash
+npm run storage -- funding /data/diplomacy.sqlite
+npm run storage -- grant /data/diplomacy.sqlite <USD> <authorization-reference>
+```
+
+Read the budget figures first. If **unknown liability** is above zero, find out
+what those calls cost before granting more. After a grant, press **Resume paid
+calls** if the pool had run out. `LLM_TOTAL_BUDGET_USD` only narrows what grants
+allow. Paid play itself is still switched off in code until the provider adapter
+is integrated and the owner authorizes spend.
 
 ## Stop an attempt or ban an account
 
@@ -73,8 +81,8 @@ DIPLOMACY_RECEIPT_RETENTION_DAYS=90
 
 Cleanup runs at startup and hourly ([storage.md](storage.md)). Closed attempts
 go after the result window; their phase jobs and receipts after the diagnostic
-window. Provider call records are not pruned yet, so the 90-day setting has no
-effect until the ledger lands. Players delete their own accounts from the page;
+window. Provider call records go after the receipt window once their cost is
+settled or released; a call that might still be billed is kept however old. Players delete their own accounts from the page;
 there is no operator "delete user" control, and deletion keeps anonymous cost
 records.
 

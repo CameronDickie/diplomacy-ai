@@ -166,7 +166,8 @@ them. Each needs an explicit owner decision recorded in Linear (DIC-72):
 
 - running `terraform apply`, `deploy_lightsail.sh`, or changing DNS;
 - rendering a production environment file with real credentials;
-- funding and enabling paid AI (also blocked in code until DIC-64);
+- granting funds and enabling paid AI (also blocked in code until the provider
+  adapter is integrated);
 - sending live notification email (`DIPLOMACY_NOTIFY_MODE=resend`);
 - approving a public scenario catalog and calling the game "daily";
 - making the repository public, after a human review of its history;

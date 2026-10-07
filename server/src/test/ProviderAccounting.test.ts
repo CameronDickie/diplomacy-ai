@@ -22,6 +22,8 @@ async function setup(t:test.TestContext){
   const fixture=JSON.parse(await readFile(new URL('../../fixtures/development/tunis-expedition.v1.json',import.meta.url),'utf8'));
   const content={definition:challengeDefinition(fixture)!,board:fixture.board};
   await store.call('registerChallenge',{...content,hash:createHash('sha256').update(canonicalJson(content)).digest('hex'),now});
+  // Synthetic funds: every prepared call now needs a reservation (DIC-64).
+  await store.call('grantFunding',{amountNanousd:1_000_000_000,authorizationRef:'test-grant-0001',grantedBy:'test',now});
   const player=await store.call('identity',{provider:'github',subject:'accounting-test',displayName:'Test',now});
   const attempt=await store.call('createAttempt',{id:'accounting-test',playerId:player.id,challengeId:content.definition.id,challengeVersion:1,reconnectTokenHash:hashToken('private-test-token'),now});
   const {job}=await store.call('beginPhase',{id:attempt.id,playerId:player.id,expectedRevision:0,phaseId:attempt.phaseId,operationId:'accounting-phase',requestId:'first-orders',action:{phase:'ORDERS',orderIds:['CON|HOLD','SMY|HOLD','ANK|HOLD']},now});

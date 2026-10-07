@@ -217,8 +217,8 @@ function readEngineConfig(env = process.env) {
 }
 
 function assertRuntimeReady(config) {
-  // Removed only when every paid dispatch goes through durable admission.
-  if (config.llm.paidEnabled) fail('DIPLOMACY_PAID_AI_ENABLED', 'paid startup awaits durable budget admission (DIC-64); use false for offline development');
+  // The ledger exists (docs/funding.md). Removed only when the provider adapter dispatches exclusively through it.
+  if (config.llm.paidEnabled) fail('DIPLOMACY_PAID_AI_ENABLED', 'paid startup awaits the funded provider adapter (DIC-60); use false for offline development');
 }
 
 module.exports = { SUPPORTED_ENV_NAMES, PROVIDERS, ROLES, readLlmConfig, readRuntimeConfig, assertRuntimeReady, readEngineConfig };

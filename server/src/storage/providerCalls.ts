@@ -4,6 +4,7 @@ import { canonicalJson } from '../fixtures/BoardFixture.js';
 import { providerOutcomes, type ProviderCallIntent, type ProviderCallRecord, type ProviderUsage } from '../providers/accounting.js';
 import { StoreError, type StoreOperations } from './contracts.js';
 import { paidState } from './operator.js';
+import { FundingRepository, type Refusal } from './funding.js';
 
 const invalid = (): never => { throw new StoreError('STORE_INVALID','Invalid provider accounting metadata.'); };
 const conflict = (): never => { throw new StoreError('STORE_CONFLICT','Provider call already exists or changed; reconcile its durable record.'); };
@@ -47,11 +48,14 @@ export class ProviderCallRepository {
       AND a.lifecycle='ACTIVE' AND p.banned_at IS NULL AND j.status IN ('DECIDING','RECOVERING')`).get(f.operationId,f.attemptId,f.phaseId,f.revision,v.power,v.role);
     if(!row)conflict();
   }
-  prepare(input:StoreOperations['prepareProviderCall']['input']):ProviderCallRecord {
+  /** Reserves the worst-case cost in the same transaction; a refusal leaves no call record behind. */
+  prepare(input:StoreOperations['prepareProviderCall']['input']):ProviderCallRecord|Refusal {
     const v=intent(input.intent);integer(input.now);
     const old=this.get(v.id);
     if(old){const {state,createdAt,dispatchedAt,receivedAt,finishedAt,responseId,usage,outcome,...original}=old;if(canonicalJson(original)!==canonicalJson(v))conflict();return old;}
     this.current(v);
+    const refusal=new FundingRepository(this.db).reserve(v,input.now);
+    if(refusal)return refusal;
     this.db.prepare(`INSERT INTO provider_calls(id,operation_id,attempt_id,intent_json,state,created_at) VALUES(?,?,?,?,'PREPARED',?)`)
       .run(v.id,v.fence.operationId,v.fence.attemptId,canonicalJson(v),input.now);
     return this.required(v.id);
@@ -60,6 +64,8 @@ export class ProviderCallRepository {
     integer(input.now);const old=this.required(input.id);
     if(old.state!=='PREPARED'||input.now<old.createdAt)conflict();
     this.current(old);
+    // No dispatch without a live reservation for exactly this call.
+    if(!this.db.prepare("SELECT 1 FROM reservations WHERE call_id=? AND state='HELD'").get(input.id))conflict();
     this.db.prepare("UPDATE provider_calls SET state='DISPATCHED',dispatched_at=? WHERE id=?").run(input.now,input.id);
     return this.required(input.id);
   }
@@ -73,6 +79,8 @@ export class ProviderCallRepository {
     this.db.prepare(`UPDATE provider_calls SET state=CASE WHEN state='FINISHED' THEN state ELSE 'RECEIVED' END,
       response_id=COALESCE(response_id,?),usage_json=?,received_at=COALESCE(received_at,?) WHERE id=?`)
       .run(input.responseId,next===null?null:canonicalJson(next),input.now,input.id);
+    // First known usage settles the reservation exactly once; unknown usage keeps it held.
+    if(next!==null)new FundingRepository(this.db).settle(input.id,old.fence.attemptId,next.costNanousd,input.now);
     return this.required(input.id);
   }
   finish(input:StoreOperations['finishProviderCall']['input']):ProviderCallRecord {

@@ -43,7 +43,7 @@ test('valid paid configuration still requires the durable admission implementati
     DIPLOMACY_AUTH_SESSION_SECRET: 's'.repeat(32), DIPLOMACY_ADMIN_GITHUB_USER_IDS: '1234',
     OPENAI_API_KEY: 'synthetic',
   });
-  assert.throws(() => assertRuntimeReady(config), /durable budget admission/);
+  assert.throws(() => assertRuntimeReady(config), /funded provider adapter/);
   assert.throws(() => readRuntimeConfig({ DIPLOMACY_PROFILE: 'private', DIPLOMACY_AUTH_ENABLED: 'false' }), /cannot disable/);
 });
 

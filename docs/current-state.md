@@ -19,16 +19,15 @@ listed in [README.md](README.md).
 | Retention | Results 30 days, diagnostics 7 days, session and counter pruning; account deletion | [storage.md](storage.md) |
 | Operator | Overview, spectator view, paid stop switch, attempt stop, account ban, audit trail, notification outbox | [operator.md](operator.md) |
 | Provider accounting | Every provider call recorded before its output is interpreted; late bills reconcile | [provider-accounting.md](provider-accounting.md) |
+| Funding ledger | Explicit grants, atomic worst-case reservations, exactly-once settlement, typed exhaustion that pauses paid play | [funding.md](funding.md) |
 | Packaging | Non-root container with source and notices; CI on Linux and macOS | [deployment.md](deployment.md), [build-baseline.md](build-baseline.md) |
 
 ## Not built
 
 | Gap | Consequence | Linear |
 | -- | -- | -- |
-| Budget reservation and exhaustion | No paid call can be authorized; the server refuses to start with paid AI enabled | DIC-64 |
-| Luna adapter, bounded prompts, funded recovery | Opponents hold every turn in practice mode | DIC-66, DIC-67, DIC-60 |
+| Luna adapter, bounded prompts, funded recovery | Opponents hold every turn in practice mode; the server refuses to start with paid AI enabled | DIC-66, DIC-67, DIC-60 |
 | Sponsored attempt mode | Every attempt is `PRACTICE` | DIC-54 |
-| Usage-receipt pruning | `provider_calls` is kept indefinitely until a cumulative ledger exists | DIC-62 with DIC-64 |
 | Quality, latency and cost measurement | No evidence that Luna opponents are fair, fast or affordable | DIC-68 |
 | End-to-end release verification and runbook exercise | Not release-ready | DIC-70, DIC-72 |
 | Approved public catalog | The rotation is test content and is not labelled daily | owner decision |

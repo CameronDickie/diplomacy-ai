@@ -16,6 +16,7 @@ needs fixing.
 | [storage.md](storage.md) | SQLite layout, migrations, backup/restore, retention, account deletion |
 | [authentication.md](authentication.md) | GitHub/Google sign-in, sessions, the operator role |
 | [limits.md](limits.md) | quotas, rate buckets and proxy trust |
+| [funding.md](funding.md) | the cumulative budget ledger: grants, reservations, settlement, exhaustion |
 | [operator.md](operator.md) | operator API, stop/ban controls, notification outbox |
 | [operations.md](operations.md) | runbook for running the site |
 | [configuration.md](configuration.md) | every runtime setting and profile |

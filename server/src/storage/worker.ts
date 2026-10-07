@@ -13,6 +13,7 @@ import { PhaseRepository } from './phases.js';
 import { RetentionRepository } from './retention.js';
 import { OperatorRepository, paidState } from './operator.js';
 import { OutboxRepository } from './outbox.js';
+import { FundingRepository } from './funding.js';
 import type { StoreOperations } from './contracts.js';
 import { parseChallenge, publicBoard, publicReport } from './publicData.js';
 import { StoreError, type StoreRequest, type StoredAttempt, type StoredPlayer, type StoredReceipt, type StoredChallenge } from './contracts.js';
@@ -160,7 +161,19 @@ async function handle(request: StoreRequest): Promise<unknown> {
   await boot;
   const {operation,input} = request;
   switch (operation) {
-    case 'prepareProviderCall': return transaction(() => new ProviderCallRepository(db).prepare(input));
+    case 'prepareProviderCall': {
+      // The refusal is thrown only after COMMIT so the stop recorded on exhaustion is durable.
+      const prepared = transaction(() => new ProviderCallRepository(db).prepare(input));
+      if ('refused' in prepared) throw new StoreError(prepared.refused, prepared.refused === 'BUDGET_EXHAUSTED'
+        ? 'Sponsored play is out of budget and has been paused.' : 'This attempt has reached its sponsored budget.');
+      return prepared;
+    }
+    case 'fundingTotals': return new FundingRepository(db).totals();
+    case 'attemptFunding': return new FundingRepository(db).attempt(input.attemptId);
+    case 'grantFunding': return transaction(() => new FundingRepository(db).grant(input));
+    case 'setFundingPolicy': return transaction(() => new FundingRepository(db).policy(input));
+    case 'releaseProviderCall': return transaction(() => new FundingRepository(db).releasePrepared(input));
+    case 'reconcileFunding': return transaction(() => ({released:new FundingRepository(db).reconcile(input.now)}));
     case 'dispatchProviderCall': return transaction(() => new ProviderCallRepository(db).dispatch(input));
     case 'receiveProviderCall': return transaction(() => new ProviderCallRepository(db).receive(input));
     case 'finishProviderCall': return transaction(() => new ProviderCallRepository(db).finish(input));

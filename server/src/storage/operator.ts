@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { parseBoard } from '../fixtures/BoardFixture.js';
 import { OutboxRepository } from './outbox.js';
+import { FundingRepository } from './funding.js';
 import { StoreError, type OperatorAttemptRow, type PaidState, type SpendTotals, type StoreOperations } from './contracts.js';
 
 const invalid = (): never => { throw new StoreError('STORE_INVALID','Invalid operator request.'); };
@@ -8,6 +9,15 @@ const time = (n: number) => { if (!Number.isSafeInteger(n) || n < 0) invalid(); 
 const id = (s: string) => { if (typeof s !== 'string' || !/^[A-Za-z0-9:_-]{1,100}$/.test(s)) invalid(); };
 const RUNNING: PaidState = { stopped:false, episode:0, updatedAt:null };
 
+/** Stops paid play for a non-operator reason. Idempotent while stopped; a new stop opens a new pause. */
+export function stopPaid(db: DatabaseSync, reason: 'BUDGET_EXHAUSTED' | 'COST_ANOMALY', now: number): void {
+  const current = paidState(db);
+  if (!current.stopped) db.prepare(`INSERT INTO operator_state(key,value_json,updated_at) VALUES('paid',?,?)
+    ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at`).run(JSON.stringify({stopped:true,episode:current.episode+1}),now);
+  // One audit line per cause per pause, not one per refused call.
+  if (!current.stopped || !db.prepare("SELECT 1 FROM operator_audit WHERE action=? AND at>=?").get(reason,current.updatedAt ?? 0))
+    db.prepare("INSERT INTO operator_audit(at,operator_id,action,target) VALUES(?,'system',?,NULL)").run(now,reason);
+}
 export function paidState(db: DatabaseSync): PaidState {
   const row = db.prepare("SELECT value_json,updated_at FROM operator_state WHERE key='paid'").get();
   return row ? { ...JSON.parse(String(row.value_json)), updatedAt:Number(row.updated_at) } : RUNNING;
@@ -41,7 +51,7 @@ export class OperatorRepository {
     const attempts = this.db.prepare(`SELECT a.*,p.provider,p.banned_at FROM attempts a JOIN players p ON p.id=a.player_id
       ORDER BY (a.lifecycle='ACTIVE') DESC,a.updated_at DESC,a.id LIMIT 50`).all().map(r => this.row(r));
     const outbox = new OutboxRepository(this.db);
-    return { activeAttempts:Number(this.db.prepare("SELECT count(*) n FROM attempts WHERE lifecycle='ACTIVE'").get()!.n), attempts, spend:spendTotals(this.db), paid:paidState(this.db),
+    return { funding:new FundingRepository(this.db).totals(), activeAttempts:Number(this.db.prepare("SELECT count(*) n FROM attempts WHERE lifecycle='ACTIVE'").get()!.n), attempts, spend:spendTotals(this.db), paid:paidState(this.db),
       outbox:{counts:outbox.counts(),recent:outbox.recent(20)},
       audit:this.db.prepare('SELECT at,operator_id,action,target FROM operator_audit ORDER BY id DESC LIMIT 20').all().map(r => ({at:Number(r.at),operatorId:String(r.operator_id),action:String(r.action),target:r.target===null?null:String(r.target)})) };
   }
@@ -50,7 +60,7 @@ export class OperatorRepository {
     const r = this.db.prepare('SELECT a.*,p.provider,p.banned_at FROM attempts a JOIN players p ON p.id=a.player_id WHERE a.id=?').get(input.id);
     if (!r) return null;
     return { attempt:this.row(r), board:parseBoard(JSON.parse(String(r.board_json))), score:r.score_json===null?null:JSON.parse(String(r.score_json)),
-      reports:this.db.prepare('SELECT report_json FROM reports WHERE attempt_id=? ORDER BY sequence').all(input.id).map(x => JSON.parse(String(x.report_json))), spend:spendTotals(this.db,input.id) };
+      reports:this.db.prepare('SELECT report_json FROM reports WHERE attempt_id=? ORDER BY sequence').all(input.id).map(x => JSON.parse(String(x.report_json))), spend:spendTotals(this.db,input.id), funding:new FundingRepository(this.db).attempt(input.id) };
   }
   /** Each running→stopped transition opens a new episode, the unit credit requests are counted against. */
   setPaid(input: StoreOperations['setPaidStopped']['input']): PaidState {

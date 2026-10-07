@@ -27,7 +27,7 @@ Status: **not release-ready.** The open rows below are blockers.
 | Notifications once per event, retry, no blocking of play | Verified offline with a mocked mail adapter | `Operator.test.ts` |
 | Backup, restart and restore preserve identity, attempts, reports, spend, unresolved liability | Verified in a local container | `scripts/staging-check.sh` |
 | Rollback | Procedure documented; older-image refusal covered by migration-mismatch tests | [deployment.md](deployment.md), `Store.test.ts` |
-| Budget reservation, per-attempt and total caps, exhaustion | **Open** | DIC-64 |
+| Budget ledger: grants, reservations, per-attempt and total caps, exhaustion, crash safety | Verified offline with synthetic amounts | `Funding.test.ts`, staging check; [funding.md](funding.md) |
 | Luna adapter, bounded prompts, funded recovery | **Open** | DIC-66, DIC-67, DIC-60 |
 | Sponsored attempt mode in the UI and API | **Open** | DIC-54 |
 | Quality, latency and cost targets (mean attempt under USD 1, phase p95 under 30 s) | **Open — needs an authorized paid evaluation** | DIC-68 |

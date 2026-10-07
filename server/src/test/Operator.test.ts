@@ -26,6 +26,7 @@ async function setup(t:test.TestContext,build?:(store:Store,now:()=>number)=>Att
   const env={DIPLOMACY_PROFILE:'showcase',DIPLOMACY_AUTH_SESSION_SECRET:'test-secret-'.repeat(4),DIPLOMACY_ADMIN_GITHUB_USER_IDS:'4242'};
   const config=readRuntimeConfig(env),auth=new AuthService(store,config,env,undefined,()=>now);
   const service=await ChallengeService.open(store,config,()=>now);
+  await store.call('grantFunding',{amountNanousd:1_000_000_000,authorizationRef:'test-grant-0001',grantedBy:'test',now});
   const attempts=build?.(store,()=>now)??service.attempts;
   const operator=new OperatorService(store,config,attempts,()=>now,localDelivery);
   const app=express();app.use(express.json());app.use('/api',auth.httpBoundary);app.use('/api/operator',operator.router(auth));app.use('/api',service.router(auth));
@@ -89,8 +90,9 @@ test('overview and spectator view reconcile with the ledger and expose no identi
   assert.equal(overview.spend.knownCostNanousd,perOperation.reduce((n,x)=>n+x.knownCostNanousd,0));assert.equal(overview.spend.knownCostNanousd,12845);
   assert.equal(overview.spend.unresolvedLiabilityNanousd,perOperation.reduce((n,x)=>n+x.unresolvedLiabilityNanousd,0));assert.equal(overview.spend.unresolvedLiabilityNanousd,100000);
   assert.equal(overview.spend.calls,3);assert.equal(overview.spend.unresolvedCalls,1);
-  // Reservations are not tracked yet and must not be shown as zero.
-  assert.equal(overview.reservedNanousd,null);assert.equal(overview.paidConfigured,false);assert.equal(overview.notifyMode,'outbox');
+  // The ledger agrees with the detailed records: settled = known cost, the unanswered call is still in flight.
+  assert.deepEqual([overview.funding.settledNanousd,overview.funding.reservedNanousd,overview.funding.unknownLiabilityNanousd,overview.reservedNanousd],[12845,100000,0,100000]);
+  assert.equal(overview.funding.availableNanousd,overview.funding.ceilingNanousd-12845-100000);assert.equal(overview.paidConfigured,false);assert.equal(overview.notifyMode,'outbox');
   assert.equal(overview.activeAttempts,3);assert.equal(overview.maxActiveAttempts,3);assert.equal(overview.attempts.length,3);
   for(const secret of ['Private name','4242','"subject"','displayName','tokenHash','token_hash','reconnect','requestHash','intent','decisions','humanAction'])assert.ok(!text.includes(secret),secret);
   const detailText=await (await f.request(`/operator/attempts/${played.id}`,owner.cookie)).text(),detail=JSON.parse(detailText) as OperatorAttemptDetail;

@@ -115,6 +115,43 @@ CREATE TABLE outbox (
  created_at INTEGER NOT NULL, sent_at INTEGER, channel TEXT CHECK(channel IS NULL OR channel IN ('outbox','resend')), last_error TEXT
 ) STRICT;
 CREATE INDEX outbox_due ON outbox(state,next_attempt_at);
+` }, { version: 7, sql: `
+CREATE TABLE funding_grants (
+ authorization_ref TEXT PRIMARY KEY CHECK(length(authorization_ref) BETWEEN 8 AND 100),
+ amount_nanousd INTEGER NOT NULL CHECK(amount_nanousd>0), granted_at INTEGER NOT NULL, granted_by TEXT NOT NULL
+) STRICT;
+CREATE TRIGGER funding_grants_immutable BEFORE UPDATE ON funding_grants BEGIN
+ SELECT RAISE(ABORT,'immutable funding grant'); END;
+CREATE TRIGGER funding_grants_permanent BEFORE DELETE ON funding_grants BEGIN
+ SELECT RAISE(ABORT,'funding grants are permanent'); END;
+CREATE TABLE funding_pool (
+ id INTEGER PRIMARY KEY CHECK(id=1),
+ settled_nanousd INTEGER NOT NULL DEFAULT 0 CHECK(settled_nanousd>=0),
+ attempt_cap_nanousd INTEGER NOT NULL CHECK(attempt_cap_nanousd BETWEEN 1 AND 15000000000),
+ ceiling_limit_nanousd INTEGER CHECK(ceiling_limit_nanousd IS NULL OR ceiling_limit_nanousd>=0),
+ updated_at INTEGER NOT NULL
+) STRICT;
+INSERT INTO funding_pool(id,attempt_cap_nanousd,updated_at) VALUES(1,1000000000,0);
+CREATE TRIGGER funding_pool_permanent BEFORE DELETE ON funding_pool BEGIN
+ SELECT RAISE(ABORT,'the funding pool is permanent'); END;
+CREATE TRIGGER funding_pool_monotonic BEFORE UPDATE OF settled_nanousd ON funding_pool WHEN NEW.settled_nanousd<OLD.settled_nanousd BEGIN
+ SELECT RAISE(ABORT,'settled spend never decreases'); END;
+CREATE TABLE reservations (
+ call_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL,
+ reserved_nanousd INTEGER NOT NULL CHECK(reserved_nanousd>0),
+ state TEXT NOT NULL CHECK(state IN ('HELD','SETTLED','RELEASED')),
+ settled_nanousd INTEGER CHECK((state='SETTLED')=(settled_nanousd IS NOT NULL)),
+ created_at INTEGER NOT NULL, closed_at INTEGER
+) STRICT;
+CREATE INDEX reservations_held ON reservations(state,attempt_id);
+CREATE TRIGGER reservations_final BEFORE UPDATE ON reservations WHEN OLD.state<>'HELD' BEGIN
+ SELECT RAISE(ABORT,'a closed reservation is final'); END;
+CREATE TRIGGER reservations_held_permanent BEFORE DELETE ON reservations WHEN OLD.state='HELD' BEGIN
+ SELECT RAISE(ABORT,'a held reservation cannot be deleted'); END;
+CREATE TABLE attempt_spend (
+ attempt_id TEXT PRIMARY KEY, settled_nanousd INTEGER NOT NULL DEFAULT 0 CHECK(settled_nanousd>=0),
+ calls INTEGER NOT NULL DEFAULT 0 CHECK(calls>=0)
+) STRICT;
 ` }];
 
 export function verifyMigrationHistory(db: DatabaseSync, requireExisting = false): number {

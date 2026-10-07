@@ -20,7 +20,8 @@ explicit profile and rejects `local`.
 
 `DIPLOMACY_PAID_AI_ENABLED` defaults to `false` in every profile. Existing keys
 never enable paid calls. A temporary startup interlock rejects `true` until
-DIC-64 wires every paid dispatch through durable budget admission. Settings can
+the provider adapter dispatches only through the funding ledger (DIC-60; the
+ledger itself is described in `funding.md`). Settings can
 be validated/rendered before that integration, but neither deployment preflight
 nor the server will start paid operation. Configuration is not spend approval.
 

@@ -43,6 +43,9 @@ export class ChallengeService {
       await store.call('registerChallenge',{...content,hash:createHash('sha256').update(canonicalJson(content)).digest('hex'),now:now()});
       service.catalog.push({card:service.card(definition,fixture.board),fixture});
     }
+    // Operating limits come from validated configuration; funds come only from explicit grants in the database.
+    await store.call('setFundingPolicy',{attemptCapNanousd:Math.min(15_000_000_000,Math.max(1,Math.round(config.llm.maxGameSpendUsd*1e9))),
+      ceilingLimitNanousd:config.llm.paidEnabled?Math.round(config.llm.totalBudgetUsd*1e9):null,now:now()});
     // Today's reference run is packaged before serving; the others are built on first use and cached.
     await service.replay(service.featured().entry);
     await service.sweep();
@@ -96,9 +99,12 @@ export class ChallengeService {
     this.nextRetention=now+3_600_000;
     // Cleanup is housekeeping: a busy or failed pass must not fail the player request that triggered it.
     try{for(let batch=0;batch<20;batch++){
-      const result=await this.store.call('sweepRetention',{now,resultBefore,diagnosticBefore:Math.max(resultBefore,now-this.config.diagnosticRetentionDays*day),limit:200});
+      const result=await this.store.call('sweepRetention',{now,resultBefore,diagnosticBefore:Math.max(resultBefore,now-this.config.diagnosticRetentionDays*day),
+        receiptBefore:now-this.config.receiptRetentionDays*day,limit:200});
       if(!result.more)break;
-    }}catch{}
+    }
+    // Frees reservations of calls that were prepared but can no longer be dispatched.
+    await this.store.call('reconcileFunding',{now});}catch{}
   }
   private async owned(id:string,playerId:string):Promise<StoredAttempt> {
     await this.sweep();
@@ -115,7 +121,7 @@ export class ChallengeService {
       void handler(req,res).catch(error=>{
         if(error instanceof FixtureError){res.status(400).json({code:'INVALID_REQUEST',message:'Choose valid challenge fields and current legal actions.'});return;}
         const code=error instanceof StoreError?error.code:'SERVICE_UNAVAILABLE';
-        const status=code==='STORE_FORBIDDEN'?404:code==='STORE_INVALID'?400:['CAPACITY_FULL','ACTIVE_ATTEMPT_EXISTS','DAILY_LIMIT','STORE_CONFLICT'].includes(code)?409:503;
+        const status=code==='STORE_FORBIDDEN'?404:code==='STORE_INVALID'?400:['CAPACITY_FULL','ACTIVE_ATTEMPT_EXISTS','DAILY_LIMIT','STORE_CONFLICT','BUDGET_EXHAUSTED','ATTEMPT_BUDGET_EXHAUSTED'].includes(code)?409:503;
         res.status(status).json({code,message:error instanceof StoreError?error.message:'Challenge play is temporarily unavailable. Retry shortly.'});
       });
     };

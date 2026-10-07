@@ -37,15 +37,16 @@ export class OperatorService {
       });
     };
     router.get('/overview',run(async (_req,res) => {
-      const overview: OperatorOverview = { ...await this.store.call('operatorOverview',{}), maxActiveAttempts:this.config.maxActiveAttempts,
-        paidConfigured:this.config.llm.paidEnabled, notifyMode:this.config.notifyMode, reservedNanousd:null };
+      const stored = await this.store.call('operatorOverview',{});
+      const overview: OperatorOverview = { ...stored, reservedNanousd:stored.funding.reservedNanousd, maxActiveAttempts:this.config.maxActiveAttempts,
+        paidConfigured:this.config.llm.paidEnabled, notifyMode:this.config.notifyMode };
       res.json(overview);
     }));
     router.get('/attempts/:id',run(async (req,res) => {
       const found = await this.store.call('operatorAttempt',{id:validId(req.params.id)});
       if (!found) throw new StoreError('STORE_FORBIDDEN','Attempt not found.');
       await this.store.call('recordOperatorAction',{operatorId:operator(res),action:'SPECTATE',target:found.attempt.id,now:this.now()});
-      const detail: OperatorAttemptDetail = { attempt:found.attempt, score:found.score, reports:found.reports, spend:found.spend,
+      const detail: OperatorAttemptDetail = { attempt:found.attempt, score:found.score, reports:found.reports, spend:found.spend, funding:found.funding,
         board:{...publicBoard(found.board),year:found.board.year,season:found.board.season,phase:found.board.phase} };
       res.json(detail);
     }));

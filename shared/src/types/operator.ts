@@ -12,13 +12,16 @@ export interface OperatorNotification {
   id:number; dedupeKey:string; kind:'ATTEMPT_STARTED'|'CREDIT_REQUEST'; payload:Record<string,string|number|null>;
   state:'PENDING'|'SENDING'|'SENT'|'FAILED'; attempts:number; nextAttemptAt:number; createdAt:number; sentAt:number|null; channel:'outbox'|'resend'|null; lastError:string|null;
 }
+/** The cumulative ledger in USD billionths. Settled never decreases; available = ceiling − settled − reserved − unknown liability. */
+export interface OperatorFunding { grantedNanousd:number; ceilingNanousd:number; settledNanousd:number; reservedNanousd:number; unknownLiabilityNanousd:number; availableNanousd:number; attemptCapNanousd:number; grants:number }
 export interface OperatorPaidState { stopped:boolean; episode:number; updatedAt:number|null }
 export interface OperatorOverview {
   activeAttempts:number; maxActiveAttempts:number; attempts:OperatorAttemptRow[]; spend:OperatorSpend;
-  /** Budget reservations arrive with the funded ledger; null means "not tracked yet", never zero. */
-  reservedNanousd:number|null;
+  funding:OperatorFunding;
+  /** Worst-case cost held for calls still in flight (same figure as `funding.reservedNanousd`). */
+  reservedNanousd:number;
   paid:OperatorPaidState; paidConfigured:boolean; notifyMode:'outbox'|'resend';
   outbox:{counts:Record<OperatorNotification['state'],number>;recent:OperatorNotification[]};
   audit:Array<{at:number;operatorId:string;action:string;target:string|null}>;
 }
-export interface OperatorAttemptDetail { attempt:OperatorAttemptRow; board:ChallengeCard['board']; score:{outcome:string;reason:string;completedYear:number|null;achievementIds:readonly string[]}|null; reports:PublicPhaseReport[]; spend:OperatorSpend }
+export interface OperatorAttemptDetail { attempt:OperatorAttemptRow; board:ChallengeCard['board']; score:{outcome:string;reason:string;completedYear:number|null;achievementIds:readonly string[]}|null; reports:PublicPhaseReport[]; spend:OperatorSpend; funding:{settledNanousd:number;heldNanousd:number} }

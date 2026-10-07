@@ -35,7 +35,7 @@ rather than grow. These buckets reset on restart by design; the durable quotas
 above do not. Request bodies are capped at 64 KB.
 
 Sign-in has its own limits in `docs/authentication.md`. Provider concurrency
-and provider queue bounds belong to the funded adapter (DIC-64/66); the store
+and provider queue bounds belong to the funded adapter (DIC-60/66); the store
 already re-checks attempt state, ban, fence and the paid switch on every
 provider `prepare` and `dispatch`.
 

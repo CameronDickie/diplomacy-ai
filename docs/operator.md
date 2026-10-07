@@ -21,10 +21,10 @@ phase inputs, opponent decisions and provider request/response content are never
 returned. Opening an attempt records a `SPECTATE` audit line (one per ten
 minutes per attempt). The player-facing privacy text discloses this view.
 
-Spend is summed directly from `provider_calls`: **known cost** is billed usage
-already recorded; **unresolved liability** is the reserved maximum of every call
-whose usage is still unknown. **Reserved** is reported as `null` ("not tracked
-yet") until the budget ledger (DIC-64) exists; it is never shown as zero.
+The `funding` block comes from the ledger ([funding.md](funding.md)):
+**available**, **settled** (all time), **reserved** (in flight) and **unknown
+liability** (ended without usage), plus the per-attempt cap. `spend` is summed
+from the detailed `provider_calls` rows still retained and adds token counts.
 
 ## What the operator can change
 
@@ -39,8 +39,10 @@ Each running→stopped transition of the paid switch opens a new numbered
 raise a limit, add budget or enable paid play: that remains configuration plus
 the startup interlock.
 
-The switch is the enforcement point DIC-64 should also flip when a budget is
-exhausted, so exhaustion and an operator stop behave identically.
+The ledger flips the same switch when the pool is exhausted or a bill exceeds
+its reservation (audit actions `BUDGET_EXHAUSTED` and `COST_ANOMALY`, operator
+`system`), so exhaustion and an operator stop behave identically. No operator
+route can add funds.
 
 ## Notifications
 

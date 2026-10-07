@@ -101,14 +101,13 @@ the write that closed the attempt; an `ACTIVE` attempt is never removed.
 | Phase jobs (frozen inputs, opponent decisions) and submission receipts | `DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS` (7) | per closed attempt; the result stays readable |
 | Expired or revoked sessions | diagnostic window after expiry/revocation | session rows |
 | Daily start counters, deleted-identity markers | until their UTC day has passed | rows for earlier days |
-| `provider_calls` | **not pruned yet** | — |
+| `provider_calls`, closed reservations | `DIPLOMACY_RECEIPT_RETENTION_DAYS` (90) after the reservation closed | settled or released calls only; a held reservation and its call are never pruned |
 
 `provider_calls` has no owner column and no foreign key to attempts, so it
 survives both cleanup and account deletion as pseudonymous evidence, and a late
-bill still reconciles against it. It is deliberately excluded from cleanup:
-`DIPLOMACY_RECEIPT_RETENTION_DAYS` must only be applied once a cumulative ledger
-(DIC-64) holds known spend and unresolved liabilities independently of the
-detailed rows. Pruning before that would turn cleanup into a refill.
+bill still reconciles against it. Cumulative settled spend and per-attempt totals live in
+the funding ledger ([funding.md](funding.md)), so pruning an old settled receipt
+changes no total and can never act as a refill.
 
 `POST /api/account/delete` with `{"confirm":"DELETE"}` removes the player,
 sessions, attempts (in progress or saved), reports, receipts, phase jobs and
