@@ -96,6 +96,15 @@ identity separation, no raw credentials in backups, session restart/rotation,
 logout/ban/expiry, origins, rate/body bounds, operator separation and revocation
 on an existing socket. Tests never load the developer's `.env` or call providers.
 
+`AccessMatrix.test.ts` is the endpoint-level check. It reads the registered
+routes from the challenge and operator routers and fails if one is missing from
+its table, so a new endpoint cannot ship unclassified. Each route is then called
+as a guest, unknown cookie, expired session, banned player, revoked operator,
+other player, Google identity sharing the operator's subject, operator and owner,
+before and after an API restart, asserting the exact refusal and that no refused
+request changed stored state. An operator has no implicit access to another
+player's attempt routes; operator access goes only through `/api/operator`.
+
 For real-provider verification, start the API with the selected ignored env file,
 local origins, paid AI disabled and notifications in outbox mode. Run the Vite
 client and visit `http://localhost:5173`. Sign in once through each configured
