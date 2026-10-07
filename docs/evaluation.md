@@ -6,13 +6,19 @@ a scripted human, and reports legality, latency, tokens and cost against the
 launch targets. Its durable manifest, phase timings and recovery counters survive
 restarts, so resuming a run reuses committed answers and preserves its evidence.
 
-**Live calibration began October 7, 2026.** The first attempt was interrupted
-after eight committed phases and 46 dispatches by a saved retreat import defect
-(fixed in PR35). The incomplete sample missed the phase latency target. It does
-not establish full-attempt cost, objective success or release readiness. Its
-private ledger retains actual bills and uncertain liabilities; resume the same
-run instead of initializing a replacement allowance. Mock results below remain
-stand-in evidence only.
+**First live baseline completed October 7, 2026.** One v2 attempt of the
+Tunis development pilot finished with objective failure. Its private ledger
+reconciled and retained uncertain billed liabilities. The conservative cost
+target passed; phase latency and unusable-call targets missed. One attempt is
+indicative only: the sequential preset is a **no-go for public sponsored play**
+until improved and measured again. Detailed measurements and financial records
+remain in the private operator report.
+
+The v3 harness fixes scripted adjustment selection: it uses legal structured
+build/disband defaults rather than selecting every empty home or parsing display
+copy. The policy version changes deliberately. A v2 run cannot be adopted by
+v3; keep its completed evidence and use a new run ID in the **same funded ledger**
+for a new policy sample. No new allowance is implied.
 
 ## Mock run (no key, no network)
 

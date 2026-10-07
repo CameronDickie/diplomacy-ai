@@ -33,7 +33,7 @@ test('a mock run needs no key, plays whole attempts, reconciles to the ledger an
   const first=await evaluate(a.base(mockLunaTransport({pick:'seeded',seed:5}))),second=await evaluate(b.base(mockLunaTransport({pick:'seeded',seed:5})));
   assert.equal(stable(first),stable(second));
   assert.deepEqual(first.manifest,{runId:'run-a',transport:'mock',scenario:'tunis-expedition',scenarioVersion:1,script:'early-capture',seed:5,presetId:LUNA_PRESET.id,pricingVersion:LUNA_PRESET.pricingVersion,
-    contextVersion:'luna-context-v1',model:'gpt-6-luna',attemptsRequested:2,maxRecoveries:2,fixtureHash:first.manifest.fixtureHash,presetHash:first.manifest.presetHash,harnessVersion:'luna-evaluation-v2',timingPolicy:'wall-submission-commit-v1'});
+    contextVersion:'luna-context-v1',model:'gpt-6-luna',attemptsRequested:2,maxRecoveries:2,fixtureHash:first.manifest.fixtureHash,presetHash:first.manifest.presetHash,harnessVersion:'luna-evaluation-v3',timingPolicy:'wall-submission-commit-v1'});
   assert.equal(first.attempts.length,2);
   for(const attempt of first.attempts){
     // Each attempt ran to a scored end, not just one phase.
@@ -243,4 +243,14 @@ test('interrupted reports retain observed latency misses and uncertain billed li
   assert.equal(totals.settledNanousd,report.summary.settledNanousd);
   assert.equal(totals.unknownLiabilityNanousd+totals.reservedNanousd,report.summary.heldNanousd);
   assert.equal(report.ledger.reconciles,true);
+});
+
+
+test('the legal-adjustments policy refuses to adopt an original v2 run before dispatch',async t=>{
+  const source=await setup(t),first=await evaluate(source.base(mockLunaTransport(),{attempts:1}));
+  const {attemptsRequested,...manifest}=first.manifest;
+  const old=await setup(t);await old.store.call('registerEvaluationRun',{manifest:{...manifest,harnessVersion:'luna-evaluation-v2'},now:1});
+  let dispatched=0;const mock=mockLunaTransport(),transport:LunaTransport=async request=>{dispatched++;return mock(request);};
+  await assert.rejects(evaluate(old.base(transport)),{code:'STORE_CONFLICT'});
+  assert.equal(dispatched,0);assert.equal((await old.store.call('fundingTotals',{})).settledNanousd,0);
 });

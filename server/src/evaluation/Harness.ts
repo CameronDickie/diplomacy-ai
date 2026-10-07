@@ -1,12 +1,9 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import type { Power } from '@diplomacy/shared';
 import { AttemptService } from '../attempts/AttemptService.js';
 import { PhaseRules } from '../attempts/PhaseRules.js';
-import type { PhaseAction } from '../attempts/types.js';
 import { canonicalJson } from '../fixtures/BoardFixture.js';
 import { challengeDefinition, importScenario, type ScenarioFixture } from '../fixtures/ScenarioFixture.js';
-import { buildChoices, retreatChoices } from '../luna/Choices.js';
 import { CONTEXT_VERSION } from '../luna/Context.js';
 import { LunaDecisionProvider } from '../luna/LunaDecisionProvider.js';
 import type { LunaTransport } from '../luna/Transport.js';
@@ -14,6 +11,7 @@ import { LUNA_PRESET, lunaReservationNanousd } from '../providers/LunaPreset.js'
 import type { Store } from '../storage/Store.js';
 import { hashToken } from '../storage/Store.js';
 import type { EvaluationManifest, EvaluationPhase, StoredAttempt } from '../storage/contracts.js';
+import { scriptedHumanAction } from './ScriptedPlayer.js';
 
 /** Launch targets from the release plan. They are reported against, never adjusted to fit a result. */
 export const TARGETS = { meanAttemptCostNanousd: 1_000_000_000, phaseP95Ms: 30_000, retryOrFailureRate: 0.05 } as const;
@@ -62,16 +60,6 @@ async function loadScenario(name: string, version: number): Promise<ScenarioFixt
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) throw new Error('Unknown scenario.');
   return importScenario(JSON.parse(await readFile(new URL(`../../fixtures/development/${name}.v${version}.json`,import.meta.url),'utf8')));
 }
-/** The scripted human: the witness's orders for this turn where still legal, HOLD elsewhere; never dithers on retreats or builds. */
-async function humanAction(rules: PhaseRules, attempt: StoredAttempt, human: Power, fixture: ScenarioFixture, script: string): Promise<PhaseAction> {
-  const board = attempt.board;
-  if (board.phase === 'RETREATS') { const set = retreatChoices(board,human); return set ? set.toAction(set.groups.map(g => g.choices.at(-1)!)) : { phase: 'RETREATS', retreats: {} }; }
-  if (board.phase === 'BUILDS') { const set = buildChoices(board,human); return set ? set.toAction(/exactly (\d+)/.test(set.rule) ? set.choices.slice(0,Number(/exactly (\d+)/.exec(set.rule)![1])).map((_,i) => i) : set.groups.map(g => g.choices[0])) : { phase: 'BUILDS', builds: [], disbands: [] }; }
-  const legal = await rules.legal(board,human,new AbortController().signal), step = fixture.witnesses.find(w => w.name === script)?.steps.find(s => s.phase === 'ORDERS' && s.year === board.year && s.season === board.season);
-  const wanted = step && step.phase === 'ORDERS' ? step.orders : [];
-  return { phase: 'ORDERS', orderIds: board.units.filter(u => u.power === human && !u.mustRetreat).map(u =>
-    legal.find(o => o.unitTerritory === u.territory && wanted.includes(o.id))?.id ?? legal.find(o => o.unitTerritory === u.territory && o.order.type === 'HOLD')!.id) };
-}
 
 /**
  * Plays sponsored attempts end to end through the same ledger, provider and rules engine the game
@@ -91,7 +79,7 @@ export async function evaluate(options: EvaluationOptions): Promise<EvaluationRe
   const manifest=await store.call('registerEvaluationRun',{manifest:{runId,transport:options.transportKind,scenario:definition.id,scenarioVersion:definition.version,
     fixtureHash:createHash('sha256').update(canonicalJson(fixture)).digest('hex'),script:options.script,seed:options.seed??null,
     presetId:LUNA_PRESET.id,pricingVersion:LUNA_PRESET.pricingVersion,presetHash:createHash('sha256').update(canonicalJson(LUNA_PRESET)).digest('hex'),
-    contextVersion:CONTEXT_VERSION,model:LUNA_PRESET.model,harnessVersion:'luna-evaluation-v2',timingPolicy:'wall-submission-commit-v1',maxRecoveries},now:now()});
+    contextVersion:CONTEXT_VERSION,model:LUNA_PRESET.model,harnessVersion:'luna-evaluation-v3',timingPolicy:'wall-submission-commit-v1',maxRecoveries},now:now()});
   const content = { definition, board: fixture.board };
   await store.call('registerChallenge',{ ...content, hash: createHash('sha256').update(canonicalJson(content)).digest('hex'), now: now() });
   const player = await store.call('identity',{ provider: 'github', subject: `evaluation-${runId}`, displayName: 'Evaluation harness', now: now() });
@@ -118,7 +106,7 @@ export async function evaluate(options: EvaluationOptions): Promise<EvaluationRe
         for (let guard = 0; attempt!.lifecycle === 'ACTIVE' && guard < 120; guard++) {
           const before: StoredAttempt = attempt!;
           if (before.execution === 'ACCEPTING') {
-            const action = await humanAction(rules,before,definition.humanPower,fixture,options.script);
+            const action = await scriptedHumanAction(rules,before.board,definition.humanPower,fixture,options.script);
             await service.submit({ attemptId: id, playerId: player.id, revision: before.revision, phaseId: before.phaseId, requestId: `eval-${before.revision}`, action });
           } else {
             // Interrupted earlier, or an opponent decision failed: an explicit, counted recovery.

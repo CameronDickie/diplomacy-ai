@@ -156,3 +156,26 @@ test('recent public results are included when they fit and are the first thing d
   const tight = lunaPrompt(j,'FRANCE',[...legal,...flood],report as never)!;
   assert.equal(tight.measured.recentLines,0);assert.ok(!tight.context.includes('PUBLIC-RESULT-'));
 });
+
+
+test('scripted adjustment indices respect build delta rather than the number of empty home centers',async()=>{
+  const winter=await job('winter-build','TURKEY'),board=structuredClone(winter.board);
+  // Three centers, two armies, but two empty homes: only one build is allowed.
+  board.units.find(u=>u.power==='FRANCE'&&u.territory==='MAR')!.territory='BUR';
+  const set=buildChoices(board,'FRANCE')!;assert.equal(set.groups.length,2);
+  assert.throws(()=>set.toAction(set.groups.map(g=>g.choices[0])),ChoiceError);
+  assert.equal(set.defaultIndices.length,1);
+  const action=set.toAction(set.defaultIndices);assert.equal(action.phase,'BUILDS');
+  assert.ok(action.phase==='BUILDS'&&action.builds.length===1&&action.disbands.length===0);
+  await rules.validate(board,'FRANCE',action,signal());
+  // The algorithm does not parse presentation copy for selection counts.
+  set.rule='Translated display text';await rules.validate(board,'FRANCE',set.toAction(set.defaultIndices),signal());
+  await rules.validate(board,'FRANCE',set.toAction([]),signal());
+  board.territoryOwners.BRE=null;assert.equal(buildChoices(board,'FRANCE'),null,'zero adjustment');
+  board.territoryOwners.MAR=null;
+  const disband=buildChoices(board,'FRANCE')!;assert.equal(disband.defaultIndices.length,1);
+  await rules.validate(board,'FRANCE',disband.toAction(disband.defaultIndices),signal());
+  board.territoryOwners.PAR=null;
+  const all=buildChoices(board,'FRANCE')!;assert.equal(all.defaultIndices.length,2);
+  await rules.validate(board,'FRANCE',all.toAction(all.defaultIndices),signal());
+});

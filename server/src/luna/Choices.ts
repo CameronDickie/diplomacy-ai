@@ -17,6 +17,10 @@ export interface ChoiceSet {
   coverage: { listed: number; total: number };
   toAction(indices: readonly number[]): PhaseAction;
 }
+/** A deterministic legal adjustment for scripted play, independent of the display rule. */
+export interface AdjustmentChoiceSet extends ChoiceSet {
+  defaultIndices: readonly number[];
+}
 export class ChoiceError extends Error { constructor(message: string) { super(message); this.name = 'ChoiceError'; } }
 
 const unitLabel = (type: string, territory: string, coast: string | null) => `${type === 'ARMY' ? 'A' : 'F'} ${territory}${coast ? `/${coast}` : ''}`;
@@ -82,7 +86,7 @@ export function retreatChoices(board: BoardFixture, power: Power): ChoiceSet | n
 }
 
 /** Adjustments: up to `delta` builds in distinct home centers, or exactly `-delta` disbands. */
-export function buildChoices(board: BoardFixture, power: Power): ChoiceSet | null {
+export function buildChoices(board: BoardFixture, power: Power): AdjustmentChoiceSet | null {
   const delta = adjustment(board,power);
   if (delta === 0) return null;
   const choices: Choice[] = [];
@@ -90,7 +94,7 @@ export function buildChoices(board: BoardFixture, power: Power): ChoiceSet | nul
     const units = board.units.filter(u => u.power === power).sort((a,b) => a.id.localeCompare(b.id)), need = -delta;
     for (const unit of units) choices.push({ group: unit.id, label: `disband ${unitLabel(unit.type,unit.territory,unit.coast)}` });
     return { power, phase: 'BUILDS', rule: `Pick exactly ${need} number${need === 1 ? '' : 's'}: the unit${need === 1 ? '' : 's'} to disband.`,
-      groups: [{ id: 'disband', label: 'Disband', choices: choices.map((_,i) => i) }], choices, coverage: { listed: choices.length, total: choices.length },
+      groups: [{ id: 'disband', label: 'Disband', choices: choices.map((_,i) => i) }], choices, defaultIndices: units.slice(0,need).map((_,i)=>i), coverage: { listed: choices.length, total: choices.length },
       toAction(indices) {
         const picked = distinct(indices,choices.length);
         if (picked.length !== need) throw new ChoiceError(`Exactly ${need} units must be disbanded.`);
@@ -110,7 +114,7 @@ export function buildChoices(board: BoardFixture, power: Power): ChoiceSet | nul
   const allowed = Math.min(delta,homes.length);
   // Nothing can be built: the only legal adjustment is to waive, so there is nothing to ask.
   if (!allowed) return null;
-  return { power, phase: 'BUILDS', rule: `Pick up to ${allowed} number${allowed === 1 ? '' : 's'}, at most one per home center. An empty list waives your builds.`, groups, choices,
+  return { power, phase: 'BUILDS', rule: `Pick up to ${allowed} number${allowed === 1 ? '' : 's'}, at most one per home center. An empty list waives your builds.`, groups, choices, defaultIndices: groups.slice(0,allowed).map(g=>g.choices[0]),
     coverage: { listed: choices.length, total: choices.length },
     toAction(indices) {
       const picked = distinct(indices,choices.length);
