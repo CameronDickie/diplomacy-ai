@@ -3,12 +3,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { RuntimeConfig } from '../../../config/runtime.cjs';
 import type { ChallengeCard, ChallengeAttemptView, ChallengeCatalog, ChallengeReplay } from '@diplomacy/shared';
+import { featuredSlot, parseRotation, type RotationManifest } from './Catalog.js';
 import { AuthService, type Principal } from '../auth.js';
 import { Store } from '../storage/Store.js';
 import { StoreError, type StoredAttempt } from '../storage/contracts.js';
 import { publicBoard, publicReplay } from '../storage/publicData.js';
 import { canonicalJson, FixtureError, fixtureSchema as schema } from '../fixtures/BoardFixture.js';
-import { importScenario, challengeDefinition, playWitness } from '../fixtures/ScenarioFixture.js';
+import { importScenario, challengeDefinition, playWitness, type ScenarioFixture } from '../fixtures/ScenarioFixture.js';
 import type { ChallengeDefinition } from './TunisPilot.js';
 import { AttemptService, offlineDecisions } from '../attempts/AttemptService.js';
 import { PhaseRules } from '../attempts/PhaseRules.js';
@@ -18,8 +19,9 @@ const HISTORY_PAGE=20;
 export class ChallengeService {
   readonly attempts: AttemptService;
   private rules = new PhaseRules();
-  private cards: ChallengeCard[] = [];
-  private demo: ChallengeReplay | undefined;
+  private rotation!: RotationManifest;
+  private catalog: Array<{card:ChallengeCard;fixture:ScenarioFixture}> = [];
+  private replays = new Map<string,Promise<ChallengeReplay>>();
   private sweepTimer?: NodeJS.Timeout;
   private sweeping?: Promise<void>;
   private nextRetention = 0;
@@ -32,19 +34,39 @@ export class ChallengeService {
   }
   static async open(store:Store,config:RuntimeConfig,now=Date.now):Promise<ChallengeService> {
     const service=new ChallengeService(store,config,now);
-    const fixture=await importScenario(JSON.parse(await readFile(new URL('../../fixtures/development/tunis-expedition.v1.json',import.meta.url),'utf8')));
-    const definition=challengeDefinition(fixture)!;
-    const content={definition,board:fixture.board};
-    await store.call('registerChallenge',{...content,hash:createHash('sha256').update(canonicalJson(content)).digest('hex'),now:now()});
-    const card=service.card(definition,fixture.board);service.cards=[card];
-    const played=await playWitness(fixture,'early-capture',true);service.demo=publicReplay(card,played.reports!);
+    const load=async(path:string)=>JSON.parse(await readFile(new URL(`../../fixtures/${path}`,import.meta.url),'utf8'));
+    service.rotation=parseRotation(await load('rotation/development.v1.json'));
+    for(const entry of service.rotation.entries){
+      const fixture=await importScenario(await load(`development/${entry.id}.v${entry.version}.json`)),definition=challengeDefinition(fixture);
+      if(!definition||fixture.id!==entry.id||fixture.version!==entry.version)throw Error('Rotation entry does not match a scored scenario fixture.');
+      const content={definition,board:fixture.board};
+      await store.call('registerChallenge',{...content,hash:createHash('sha256').update(canonicalJson(content)).digest('hex'),now:now()});
+      service.catalog.push({card:service.card(definition,fixture.board),fixture});
+    }
+    // Today's reference run is packaged before serving; the others are built on first use and cached.
+    await service.replay(service.featured().entry);
     await service.sweep();
     await service.attempts.recover();
     service.sweepTimer=setInterval(()=>{void service.sweep().catch(()=>{});},10_000);service.sweepTimer.unref();
     return service;
   }
+  private featured() {
+    const slot=featuredSlot(this.rotation,this.now());
+    return {slot,entry:this.catalog[slot.index]};
+  }
+  private replay(entry:{card:ChallengeCard;fixture:ScenarioFixture}):Promise<ChallengeReplay> {
+    const key=`${entry.card.id}@${entry.card.version}`;
+    let packaged=this.replays.get(key);
+    if(!packaged){
+      packaged=playWitness(entry.fixture,'early-capture',true).then(played=>publicReplay(entry.card,played.reports!));
+      this.replays.set(key,packaged);
+      // A failed build is not cached, so the next request can try again.
+      packaged.catch(()=>{if(this.replays.get(key)===packaged)this.replays.delete(key);});
+    }
+    return packaged;
+  }
   private card(definition:ChallengeDefinition,board:StoredAttempt['board']):ChallengeCard {
-    return {id:definition.id,version:definition.version,title:definition.title,objectiveText:definition.objectiveText,humanPower:definition.humanPower,
+    return {id:definition.id,version:definition.version,title:definition.title,objectiveText:definition.objectiveText,humanPower:definition.humanPower,targetTerritory:definition.objective.territory,
       deadlineYear:definition.objective.deadlineYear,earlyAchievementYear:definition.earlyAchievementYear,
       label:'DEVELOPMENT_PILOT',mode:'PRACTICE',opponentLabel:'Offline practice · hold-only opponents',
       board:{...publicBoard(board),year:board.year,season:board.season,phase:board.phase}};
@@ -100,7 +122,8 @@ export class ChallengeService {
     // Public GETs make no session or provider call; the catalog adds two counters so availability is honest.
     router.get('/challenges',this.limits.address('public'),run(async(_req,res)=>{
       const [active,paid]=await Promise.all([this.store.call('activeAttempts',{}),this.store.call('paidState',{})]);
-      const catalog:ChallengeCatalog={challenges:this.cards,sponsoredPlay:!this.config.llm.paidEnabled?'NOT_OFFERED':paid.stopped?'PAUSED':'OPEN',
+      const {slot,entry}=this.featured();
+      const catalog:ChallengeCatalog={challenges:[entry.card],rotation:{id:this.rotation.id,version:this.rotation.version,label:'DEVELOPMENT_ROTATION',day:slot.day,index:slot.index,size:this.catalog.length,nextChangeAt:slot.nextChangeAt},sponsoredPlay:!this.config.llm.paidEnabled?'NOT_OFFERED':paid.stopped?'PAUSED':'OPEN',
         capacity:active.length>=this.config.maxActiveAttempts?'FULL':'OPEN',limits:{maxActiveAttempts:this.config.maxActiveAttempts,maxActivePerAccount:this.config.maxActivePerAccount,
         dailyStartLimit:this.config.dailyStartLimit,idleWarnMinutes:this.config.idleWarnMinutes,idleExpireMinutes:this.config.idleExpireMinutes,resultRetentionDays:this.config.resultRetentionDays}};
       res.json(catalog);
@@ -111,7 +134,7 @@ export class ChallengeService {
       if(!this.config.llm.paidEnabled)throw new StoreError('STORE_CONFLICT','Sponsored play is not offered yet, so there is nothing to request.');
       res.json(await this.store.call('requestCredit',{playerId:player(res),now:this.now()}));
     }));
-    router.get('/challenges/demo',this.limits.address('public'),run(async(_req,res)=>{res.json(this.demo);}));
+    router.get('/challenges/demo',this.limits.address('public'),run(async(_req,res)=>{res.json(await this.replay(this.featured().entry));}));
     router.get('/attempts',guarded('read'),run(async(req,res)=>{
       const cursor=typeof req.query.before==='string'?/^(\d{1,16})\.([-A-Za-z0-9_]{1,100})$/.exec(req.query.before):null;
       if(req.query.before!==undefined&&!cursor)throw new StoreError('STORE_INVALID','Reload your attempt history.');
@@ -129,11 +152,12 @@ export class ChallengeService {
     router.post('/attempts',guarded('start'),run(async(req,res)=>{
       const body=schema.fields(req.body,['requestId','challengeId','challengeVersion'],'start');
       if(typeof body.requestId!=='string'||!/^[-a-zA-Z0-9_]{1,100}$/.test(body.requestId))throw new StoreError('STORE_INVALID','A valid start request ID is required.');
-      const selected=this.cards.find(c=>c.id===body.challengeId && c.version===body.challengeVersion);
+      // A page left open across midnight UTC still holds yesterday's card: its accepted start can be replayed, nothing new begins.
+      const featured=this.featured().entry.card,selected=this.catalog.find(e=>e.card.id===body.challengeId&&e.card.version===body.challengeVersion)?.card;
       if(!selected)throw new StoreError('STORE_INVALID','Choose a challenge from the current catalog.');
       await this.sweep();
       const attempt=await this.store.call('admitAttempt',{id:randomUUID(),playerId:player(res),requestId:body.requestId,challengeId:selected.id,challengeVersion:selected.version,
-        now:this.now(),maxActive:this.config.maxActiveAttempts,maxPerAccount:this.config.maxActivePerAccount,dailyLimit:this.config.dailyStartLimit});
+        now:this.now(),maxActive:this.config.maxActiveAttempts,maxPerAccount:this.config.maxActivePerAccount,dailyLimit:this.config.dailyStartLimit,replayOnly:selected!==featured});
       res.json(await this.view(attempt));
     }));
     router.get('/attempts/:id',guarded('read'),run(async(req,res)=>{res.json(await this.view(await this.owned(req.params.id,player(res))));}));

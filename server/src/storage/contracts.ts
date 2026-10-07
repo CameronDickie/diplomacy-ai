@@ -69,7 +69,7 @@ export interface StoreOperations {
   providerCall: { input: { id:string }; output: ProviderCallRecord|null };
   providerCallsForOperation: { input: { operationId:string }; output: ProviderCallRecord[] };
   providerCallTotals: { input: { operationId:string }; output: ProviderTotals };
-  admitAttempt: { input: { id:string; playerId:string; requestId:string; challengeId:string; challengeVersion:number; now:number; maxActive:number; maxPerAccount:number; dailyLimit:number }; output: StoredAttempt };
+  admitAttempt: { input: { id:string; playerId:string; requestId:string; challengeId:string; challengeVersion:number; now:number; maxActive:number; maxPerAccount:number; dailyLimit:number; replayOnly?:boolean }; output: StoredAttempt };
   ownedAttempts: { input: { playerId:string; before?:{createdAt:number;id:string}; limit?:number }; output: StoredAttempt[] };
   sweepRetention: { input: { now:number; resultBefore:number; diagnosticBefore:number; limit:number }; output: { attempts:number; diagnostics:number; sessions:number; more:boolean } };
   deleteAccount: { input: { playerId:string; now:number }; output: { sessions:string[]; attempts:number } };

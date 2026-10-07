@@ -35,6 +35,7 @@ async function setup(t:test.TestContext){
     await store.call('createSession',{tokenHash,playerId:player.id,now,expiresAt:now+7*DAY});return {player,cookie,tokenHash};
   }
   const start=(requestId:string)=>({requestId,challengeId:'tunis-expedition',challengeVersion:1});
+  const today=async(requestId:string)=>{const card=(await (await request('/challenges')).json()).challenges[0];return {requestId,challengeId:card.id as string,challengeVersion:card.version as number};};
   async function play(cookie:string,requestId:string){
     const attempt=await (await request('/attempts',cookie,start(requestId))).json() as ChallengeAttemptView;
     const legal=await (await request(`/attempts/${attempt.id}/legal`,cookie)).json() as ChallengeLegalCatalog;
@@ -43,7 +44,7 @@ async function setup(t:test.TestContext){
   }
   const count=(table:string,where='1=1')=>{const db=new DatabaseSync(path,{readOnly:true});try{return Number(db.prepare(`SELECT count(*) n FROM ${table} WHERE ${where}`).get()!.n);}finally{db.close();}};
   t.after(async()=>{await new Promise<void>(done=>server.close(()=>done()));await service.close();await store.close();await rm(dir,{recursive:true,force:true});});
-  return {dir,path,store,service,auth,request,user,start,play,count,config,now:()=>now,advance:(ms:number)=>{now+=ms;}};
+  return {dir,path,store,service,auth,request,user,start,today,play,count,config,now:()=>now,advance:(ms:number)=>{now+=ms;}};
 }
 
 test('retention removes diagnostics then results exactly at their boundaries, never an active attempt',async t=>{
@@ -148,7 +149,7 @@ test('account deletion removes identity, sessions and private history, keeps tod
   assert.equal((await (await f.request('/attempts',third.cookie,f.start('third-1'))).json()).code,'DAILY_LIMIT');
   assert.equal(f.count('deleted_identities'),1);
   f.advance(DAY+3_600_000);
-  assert.equal((await f.request('/attempts',third.cookie,f.start('tomorrow'))).status,200);
+  assert.equal((await f.request('/attempts',third.cookie,await f.today('tomorrow'))).status,200);
   assert.equal(f.count('deleted_identities'),0);
   // A ban outlives its account: a banned identity cannot erase itself.
   await f.service.attempts.banPlayer(other.player.id);

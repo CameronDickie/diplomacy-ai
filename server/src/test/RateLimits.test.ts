@@ -31,8 +31,9 @@ async function setup(t:test.TestContext,extra:Record<string,string>={}){
     return {player,cookie:await session(),session};
   }
   const start=(requestId:string)=>({requestId,challengeId:'tunis-expedition',challengeVersion:1});
+  const today=async(requestId:string)=>{const card=(await (await request('/challenges')).json()).challenges[0];return {requestId,challengeId:card.id as string,challengeVersion:card.version as number};};
   t.after(async()=>{await new Promise<void>(done=>server.close(()=>done()));await operator.close();await service.close();await store.close();await rm(dir,{recursive:true,force:true});});
-  return {store,service,request,user,start,config,now:()=>now,advance:(ms:number)=>{now+=ms;}};
+  return {store,service,request,user,start,today,config,now:()=>now,advance:(ms:number)=>{now+=ms;}};
 }
 const limited=async(response:Response)=>{
   assert.equal(response.status,429);const body=await response.json();
@@ -86,7 +87,7 @@ test('start bursts get a typed retry, cannot be evaded with a new session or for
   f.advance(Date.parse('2027-01-01T23:59:59.999Z')-f.now());
   assert.equal((await (await f.request('/attempts',a.cookie,f.start('start-5'))).json()).code,'DAILY_LIMIT');
   f.advance(1);
-  assert.equal((await f.request('/attempts',a.cookie,f.start('start-6'))).status,200);
+  assert.equal((await f.request('/attempts',a.cookie,await f.today('start-6'))).status,200);
 });
 
 test('command and legal-catalog bursts are limited per account while a duplicate order retry returns its receipt',async t=>{

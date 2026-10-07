@@ -67,3 +67,47 @@ attempts start, and preserve prior definitions for replay. Do not generate or
 silently revise the official scenario during a day. See [portable JSON
 fixtures](board-fixtures.md) for local commands to validate, play and export
 these fixed development scenarios.
+
+## Development rotation (implemented)
+
+`server/fixtures/rotation/development.v1.json` lists pinned scenario
+id/version pairs and an `epochDay`. `featuredSlot` in
+`server/src/challenge/Catalog.ts` is a pure function of that manifest and the
+clock: `(UTC day number − epoch day number) mod entries`, wrapping backwards for
+earlier dates. The same instant therefore features the same scenario version on
+every server and after every restart, and the change happens exactly at
+00:00:00.000 UTC, the same boundary as the per-account daily start allowance.
+
+| Slot | Scenario | Power | Target | Deadline / early |
+| -- | -- | -- | -- | -- |
+| 0 | `tunis-expedition` v1 | Turkey | Tunis | Fall 1903 / 1902 |
+| 1 | `belgian-landing` v1 | England | Belgium | Fall 1902 / 1901 |
+| 2 | `iberian-march` v1 | France | Portugal | Fall 1902 / 1901 |
+| 3 | `adriatic-descent` v1 | Austria | Greece | Fall 1902 / 1901 |
+| 4 | `danish-straits` v1 | Germany | Denmark | Fall 1902 / 1901 |
+| 5 | `sicilian-crossing` v1 | Italy | Tunis | Fall 1902 / 1901 |
+
+Behaviour:
+
+- `GET /api/challenges` returns only the featured card plus a `rotation` block
+  (`day`, `index`, `size`, `nextChangeAt`, label `DEVELOPMENT_ROTATION`).
+  `GET /api/challenges/demo` serves that scenario's `early-capture` witness.
+- Only the featured scenario can be started. A start naming another catalog
+  entry is refused with `409` ("the featured challenge has changed"), except
+  that a retry of an already accepted start still returns its attempt.
+- An attempt stores its challenge id and version, so one begun before midnight
+  keeps its board, objective, deadline and scorer afterwards and across restart.
+- Every scenario is registered at startup under its content hash; editing a
+  shipped fixture is rejected, so a change needs a new version and a new
+  manifest version.
+
+These five extra scenarios are AI-generated development fixtures that reuse the
+standard 1901 opening with a different power and target. Against hold-only
+practice opponents each is winnable in one game year; they exist to exercise
+rotation, pinning and scoring, not as balanced content. Their success and
+deadline witnesses run in `BoardFixture.test.ts` and `Rotation.test.ts`.
+
+**This is not the public daily schedule.** The UI labels it "Development
+rotation" and never "daily". Publishing a daily label still needs the owner's
+approved catalog (replace the manifest and fixtures with a new version), live
+quality evidence from DIC-68 and the DIC-72 release gate.

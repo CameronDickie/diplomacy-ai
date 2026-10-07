@@ -42,11 +42,13 @@ export function ChallengeApp(){
     {operatorView&&game.auth.operator?<OperatorPanel/>:<div className="challenge-layout">
       <aside className="challenge-brief">
         <span className="challenge-badge">Development pilot · {replay?(replay.reference?'Reference replay':'Your replay'):'Offline practice'}</span>
-        <h2>Your mission</h2><p>{card?.objectiveText}</p>
+        <h2>Your mission</h2>{card&&<p>As {title(card.humanPower)}, own {territoryName(card.targetTerritory)} after Fall {card.deadlineYear} or sooner.</p>}
         <p>Own the supply center after a settled Fall turn, no later than Fall {card?.deadlineYear}. Moving there in Spring is not enough.</p>
+        {card&&board&&<Progress card={card} board={board} live={a?.lifecycle==='ACTIVE'}/>}
         <div className="challenge-achievement"><strong>Early capture</strong><span>Complete by Fall {card?.earlyAchievementYear}.</span></div>
         <p>{card?.opponentLabel}. No paid model is used in this practice mode.</p>
-        {!a||a.lifecycle!=='ACTIVE'?<button className="primary" disabled={!game.auth.authenticated||game.busy||!card} onClick={()=>card&&void game.start(card)}>Start practice</button>:<>
+        {game.rotation&&(!a||a.lifecycle!=='ACTIVE')&&<p className="muted">Development rotation: challenge {game.rotation.index+1} of {game.rotation.size} for {game.rotation.day} UTC. {game.cards[0]&&a&&a.challenge.id!==game.cards[0].id?`The current challenge is now ${game.cards[0].title}. `:''}The next one starts in {untilChange(game.rotation.nextChangeAt,clock)}.</p>}
+        {!a||a.lifecycle!=='ACTIVE'?<button className="primary" disabled={!game.auth.authenticated||game.busy||!game.cards[0]} onClick={()=>game.cards[0]&&void game.start(game.cards[0])}>{a&&game.cards[0]&&a.challenge.id!==game.cards[0].id?`Start ${game.cards[0].title}`:'Start practice'}</button>:<>
           <div className="challenge-phase">{a.board.year} {a.board.season} · {a.board.phase}</div>
           <p role="status">{a.execution==='ACCEPTING'?'Your move':a.execution==='RECOVERING'?'Your orders are saved. Processing needs recovery.':'Your orders are saved. Resolving this phase…'}</p>
           {a.execution==='RECOVERING'&&<button onClick={()=>void game.recover()} disabled={game.busy}>Recover saved phase</button>}
@@ -105,6 +107,16 @@ export function ChallengeApp(){
     </div>}
   </main>;
 }
+const title=(power:string)=>power[0]+power.slice(1).toLowerCase();
+function untilChange(at:number,now:number){const minutes=Math.max(0,Math.ceil((at-now)/60_000));return minutes>=60?`${Math.floor(minutes/60)}h ${minutes%60}m`:`${minutes}m`;}
+/** Where the objective stands on the board being shown; ownership only moves after a settled Fall. */
+function Progress({card,board,live}:{card:ChallengeCard;board:ChallengeCard['board'];live:boolean}){
+  const owner=board.territoryOwners[card.targetTerritory]??null,there=board.units.find(u=>u.territory===card.targetTerritory);
+  const falls=Math.max(0,card.deadlineYear-board.year+(board.season==='WINTER'?0:1));
+  return <div className="challenge-progress" role="status"><strong>{territoryName(card.targetTerritory)}</strong>
+    <span>{owner===card.humanPower?'Yours':owner?`Owned by ${title(owner)}`:'Unowned'}{there?` · ${there.power===card.humanPower?'your':`${title(there.power)}’s`} ${there.type.toLowerCase()} is there`:''}</span>
+    {live&&<span>{falls===0?'The deadline has passed.':`${falls} Fall turn${falls===1?'':'s'} left, through Fall ${card.deadlineYear}`}</span>}</div>;
+}
 function Outcome({attempt,limits}:{attempt:ChallengeAttemptView;limits:ChallengeLimits|null}){
   const score=attempt.score;
   return <section className="challenge-outcome" aria-label="Attempt result"><h2>{score?.outcome==='SUCCESS'?'Objective complete':attempt.lifecycle==='EXPIRED'?'Attempt expired':attempt.lifecycle==='ABANDONED'?'Attempt abandoned':score?.outcome==='FAILURE'?'Challenge finished':'Attempt stopped'}</h2>
@@ -114,7 +126,7 @@ function Outcome({attempt,limits}:{attempt:ChallengeAttemptView;limits:Challenge
     <p>This was offline practice. Your phase reports are saved{limits?` for ${limits.resultRetentionDays} days`:''}.</p></section>;
 }
 function Guide({card,limits,open}:{card:ChallengeCard;limits:ChallengeLimits|null;open:boolean}){
-  const power=card.humanPower[0]+card.humanPower.slice(1).toLowerCase(),n=(count:number,noun:string)=>`${count} ${noun}${count===1?'':'s'}`;
+  const power=title(card.humanPower),n=(count:number,noun:string)=>`${count} ${noun}${count===1?'':'s'}`;
   // The parent re-renders every second; keep the reader's own toggle until play starts or ends.
   const [shown,setShown]=useState(open);
   useEffect(()=>setShown(open),[open]);
@@ -134,6 +146,6 @@ function Guide({card,limits,open}:{card:ChallengeCard;limits:ChallengeLimits|nul
     <h3>Privacy</h3>
     <p>Signing in stores your Google or GitHub account identifier and display name, and accounts are never linked by email. Your attempts are visible only to you. The site operator can view attempt boards, settled reports and capacity to run the service.</p>
     <p>You can delete your account at any time under “Your account”. That removes your identity, sessions and attempts; anonymous usage and cost records with no link to you are kept for accounting.</p>
-    <p className="muted">Development pilot: an AI-generated test scenario. A public daily schedule has not been announced.</p>
+    <p className="muted">Development pilot: AI-generated test scenarios that rotate at midnight UTC so the rotation itself can be tested. An attempt keeps the challenge it started with. A public daily schedule has not been announced.</p>
   </details>;
 }

@@ -176,6 +176,8 @@ async function handle(request: StoreRequest): Promise<unknown> {
         if (prior.challenge_id !== input.challengeId || prior.challenge_version !== input.challengeVersion) conflict('Start request ID was already used for another challenge.');
         return getAttempt(String(prior.attempt_id));
       }
+      // The challenge is no longer featured: an earlier accepted start may be replayed, a new one may not begin.
+      if (input.replayOnly) conflict('The featured challenge has changed. Reload to see the current one.');
       const active = (playerId?: string) => Number((playerId
         ? db.prepare("SELECT count(*) AS n FROM attempts WHERE lifecycle='ACTIVE' AND player_id=?").get(playerId)
         : db.prepare("SELECT count(*) AS n FROM attempts WHERE lifecycle='ACTIVE'").get())!.n);

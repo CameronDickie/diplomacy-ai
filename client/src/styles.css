@@ -1529,3 +1529,6 @@ fieldset.order-builder { min-width: 0; margin: 0; border: 0; padding: 0; }
 .operator-map .map-canvas { min-width:0; min-height:0; }
 .operator-list { margin:0; padding-left:18px; color:#c9cfc8; }
 @media(max-width:900px){ .operator-panel { padding:16px; } .operator-table [role=row] { grid-template-columns:1fr; } }
+.challenge-progress { border:1px solid #34433c; border-radius:6px; padding:10px 12px; display:grid; gap:3px; font-size:13px; background:#101719; }
+.challenge-progress strong { color:#f2e6ca; font-weight:600; }
+.challenge-progress span { color:#b8c0b8; }

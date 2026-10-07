@@ -29,8 +29,9 @@ async function setup(t:test.TestContext){
     await store.call('createSession',{tokenHash:auth.tokenHash(cookie)!,playerId:player.id,now,expiresAt:now+7*86400000});return {player,cookie};
   }
   const start={requestId:'start-1',challengeId:'tunis-expedition',challengeVersion:1};
+  const today=async(requestId:string)=>{const card=(await (await request('/challenges')).json()).challenges[0];return {requestId,challengeId:card.id as string,challengeVersion:card.version as number};};
   t.after(async()=>{await new Promise<void>(done=>server.close(()=>done()));await service.close();await store.close();await rm(dir,{recursive:true,force:true});});
-  return {store,service,request,user,start,path,config,now:()=>now,advance:(ms:number)=>{now+=ms;}};
+  return {store,service,request,user,start,today,path,config,now:()=>now,advance:(ms:number)=>{now+=ms;}};
 }
 
 test('public introduction/demo expose no player internals; start and owned catalogs require the owner',async t=>{
@@ -68,7 +69,7 @@ test('start admission is atomic, idempotent, quota limited and remains bounded a
   try{await assert.rejects(another.call('admitAttempt',{id:'fresh',playerId:users[0].player.id,requestId:'after-reopen',challengeId:f.start.challengeId,challengeVersion:1,now:f.now(),maxActive:3,maxPerAccount:1,dailyLimit:3}),{code:'DAILY_LIMIT'});}
   finally{await another.close();}
   const duplicate=await (await f.request('/attempts',users[0].cookie,f.start)).json();assert.equal(duplicate.id,a.id);assert.equal(duplicate.lifecycle,'ABANDONED');
-  f.advance(86400000);assert.equal((await f.request('/attempts',users[0].cookie,{...f.start,requestId:'tomorrow'})).status,200);
+  f.advance(86400000);assert.equal((await f.request('/attempts',users[0].cookie,await f.today('tomorrow'))).status,200);
 });
 
 test('owned orders advance, reject a stale catalog and replay the durable receipt after service restart',async t=>{
@@ -114,7 +115,7 @@ test('public catalog and reference replay need no login or provider, publish the
   t.after(()=>{globalThis.fetch=realFetch;});
   const catalog=await (await f.request('/challenges')).json() as ChallengeCatalog;
   assert.deepEqual(catalog.limits,{maxActiveAttempts:f.config.maxActiveAttempts,maxActivePerAccount:f.config.maxActivePerAccount,dailyStartLimit:f.config.dailyStartLimit,idleWarnMinutes:f.config.idleWarnMinutes,idleExpireMinutes:f.config.idleExpireMinutes,resultRetentionDays:30});
-  assert.equal(catalog.sponsoredPlay,'NOT_OFFERED');assert.equal(catalog.capacity,'OPEN');assert.deepEqual(Object.keys(catalog).sort(),['capacity','challenges','limits','sponsoredPlay']);
+  assert.equal(catalog.sponsoredPlay,'NOT_OFFERED');assert.equal(catalog.capacity,'OPEN');assert.deepEqual(Object.keys(catalog).sort(),['capacity','challenges','limits','rotation','sponsoredPlay']);
   const response=await f.request('/challenges/demo');assert.equal(response.status,200);assert.equal(response.headers.get('set-cookie'),null);
   const text=await response.text(),demo=JSON.parse(text) as ChallengeReplay;
   assert.equal(demo.kind,'REFERENCE');assert.deepEqual(demo.reports.map(r=>r.id),['reference-1','reference-2','reference-3','reference-4']);

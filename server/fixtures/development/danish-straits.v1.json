@@ -1,0 +1,404 @@
+{
+  "board": {
+    "phase": "ORDERS",
+    "powers": [
+      "AUSTRIA",
+      "ENGLAND",
+      "FRANCE",
+      "GERMANY",
+      "ITALY",
+      "RUSSIA",
+      "TURKEY"
+    ],
+    "retreatContext": null,
+    "rulesEngine": "godip@v0.6.5",
+    "schemaVersion": 1,
+    "season": "SPRING",
+    "territoryOwners": {
+      "ADR": null,
+      "AEG": null,
+      "ALB": null,
+      "ANK": "TURKEY",
+      "APU": null,
+      "ARM": null,
+      "BAL": null,
+      "BAR": null,
+      "BEL": null,
+      "BER": "GERMANY",
+      "BLA": null,
+      "BOH": null,
+      "BOT": null,
+      "BRE": "FRANCE",
+      "BUD": "AUSTRIA",
+      "BUL": null,
+      "BUR": null,
+      "CLY": null,
+      "CON": "TURKEY",
+      "DEN": null,
+      "EAS": null,
+      "EDI": "ENGLAND",
+      "ENG": null,
+      "FIN": null,
+      "GAL": null,
+      "GAS": null,
+      "GOL": null,
+      "GRE": null,
+      "HEL": null,
+      "HOL": null,
+      "ION": null,
+      "IRI": null,
+      "KIE": "GERMANY",
+      "LON": "ENGLAND",
+      "LVN": null,
+      "LVP": "ENGLAND",
+      "MAO": null,
+      "MAR": "FRANCE",
+      "MOS": "RUSSIA",
+      "MUN": "GERMANY",
+      "NAF": null,
+      "NAO": null,
+      "NAP": "ITALY",
+      "NOR": null,
+      "NTH": null,
+      "NWG": null,
+      "PAR": "FRANCE",
+      "PIC": null,
+      "PIE": null,
+      "POR": null,
+      "PRU": null,
+      "ROM": "ITALY",
+      "RUH": null,
+      "RUM": null,
+      "SER": null,
+      "SEV": "RUSSIA",
+      "SIL": null,
+      "SKA": null,
+      "SMY": "TURKEY",
+      "SPA": null,
+      "STP": "RUSSIA",
+      "SWE": null,
+      "SYR": null,
+      "TRI": "AUSTRIA",
+      "TUN": null,
+      "TUS": null,
+      "TYR": null,
+      "TYS": null,
+      "UKR": null,
+      "VEN": "ITALY",
+      "VIE": "AUSTRIA",
+      "WAL": null,
+      "WAR": "RUSSIA",
+      "WES": null,
+      "YOR": null
+    },
+    "units": [
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "austria-army-bud",
+        "mustRetreat": false,
+        "power": "AUSTRIA",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "BUD",
+        "type": "ARMY"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "austria-army-vie",
+        "mustRetreat": false,
+        "power": "AUSTRIA",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "VIE",
+        "type": "ARMY"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "austria-fleet-tri",
+        "mustRetreat": false,
+        "power": "AUSTRIA",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "TRI",
+        "type": "FLEET"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "england-army-lvp",
+        "mustRetreat": false,
+        "power": "ENGLAND",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "LVP",
+        "type": "ARMY"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "england-fleet-edi",
+        "mustRetreat": false,
+        "power": "ENGLAND",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "EDI",
+        "type": "FLEET"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "england-fleet-lon",
+        "mustRetreat": false,
+        "power": "ENGLAND",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "LON",
+        "type": "FLEET"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "france-army-mar",
+        "mustRetreat": false,
+        "power": "FRANCE",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "MAR",
+        "type": "ARMY"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "france-army-par",
+        "mustRetreat": false,
+        "power": "FRANCE",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "PAR",
+        "type": "ARMY"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "france-fleet-bre",
+        "mustRetreat": false,
+        "power": "FRANCE",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "BRE",
+        "type": "FLEET"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "germany-army-ber",
+        "mustRetreat": false,
+        "power": "GERMANY",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "BER",
+        "type": "ARMY"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "germany-army-mun",
+        "mustRetreat": false,
+        "power": "GERMANY",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "MUN",
+        "type": "ARMY"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "germany-fleet-kie",
+        "mustRetreat": false,
+        "power": "GERMANY",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "KIE",
+        "type": "FLEET"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "italy-army-rom",
+        "mustRetreat": false,
+        "power": "ITALY",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "ROM",
+        "type": "ARMY"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "italy-army-ven",
+        "mustRetreat": false,
+        "power": "ITALY",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "VEN",
+        "type": "ARMY"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "italy-fleet-nap",
+        "mustRetreat": false,
+        "power": "ITALY",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "NAP",
+        "type": "FLEET"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "russia-army-mos",
+        "mustRetreat": false,
+        "power": "RUSSIA",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "MOS",
+        "type": "ARMY"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "russia-army-war",
+        "mustRetreat": false,
+        "power": "RUSSIA",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "WAR",
+        "type": "ARMY"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "russia-fleet-sev",
+        "mustRetreat": false,
+        "power": "RUSSIA",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "SEV",
+        "type": "FLEET"
+      },
+      {
+        "coast": "SOUTH",
+        "dislodgedBy": null,
+        "id": "russia-fleet-stp",
+        "mustRetreat": false,
+        "power": "RUSSIA",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "STP",
+        "type": "FLEET"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "turkey-army-con",
+        "mustRetreat": false,
+        "power": "TURKEY",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "CON",
+        "type": "ARMY"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "turkey-army-smy",
+        "mustRetreat": false,
+        "power": "TURKEY",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "SMY",
+        "type": "ARMY"
+      },
+      {
+        "coast": null,
+        "dislodgedBy": null,
+        "id": "turkey-fleet-ank",
+        "mustRetreat": false,
+        "power": "TURKEY",
+        "retreatCoasts": {},
+        "retreatOptions": [],
+        "territory": "ANK",
+        "type": "FLEET"
+      }
+    ],
+    "variant": "CLASSICAL",
+    "year": 1901
+  },
+  "id": "danish-straits",
+  "objective": {
+    "deadlineYear": 1902,
+    "earlyAchievementYear": 1901,
+    "humanPower": "GERMANY",
+    "territory": "DEN"
+  },
+  "provenance": "AI_GENERATED_DEVELOPMENT",
+  "schemaVersion": 1,
+  "title": "Danish straits",
+  "version": 1,
+  "witnesses": [
+    {
+      "expectedOutcome": "SUCCESS",
+      "name": "early-capture",
+      "steps": [
+        {
+          "orders": [
+            "KIE|MOVE|DEN"
+          ],
+          "phase": "ORDERS",
+          "season": "SPRING",
+          "year": 1901
+        },
+        {
+          "orders": [],
+          "phase": "ORDERS",
+          "season": "FALL",
+          "year": 1901
+        }
+      ]
+    },
+    {
+      "expectedOutcome": "FAILURE",
+      "name": "deadline-hold",
+      "steps": [
+        {
+          "orders": [],
+          "phase": "ORDERS",
+          "season": "SPRING",
+          "year": 1901
+        },
+        {
+          "orders": [],
+          "phase": "ORDERS",
+          "season": "FALL",
+          "year": 1901
+        },
+        {
+          "orders": [],
+          "phase": "ORDERS",
+          "season": "SPRING",
+          "year": 1902
+        },
+        {
+          "orders": [],
+          "phase": "ORDERS",
+          "season": "FALL",
+          "year": 1902
+        }
+      ]
+    }
+  ]
+}

@@ -23,7 +23,7 @@ export function publicReport(input: PublicPhaseReport): PublicPhaseReport {
   return {...base,phase:'ORDERS',ownershipChanges,resolvedOrders:input.resolvedOrders.map(order),standoffTerritories:[...input.standoffTerritories],dislodgedUnits:input.dislodgedUnits.map(unit),destroyedUnits:input.destroyedUnits.map(unit)};
 }
 
-const card = (c: ChallengeCard): ChallengeCard => ({ id:c.id, version:c.version, title:c.title, objectiveText:c.objectiveText, humanPower:c.humanPower,
+const card = (c: ChallengeCard): ChallengeCard => ({ id:c.id, version:c.version, title:c.title, objectiveText:c.objectiveText, humanPower:c.humanPower, targetTerritory:c.targetTerritory,
   deadlineYear:c.deadlineYear, earlyAchievementYear:c.earlyAchievementYear, label:c.label, mode:c.mode, opponentLabel:c.opponentLabel,
   board:{...publicBoard(c.board),year:c.board.year,season:c.board.season,phase:c.board.phase} });
 /** Packages the reference run: room-scoped IDs and wall-clock stamps are replaced so every start serves identical content. */

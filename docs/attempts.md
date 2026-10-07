@@ -16,8 +16,9 @@ reservations.
 
 ## Owned practice flow
 
-Public `GET /api/challenges` and `/api/challenges/demo` expose the fixed Tunis
-pilot and an offline reference replay. The catalog also publishes the enforced
+Public `GET /api/challenges` and `/api/challenges/demo` expose the scenario
+featured for the current UTC day (see "Development rotation" in
+`docs/first-challenge.md`) and its offline reference replay. The catalog also publishes the enforced
 start/idle limits plus live `capacity` and `sponsoredPlay` availability (see
 `docs/operator.md`), which the visitor guide renders instead of hard-coded numbers. The replay is tagged `kind: "REFERENCE"`,
 passes through `publicReplay` (explicit fields, stable `reference-N` IDs and a

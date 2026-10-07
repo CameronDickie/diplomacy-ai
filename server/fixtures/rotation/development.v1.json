@@ -1,0 +1,32 @@
+{
+  "entries": [
+    {
+      "id": "tunis-expedition",
+      "version": 1
+    },
+    {
+      "id": "belgian-landing",
+      "version": 1
+    },
+    {
+      "id": "iberian-march",
+      "version": 1
+    },
+    {
+      "id": "adriatic-descent",
+      "version": 1
+    },
+    {
+      "id": "danish-straits",
+      "version": 1
+    },
+    {
+      "id": "sicilian-crossing",
+      "version": 1
+    }
+  ],
+  "epochDay": "2027-01-01",
+  "id": "development-rotation",
+  "schemaVersion": 1,
+  "version": 1
+}

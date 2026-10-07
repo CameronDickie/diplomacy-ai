@@ -26,6 +26,14 @@ export function useChallenge(){
       .then(([published,replay])=>{setCatalog(published);setDemo(replay);setLoaded(true);}).catch(e=>{if(!controller.signal.aborted)setError(e.message);});
     return()=>controller.abort();
   },[]);
+  // When the featured challenge rotates at midnight UTC, load the new card and its replay without a page reload.
+  useEffect(()=>{
+    const at=catalog?.rotation.nextChangeAt;if(!at)return;
+    const timer=setTimeout(()=>{
+      Promise.all([challengeRequest<ChallengeCatalog>('/challenges'),challengeRequest<ChallengeReplay>('/challenges/demo')]).then(([published,replay])=>{setCatalog(published);setDemo(replay);}).catch(()=>{});
+    },Math.min(Math.max(at-Date.now(),0)+1500,2_000_000_000));
+    return()=>clearTimeout(timer);
+  },[catalog?.rotation.nextChangeAt]);
   useEffect(()=>{
     const controller=new AbortController();
     setAttempt(null);setHistory([]);setOlder(null);setCreditRequested(false);setLegal(null);setReports([]);pending.current=null;startId.current=null;setError('');
@@ -71,7 +79,7 @@ export function useChallenge(){
     const list=await challengeRequest<ChallengeHistoryPage>('/attempts');
     if(identityRef.current===owner){setHistory(list.attempts);setOlder(list.next);}
   }
-  return {auth,older,cards:catalog?.challenges??[],limits:catalog?.limits??null,sponsoredPlay:catalog?.sponsoredPlay??null,capacity:catalog?.capacity??null,creditRequested,demo,attempt,history,legal,reports,error,busy,loaded,clearError:()=>setError(''),
+  return {auth,older,cards:catalog?.challenges??[],limits:catalog?.limits??null,rotation:catalog?.rotation??null,sponsoredPlay:catalog?.sponsoredPlay??null,capacity:catalog?.capacity??null,creditRequested,demo,attempt,history,legal,reports,error,busy,loaded,clearError:()=>setError(''),
     start:(card:ChallengeCard)=>mutate(async owner=>{
       startId.current??=crypto.randomUUID();
       const result=await challengeRequest<ChallengeAttemptView>('/attempts',{requestId:startId.current,challengeId:card.id,challengeVersion:card.version});
