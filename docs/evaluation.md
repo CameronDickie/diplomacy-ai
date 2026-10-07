@@ -3,7 +3,8 @@
 `npm run evaluate` plays whole sponsored attempts of a pinned scenario through
 the same funding ledger, decision provider and rules engine the game uses, with
 a scripted human, and reports legality, latency, tokens and cost against the
-launch targets. It is restartable and never buys the same answer twice.
+launch targets. Its durable manifest, phase timings and recovery counters survive
+restarts, so resuming a run reuses committed answers and preserves its evidence.
 
 **No live evaluation has been run.** Everything recorded so far uses the mock
 transport, which exercises the plumbing and the accounting and says nothing
@@ -35,10 +36,13 @@ attempt at worst case; ledger reconciled. These are stand-in numbers.
 
 ## What the report contains
 
-- **Manifest**: run ID, transport, scenario and version, script, seed, preset,
-  price list, context version.
+- **Manifest**: immutable run ID, transport, scenario/version and fixture hash,
+  script, seed, preset and preset hash, price list, context/harness versions,
+  timing policy and per-phase recovery limit. The requested number of attempts
+  can grow without changing the run identity.
 - **Per attempt**: outcome and achievements, phases, per-phase latency from the
-  human's submission to the committed result (recoveries included), recoveries,
+  accepted submission to the committed result (restart downtime included),
+  durable phase identities/timestamps and recovery counts,
   calls by outcome, tokens (input, cached, output), and three separate money
   figures: **settled** (known bills), **held** (worst case for calls that never
   reported usage) and **reserved estimate** (sum of worst cases reserved).
@@ -47,11 +51,35 @@ attempt at worst case; ledger reconciled. These are stand-in numbers.
   latency p95 under 30 seconds; calls that were not a valid decision under 5 %.
 - **Ledger reconciliation**: the change in the ledger's settled total must equal
   what the run's attempts settled. A mismatch exits non-zero.
-- **Notes**: mock disclaimer, small-sample warning, and why a run stopped early.
+- **Notes**: mock disclaimer, small-sample warning, missing timing evidence and
+  why a run stopped early. Latency is inconclusive if any committed phase lacks
+  a valid duration; missing evidence never becomes a zero-duration sample.
 
 A failed or unanswered call is counted, billed or held as the ledger has it, and
 retried only through the provider's bounded recovery. An attempt that cannot
 finish is closed and reported as stalled; its costs stay on the ledger.
+
+## Resuming and retaining evidence
+
+Migration 13 stores the manifest before any evaluation dispatch. Each measured
+phase starts in the transaction that accepts its intent and completes in the
+transaction that commits its board. The timing policy uses epoch milliseconds
+from accepted submission through commit, including process downtime. Explicit
+recoveries increment a durable counter; restarting does not replenish the
+configured recovery allowance. A backward wall clock leaves the duration
+unknown without rejecting a valid game result.
+
+Reusing a run ID with a different fixture, preset, script, seed, transport or
+policy is refused before dispatch. Runs created before durable manifests cannot
+be adopted; choose a new run ID. Backup/restore preserves the manifest and phase
+evidence. After raw attempt retention expires, the permanent run/attempt mapping
+refuses to recreate that attempt under the same run ID, avoiding another purchase.
+
+These private operator benchmark records contain configuration hashes,
+pseudonymous run/operation IDs, timestamps and counters. They contain no raw
+boards, player chat, reasoning or credentials. Their permanent aggregate evidence
+is separate from retained visitor attempt content. Keep the ledger and reports
+private.
 
 ## What this cannot tell you
 

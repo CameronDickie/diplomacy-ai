@@ -11,8 +11,11 @@ phase reports, idempotent submission receipts and frozen phase jobs. The
 [attempt coordinator](attempts.md) now commits and recovers those phase jobs,
 including real process-kill tests. Owned offline challenge admission and browser
 resume now use this repository, including durable start receipts and UTC start
-counters. Legacy rooms remain in memory. Provider accounting/reservations and
-retention cleanup remain separate work; paid startup is still interlocked.
+counters. Provider call records, atomic reservations, cumulative spending,
+unknown liabilities, operator/outbox state, retention and exhibitions also use
+the repository. Private evaluation manifests and phase timing/recovery evidence
+are durable; see [evaluation.md](evaluation.md). Legacy rooms remain in memory.
+Paid startup is still interlocked.
 
 ## Runtime and files
 
@@ -78,7 +81,8 @@ health and the expected records, then point the stopped deployment at that
 path. Preserve the old database and WAL files for investigation. Starting an
 older image against a newer schema intentionally fails; use a compatible
 backup when rolling back. Do not delete budget evidence or reinterpret a
-restored total as a refill when the financial ledger is integrated.
+restored total as a refill. The financial ledger is already integrated;
+restored spend and held liabilities consume the same funding authorization.
 
 Tests exercise restart, identity separation, session expiration/revocation/ban,
 receipt replay, atomic rollback, pinned definitions, terminal-state protection,
@@ -86,8 +90,14 @@ backup/restore, migration mismatch, private-field projection and lock contention
 with responsive HTTP. Login has HTTP/socket and real-provider browser evidence.
 Phase recovery has coordinator/process-crash evidence. The offline browser
 attempt survives API restart and completes with saved results/replay. Spend
-reservations, funded recovery and retention still need their own integration
-evidence before release.
+reservations, funded recovery and retention have offline crash/accounting
+tests, including deletion and late bills. Local container staging verifies
+unchanged settled spend and held liability through backup, restart and restore.
+These checks do not establish live model quality or authorize production release.
+
+Private evaluation aggregate records and immutable billing corrections remain
+after raw attempts or settled receipt details expire. They carry no raw boards,
+chat, reasoning or credentials, and cannot recreate funding or expired attempts.
 
 ## Retention and account deletion
 

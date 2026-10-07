@@ -132,12 +132,14 @@ test('the per-power call limit ends retries: the phase stays recoverable and not
 
 test('an answer that never arrives keeps its reservation; recovery buys a new call and a late bill still settles the old one',async t=>{
   const f=await setup(t);let hang=true;
-  const service=f.service(f.scripted((power,request)=>power==='ENGLAND'&&hang?new Promise((_,reject)=>request.signal.addEventListener('abort',()=>reject(new Error('aborted')),{once:true})):null),{timeoutMs:150});
+  const service=f.service(f.scripted((power,request)=>power==='ENGLAND'&&hang?new Promise((_,reject)=>request.signal.addEventListener('abort',()=>reject(new Error('aborted')),{once:true})):null),{timeoutMs:500});
   await service.submit(f.command);await service.wait(f.attempt.id);
   assert.equal((await f.current())!.execution,'RECOVERING');
   assert.deepEqual(f.calls("id LIKE '%ENGLAND%'"),['ENGLAND:1 FINISHED TIMEOUT']);
   const held=await f.ledger();assert.ok(held.unknown>0);assert.equal(held.reserved,0);
-  hang=false;await service.recover(f.attempt.id);await service.wait(f.attempt.id);
+  // The short deadline tests the hung call, not successful worker/Godip speed.
+  hang=false;const recovery=f.service(f.scripted());
+  await recovery.recover(f.attempt.id);await recovery.wait(f.attempt.id);
   assert.equal((await f.current())!.board.season,'FALL');
   assert.deepEqual(f.calls("id LIKE '%ENGLAND%'"),['ENGLAND:1 FINISHED TIMEOUT','ENGLAND:2 FINISHED VALID']);
   // The phase is committed, yet the first call's worst case is still held until its bill is known.
@@ -244,13 +246,15 @@ test('validation completing after the call deadline cannot save an answer for re
     await original(board,power,action,signal);
     if(power==='AUSTRIA'&&delay){reached();await blocked;}
   };
-  const service=f.service(f.scripted(),{timeoutMs:30});
+  const service=f.service(f.scripted(),{timeoutMs:500});
   await service.submit(f.command);await started;await service.wait(f.attempt.id);
   assert.deepEqual(f.calls(),['AUSTRIA:1 FINISHED TIMEOUT']);
   const paid=(await f.ledger()).settled;assert.ok(paid>0);
   delay=false;release();await new Promise(done=>setImmediate(done));
   assert.deepEqual(await f.store.call('providerDecisions',{operationId:f.operation()}),[]);
-  await service.recover(f.attempt.id);await service.wait(f.attempt.id);
+  // Preserve the late-validation fence assertion; recovery uses the normal deadline.
+  const recovery=f.service(f.scripted());
+  await recovery.recover(f.attempt.id);await recovery.wait(f.attempt.id);
   assert.equal((await f.current())!.board.season,'FALL');
   assert.deepEqual(f.sent.map(s=>s.power),['AUSTRIA',...OPPONENTS]);
   assert.ok((await f.ledger()).settled>paid);assert.equal((await f.ledger()).settled,f.billed());

@@ -71,7 +71,21 @@ export interface StoredExhibition {
   id: string; challengeId: string; challengeVersion: number; state: ExhibitionState; reason: string | null;
   board: BoardFixture; phases: number; maxPhases: number; quietPhases: number; createdAt: number; updatedAt: number;
 }
+/** Private benchmark configuration. Attempts requested may grow; this identity may not change. */
+export interface EvaluationManifest {
+  runId:string; transport:'mock'|'live'; scenario:string; scenarioVersion:number; fixtureHash:string;
+  script:string; seed:number|null; presetId:string; pricingVersion:string; presetHash:string;
+  contextVersion:string; model:'gpt-6-luna'; harnessVersion:string; timingPolicy:'wall-submission-commit-v1'; maxRecoveries:number;
+}
+export interface EvaluationPhase {
+  operationId:string; attemptId:string; phaseId:string; sequence:number; startedAt:number;
+  completedAt:number|null; durationMs:number|null; recoveries:number;
+}
 export interface StoreOperations {
+  registerEvaluationRun: { input:{manifest:EvaluationManifest;now:number}; output:EvaluationManifest };
+  evaluationRun: { input:{runId:string}; output:EvaluationManifest|null };
+  createEvaluationAttempt: { input:{runId:string;ordinal:number;playerId:string;reconnectTokenHash:string;sponsored:SponsoredStart;now:number}; output:StoredAttempt };
+  evaluationPhases: { input:{attemptId:string}; output:EvaluationPhase[] };
   createExhibition: { input: { id:string; challengeId:string; challengeVersion:number; maxPhases:number; createdBy:string; maxRunning:number; now:number }; output: StoredExhibition };
   exhibition: { input: { id:string }; output: StoredExhibition | null };
   exhibitions: { input: { state?:ExhibitionState; limit:number }; output: StoredExhibition[] };
@@ -110,12 +124,12 @@ export interface StoreOperations {
   deleteAccount: { input: { playerId:string; now:number }; output: { sessions:string[]; attempts:number } };
   latestSubmission: { input: { attemptId:string; playerId:string; phaseId:string }; output: {receipt:StoredReceipt;action:PhaseAction}|null };
   touchAttempt: { input: { id:string; playerId:string; expectedRevision:number; idleBefore:number; now:number }; output: StoredAttempt };
-  beginPhase: { input: { id: string; playerId: string; expectedRevision: number; phaseId: string; requestId: string; operationId: string; action: PhaseAction; idleBefore?:number; now: number }; output: { job: PhaseJob; receipt: StoredReceipt; duplicate: boolean } };
+  beginPhase: { input: { id: string; playerId: string; expectedRevision: number; phaseId: string; requestId: string; operationId: string; action: PhaseAction; idleBefore?:number; measuredAt?:number; now: number }; output: { job: PhaseJob; receipt: StoredReceipt; duplicate: boolean } };
   phaseJob: { input: { operationId: string }; output: PhaseJob | null };
   pendingPhaseJobs: { input: {}; output: PhaseJob[] };
   saveDecisions: { input: { fence: PhaseFence; decisions: PhaseDecisions; now: number }; output: PhaseJob };
-  recoverPhase: { input: { fence: PhaseFence; now: number }; output: PhaseJob };
-  commitPhase: { input: { fence: PhaseFence; board: BoardFixture; reports: PublicPhaseReport[]; finished: boolean; now: number }; output: StoredAttempt };
+  recoverPhase: { input: { fence: PhaseFence; countRecovery?:boolean; now: number }; output: PhaseJob };
+  commitPhase: { input: { fence: PhaseFence; board: BoardFixture; reports: PublicPhaseReport[]; finished: boolean; measuredAt?:number; now: number }; output: StoredAttempt };
   terminateAttempt: { input: { id: string; playerId: string; lifecycle: 'ABANDONED' | 'EXPIRED' | 'STOPPED'; idleBefore?:number; now: number }; output: StoredAttempt };
   health: { input: {}; output: { schemaVersion: number; journalMode: string } };
   identity: { input: { provider: StoredPlayer['provider']; subject: string; displayName: string; now: number }; output: StoredPlayer };

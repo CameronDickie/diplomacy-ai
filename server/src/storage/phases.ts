@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { canonicalJson, parseBoard } from '../fixtures/BoardFixture.js';
 import { parseAction, parseDecisions } from '../attempts/actions.js';
 import type { PhaseFence, PhaseJob } from '../attempts/types.js';
+import { EvaluationRepository } from './evaluation.js';
 import { parseChallenge } from './publicData.js';
 import { StoreError, type StoredAttempt, type StoredChallenge, type StoredReceipt, type StoreOperations } from './contracts.js';
 
@@ -69,7 +70,9 @@ export class PhaseRepository {
     this.db.prepare(`INSERT INTO phase_jobs(id,attempt_id,phase_id,revision,status,player_id,request_id,board_json,definition_json,human_action_json,report_offset,created_at)
       VALUES(?,?,?,?,'DECIDING',?,?,?,?,?,?,?)`).run(input.operationId,attempt.id,input.phaseId,revision,input.playerId,input.requestId,canonicalJson(attempt.board),canonicalJson(definition),canonicalJson(action),offset,input.now);
     this.db.prepare("UPDATE attempts SET execution='DECIDING',revision=?,updated_at=? WHERE id=?").run(revision,input.now,attempt.id);
-    return {job: this.get(input.operationId)!,receipt,duplicate:false};
+    const job=this.get(input.operationId)!;
+    new EvaluationRepository(this.db).begin(job,input.measuredAt??input.now);
+    return {job,receipt,duplicate:false};
   }
   decisions(input: StoreOperations['saveDecisions']['input']): PhaseJob {
     time(input.now);
@@ -85,6 +88,7 @@ export class PhaseRepository {
   recover(input: StoreOperations['recoverPhase']['input']): PhaseJob {
     time(input.now);
     const {job} = this.current(input.fence);
+    new EvaluationRepository(this.db).recovery(job.operationId,Boolean(input.countRecovery));
     this.db.prepare("UPDATE phase_jobs SET status='RECOVERING',revision=revision+1 WHERE id=?").run(job.operationId);
     this.db.prepare("UPDATE attempts SET execution='RECOVERING',revision=revision+1,updated_at=? WHERE id=?").run(input.now,job.attemptId);
     const receipt = this.hooks.receipt(job.attemptId,job.playerId,job.requestId)!;
@@ -102,6 +106,7 @@ export class PhaseRepository {
     const result = this.hooks.checkpoint({id:job.attemptId,expectedRevision:job.revision,expectedPhaseId:job.phaseId,board:input.board,
       lifecycle:input.finished?'COMPLETED':'ACTIVE',execution:'ACCEPTING',reports:input.reports,
       receipt:{...receipt,state:{...receipt.state,status:'ACCEPTED',error:null}},now:input.now});
+    new EvaluationRepository(this.db).commit(job.operationId,input.measuredAt??input.now);
     this.db.prepare("UPDATE phase_jobs SET status='COMMITTED' WHERE id=?").run(job.operationId);
     return result;
   }

@@ -21,7 +21,7 @@ const freeze = <T>(value: T): T => {
   return value;
 };
 type HookStage = 'intent' | 'decisions' | 'resolved' | 'committed';
-type Options = { maxRunning?: number; idleExpireMs?:number; timeoutMs?: number; now?: () => number; boundary?: (stage: HookStage, job: PhaseJob) => Promise<void> };
+type Options = { maxRunning?: number; idleExpireMs?:number; timeoutMs?: number; now?: () => number; measurementClock?: () => number; boundary?: (stage: HookStage, job: PhaseJob) => Promise<void> };
 
 /** SQLite is authority. In-memory promises only coalesce work and deliver cancellation. */
 export class AttemptService {
@@ -63,7 +63,7 @@ export class AttemptService {
       await this.rules.validate(attempt.board,challenge!.definition.humanPower,action,AbortSignal.any([validation.signal,AbortSignal.timeout(this.options.timeoutMs ?? 30_000)]));
       if (this.closed) throw new StoreError('STORE_UNAVAILABLE','Phase service is shutting down.');
       const accepted = await this.store.call('beginPhase',{id:attempt.id,playerId:input.playerId,expectedRevision:input.revision,phaseId:input.phaseId,
-        requestId:input.requestId,operationId:randomUUID(),action,idleBefore:this.options.idleExpireMs ? this.now()-this.options.idleExpireMs : undefined,now:this.now()});
+        requestId:input.requestId,operationId:randomUUID(),action,measuredAt:this.options.measurementClock?.(),idleBefore:this.options.idleExpireMs ? this.now()-this.options.idleExpireMs : undefined,now:this.now()});
       if (!accepted.duplicate) this.launch(accepted.job,false);
       return accepted.receipt;
     } finally { this.validating--; this.validationControllers.delete(validation); validation.abort(); }
@@ -90,7 +90,7 @@ export class AttemptService {
       finally { signal.removeEventListener('abort',abort); }
     };
     try {
-      if (recovery) job = await this.store.call('recoverPhase',{fence:job,now:this.now()});
+      if (recovery) job = await this.store.call('recoverPhase',{fence:job,countRecovery:true,now:this.now()});
       await this.options.boundary?.('intent',job);
       signal.throwIfAborted();
       if (!job.decisions) {
@@ -105,7 +105,7 @@ export class AttemptService {
       const result = await bounded(this.rules.resolve(freeze(structuredClone(job)),signal));
       await this.options.boundary?.('resolved',job);
       signal.throwIfAborted();
-      await this.store.call('commitPhase',{fence:job,...result,now:this.now()});
+      await this.store.call('commitPhase',{fence:job,...result,measuredAt:this.options.measurementClock?.(),now:this.now()});
       await this.options.boundary?.('committed',job);
     } catch {
       // A stale/terminal fence or uncertain store failure must never be retried as a new command.

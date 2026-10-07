@@ -7,6 +7,10 @@ import { Store } from '../storage/Store.js';
 import { evaluate,TARGETS } from '../evaluation/Harness.js';
 import { LIVE_ATTEMPT_LIMIT,format,liveTransport } from '../evaluation/cli.js';
 import { mockLunaTransport,type LunaTransport } from '../luna/Transport.js';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 import { LUNA_PRESET } from '../providers/LunaPreset.js';
 
 async function setup(t:test.TestContext,granted=1_000_000_000){
@@ -18,7 +22,7 @@ async function setup(t:test.TestContext,granted=1_000_000_000){
   const base=(transport:LunaTransport,extra:Record<string,unknown>={})=>({store,transport,transportKind:'mock' as const,runId:'run-a',scenario:'tunis-expedition',script:'early-capture',attempts:2,seed:5,now:()=>1_800_000_000_000,clock:()=>(tick+=25),...extra});
   return {dir,path,base,get store(){return store;},async reopen(){await store.close();store=await Store.open(path);}};
 }
-const stable=(report:Awaited<ReturnType<typeof evaluate>>)=>JSON.stringify({...report,attempts:report.attempts.map(a=>({...a,phaseMs:a.phaseMs.length})),summary:{...report.summary,phaseP50Ms:0,phaseP95Ms:0},targets:report.targets.map(x=>x.name)});
+const stable=(report:Awaited<ReturnType<typeof evaluate>>)=>JSON.stringify({...report,attempts:report.attempts.map(a=>({...a,phaseMs:a.phaseMs.length,phaseTimings:a.phaseTimings.map(({operationId,...p})=>p)})),summary:{...report.summary,phaseP50Ms:0,phaseP95Ms:0},targets:report.targets.map(x=>x.name)});
 
 test('a mock run needs no key, plays whole attempts, reconciles to the ledger and is reproducible from its seed',async t=>{
   const outbound:string[]=[],realFetch=globalThis.fetch;
@@ -28,7 +32,7 @@ test('a mock run needs no key, plays whole attempts, reconciles to the ledger an
   const first=await evaluate(a.base(mockLunaTransport({pick:'seeded',seed:5}))),second=await evaluate(b.base(mockLunaTransport({pick:'seeded',seed:5})));
   assert.equal(stable(first),stable(second));
   assert.deepEqual(first.manifest,{runId:'run-a',transport:'mock',scenario:'tunis-expedition',scenarioVersion:1,script:'early-capture',seed:5,presetId:LUNA_PRESET.id,pricingVersion:LUNA_PRESET.pricingVersion,
-    contextVersion:'luna-context-v1',model:'gpt-6-luna',attemptsRequested:2,maxRecoveries:2});
+    contextVersion:'luna-context-v1',model:'gpt-6-luna',attemptsRequested:2,maxRecoveries:2,fixtureHash:first.manifest.fixtureHash,presetHash:first.manifest.presetHash,harnessVersion:'luna-evaluation-v2',timingPolicy:'wall-submission-commit-v1'});
   assert.equal(first.attempts.length,2);
   for(const attempt of first.attempts){
     // Each attempt ran to a scored end, not just one phase.
@@ -63,12 +67,18 @@ test('re-running a run ID reads finished attempts back and recovers an interrupt
   const two=await evaluate({...f.base(counting,{attempts:2}),store:f.store});
   assert.equal(two.attempts.length,2);assert.equal(stable({...two,attempts:[two.attempts[0]]} as never).includes(one.attempts[0].id),true);
   assert.deepEqual([two.attempts[0].settledNanousd,two.attempts[0].calls],[one.attempts[0].settledNanousd,one.attempts[0].calls]);
+  assert.deepEqual(two.attempts[0].phaseMs,one.attempts[0].phaseMs,'completed phase timing survives reopening');
+  assert.equal(two.attempts[0].recoveries,one.attempts[0].recoveries);
   assert.equal(calls-afterOne,two.attempts[1].calls);
   assert.equal(two.ledger.reconciles,true);assert.equal(two.ledger.attributedNanousd,two.attempts[1].settledNanousd);
   assert.equal((await f.store.call('fundingTotals',{})).settledNanousd,settledOne+two.attempts[1].settledNanousd);
   // Asking again changes nothing and calls nothing.
   const before=calls,again=await evaluate({...f.base(counting,{attempts:2}),store:f.store});
   assert.equal(calls,before);assert.deepEqual([again.ledger.attributedNanousd,again.ledger.reconciles],[0,true]);
+  assert.deepEqual(again.summary,two.summary,'resumed summary retains its timing evidence');
+  for(const changed of [{seed:6},{script:'deadline-hold'},{transportKind:'live'},{maxRecoveries:1}])
+    await assert.rejects(evaluate({...f.base(counting,{attempts:2,...changed}),store:f.store}),{code:'STORE_CONFLICT'});
+  assert.equal(calls,before,'manifest refusal cannot dispatch anything');
 });
 
 test('failures, unanswered calls and an empty pool are reported as such and counted against the targets',async t=>{
@@ -109,4 +119,77 @@ test('a live run is refused unless the flag, key, existing database and a matchi
   assert.throws(()=>liveTransport({...ok,authorizationRef:'some-other-reference'}),/No funding grant/);
   // All conditions met yields a transport; constructing it sends nothing.
   assert.equal(typeof liveTransport(ok),'function');assert.equal(fetched,0);
+});
+
+
+test('SIGKILL after acceptance, a counted recovery and commit preserves benchmark evidence across resume',async t=>{
+  for(const stage of ['INTENT','RECOVERED','COMMITTED']){
+    const f=await setup(t),child=spawn(process.execPath,[fileURLToPath(new URL('./fixtures/crashEvaluation.js',import.meta.url)),f.path,stage],{stdio:'ignore',env:{PATH:process.env.PATH}});
+    const [code,signal]=await once(child,'exit');assert.equal(code,null,stage);assert.equal(signal,'SIGKILL',stage);
+    const phases=await f.store.call('evaluationPhases',{attemptId:'eval-crash-run-1'});assert.equal(phases.length,1,stage);
+    const first=phases[0];assert.equal(first.recoveries,stage==='RECOVERED'?1:0,stage);
+    assert.equal(first.completedAt!==null,stage==='COMMITTED',stage);
+    const calls=await f.store.call('providerCallsForAttempt',{attemptId:'eval-crash-run-1'});
+    const settled=(await f.store.call('fundingTotals',{})).settledNanousd;
+    await f.reopen();
+    const options={store:f.store,transport:mockLunaTransport({pick:'first',seed:5}),transportKind:'mock' as const,runId:'crash-run',scenario:'tunis-expedition',script:'early-capture',attempts:1,seed:5};
+    const report=await evaluate(options),[attempt]=report.attempts;
+    assert.equal(attempt.lifecycle,'COMPLETED',stage);assert.equal(attempt.phaseMs.length,attempt.phases,stage);assert.deepEqual(attempt.timingIssues,[],stage);
+    assert.equal(attempt.recoveries,stage==='COMMITTED'?0:stage==='RECOVERED'?2:1,stage);
+    assert.equal(attempt.phaseTimings[0].startedAt,first.startedAt,stage);
+    if(stage==='COMMITTED')assert.deepEqual(attempt.phaseTimings[0],first,stage);
+    assert.equal(report.ledger.reconciles,true,stage);assert.equal(report.ledger.attributedNanousd,attempt.settledNanousd-settled,stage);
+    const after=await f.store.call('providerCallsForAttempt',{attemptId:attempt.id});
+    for(const call of calls)assert.deepEqual(after.find(c=>c.id===call.id),call,stage);
+    const again=await evaluate(options);assert.deepEqual(again.attempts,report.attempts,stage);assert.deepEqual(again.summary,report.summary,stage);
+    assert.equal(again.ledger.attributedNanousd,0,stage);
+  }
+});
+
+test('a backwards wall clock does not fail the game or fabricate a passing latency',async t=>{
+  const f=await setup(t);let i=0;
+  const report=await evaluate(f.base(mockLunaTransport(),{attempts:1,clock:()=>++i%2?100:50}));
+  assert.equal(report.attempts[0].lifecycle,'COMPLETED');assert.ok(report.attempts[0].phases>0);
+  assert.equal(report.summary.timedPhases,0);assert.equal(report.summary.phaseP95Ms,null);
+  assert.equal(report.targets[1].met,null);assert.ok(report.notes.some(n=>/clock regressed/.test(n)));
+  assert.ok(report.attempts[0].phaseTimings.every(p=>p.completedAt===50&&p.startedAt===100&&p.durationMs===null));
+});
+
+test('evaluation configuration and completed timing are immutable and backup preserves both',async t=>{
+  const f=await setup(t),options=f.base(mockLunaTransport(),{attempts:1}),one=await evaluate(options);
+  const manifest=await f.store.call('evaluationRun',{runId:'run-a'}),{attemptsRequested,...identity}=one.manifest;
+  assert.deepEqual(manifest,identity);assert.match(identity.fixtureHash,/^[a-f0-9]{64}$/);assert.match(identity.presetHash,/^[a-f0-9]{64}$/);
+  const db=new DatabaseSync(f.path);
+  try{
+    for(const table of ['evaluation_runs','evaluation_attempts','evaluation_phases'])assert.throws(()=>db.exec(`DELETE FROM ${table}`),/permanent/);
+    assert.throws(()=>db.exec("UPDATE evaluation_runs SET manifest_json='{}'"),/immutable/);
+    assert.throws(()=>db.exec("UPDATE evaluation_attempts SET ordinal=99"),/immutable/);
+    assert.throws(()=>db.exec("UPDATE evaluation_phases SET duration_ms=0"),/immutable/);
+  }finally{db.close();}
+  await assert.rejects(f.store.call('registerEvaluationRun',{manifest:{...identity,fixtureHash:'a'.repeat(64)},now:1}),{code:'STORE_CONFLICT'});
+  await assert.rejects(f.store.call('registerEvaluationRun',{manifest:{...identity,presetHash:'b'.repeat(64)},now:1}),{code:'STORE_CONFLICT'});
+  const backup=join(f.dir,'backup.sqlite'),restored=join(f.dir,'restored.sqlite');await f.store.call('backup',{destination:backup});
+  const restoredStore=await Store.open(restored,backup);
+  try{
+    const replay=await evaluate({...options,store:restoredStore});assert.deepEqual(replay.attempts,one.attempts);assert.deepEqual(replay.summary,one.summary);assert.equal(replay.ledger.attributedNanousd,0);
+  }finally{await restoredStore.close();}
+  // Raw result retention does not allow the same run identity to buy an expired attempt again.
+  await f.store.call('sweepRetention',{now:1_800_000_000_001,resultBefore:1_800_000_000_001,diagnosticBefore:1_800_000_000_001,receiptBefore:0,limit:100});
+  assert.equal(await f.store.call('attempt',{id:one.attempts[0].id}),null);
+  await assert.rejects(evaluate(options),{code:'STORE_CONFLICT'});
+  assert.equal((await f.store.call('fundingTotals',{})).settledNanousd,one.summary.settledNanousd);
+});
+
+
+test('restart cannot reset the per-phase recovery cap or change a stalled result into success',async t=>{
+  const f=await setup(t),child=spawn(process.execPath,[fileURLToPath(new URL('./fixtures/crashEvaluation.js',import.meta.url)),f.path,'MAX_RECOVERIES'],{stdio:'ignore',env:{PATH:process.env.PATH}});
+  const [code,signal]=await once(child,'exit');assert.equal(code,null);assert.equal(signal,'SIGKILL');
+  const calls=await f.store.call('providerCallsForAttempt',{attemptId:'eval-crash-run-1'});assert.equal(calls.length,2);
+  assert.equal((await f.store.call('evaluationPhases',{attemptId:'eval-crash-run-1'}))[0].recoveries,2);
+  await f.reopen();let sent=0;const mock=mockLunaTransport();
+  const transport:LunaTransport=async request=>{sent++;return mock(request);};
+  const options={store:f.store,transport,transportKind:'mock' as const,runId:'crash-run',scenario:'tunis-expedition',script:'early-capture',attempts:1,seed:5};
+  const report=await evaluate(options),again=await evaluate(options);
+  assert.equal(sent,0);assert.equal(report.attempts[0].recoveries,2);assert.equal(report.attempts[0].stalled,true);assert.equal(report.attempts[0].lifecycle,'STOPPED');
+  assert.deepEqual(again.attempts,report.attempts);assert.deepEqual(again.summary,report.summary);assert.equal(report.ledger.attributedNanousd,0);
 });

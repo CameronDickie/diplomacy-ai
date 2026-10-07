@@ -200,6 +200,31 @@ CREATE TRIGGER funding_adjustments_immutable BEFORE UPDATE ON funding_adjustment
  SELECT RAISE(ABORT,'immutable billing correction'); END;
 CREATE TRIGGER funding_adjustments_permanent BEFORE DELETE ON funding_adjustments BEGIN
  SELECT RAISE(ABORT,'billing correction evidence is permanent'); END;
+` }, { version: 13, sql: `
+CREATE TABLE evaluation_runs (
+ id TEXT PRIMARY KEY, manifest_json TEXT NOT NULL CHECK(json_valid(manifest_json)), created_at INTEGER NOT NULL
+) STRICT;
+CREATE TABLE evaluation_attempts (
+ attempt_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES evaluation_runs(id), ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 1 AND 200),
+ created_at INTEGER NOT NULL, UNIQUE(run_id,ordinal)
+) STRICT;
+CREATE TABLE evaluation_phases (
+ operation_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL REFERENCES evaluation_attempts(attempt_id), phase_id TEXT NOT NULL,
+ sequence INTEGER NOT NULL CHECK(sequence>0), started_at INTEGER NOT NULL CHECK(started_at>=0),
+ completed_at INTEGER CHECK(completed_at>=0), duration_ms INTEGER CHECK(duration_ms>=0), recoveries INTEGER NOT NULL DEFAULT 0 CHECK(recoveries>=0),
+ UNIQUE(attempt_id,sequence), CHECK(completed_at IS NOT NULL OR duration_ms IS NULL)
+) STRICT;
+CREATE TRIGGER evaluation_runs_permanent BEFORE DELETE ON evaluation_runs BEGIN SELECT RAISE(ABORT,'evaluation manifest is permanent'); END;
+CREATE TRIGGER evaluation_attempts_permanent BEFORE DELETE ON evaluation_attempts BEGIN SELECT RAISE(ABORT,'evaluation attempt identity is permanent'); END;
+CREATE TRIGGER evaluation_phases_permanent BEFORE DELETE ON evaluation_phases BEGIN SELECT RAISE(ABORT,'phase timing evidence is permanent'); END;
+CREATE TRIGGER evaluation_runs_immutable BEFORE UPDATE ON evaluation_runs BEGIN SELECT RAISE(ABORT,'immutable evaluation manifest'); END;
+CREATE TRIGGER evaluation_attempts_immutable BEFORE UPDATE ON evaluation_attempts BEGIN SELECT RAISE(ABORT,'immutable evaluation attempt'); END;
+CREATE TRIGGER evaluation_phases_identity BEFORE UPDATE ON evaluation_phases
+ WHEN OLD.operation_id<>NEW.operation_id OR OLD.attempt_id<>NEW.attempt_id OR OLD.phase_id<>NEW.phase_id
+ OR OLD.sequence<>NEW.sequence OR OLD.started_at<>NEW.started_at
+ BEGIN SELECT RAISE(ABORT,'immutable phase timing identity'); END;
+CREATE TRIGGER evaluation_phases_completed BEFORE UPDATE ON evaluation_phases WHEN OLD.completed_at IS NOT NULL
+ BEGIN SELECT RAISE(ABORT,'immutable completed phase timing'); END;
 ` }];
 
 export function verifyMigrationHistory(db: DatabaseSync, requireExisting = false): number {

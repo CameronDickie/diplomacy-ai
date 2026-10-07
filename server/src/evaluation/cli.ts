@@ -36,6 +36,7 @@ export function format(report: EvaluationReport): string {
     `Run ${report.manifest.runId} · ${report.manifest.transport.toUpperCase()} transport · ${report.manifest.scenario} v${report.manifest.scenarioVersion} · script ${report.manifest.script}`,
     `Preset ${report.manifest.presetId} (${report.manifest.model}, prices ${report.manifest.pricingVersion}) · context ${report.manifest.contextVersion}`,
     `Attempts ${s.attempts}: ${s.successes} succeeded, ${s.failures} failed, ${s.stalled} stalled · ${s.phases} phases · ${s.calls} calls, ${s.validCalls} valid`,
+    `Timing evidence: ${s.timedPhases}/${s.phases} committed phases timed · ${s.timingIssues} issue(s)`,
     `Tokens ${s.inputTokens} in (${s.cachedInputTokens} cached) / ${s.outputTokens} out`,
     `Cost: settled USD ${(s.settledNanousd / 1e9).toFixed(6)} · still held USD ${(s.heldNanousd / 1e9).toFixed(6)} · worst-case reserved USD ${(s.reservedEstimateNanousd / 1e9).toFixed(6)}`,
     `Ledger ${report.ledger.reconciles ? 'reconciles' : 'DOES NOT RECONCILE'}: settled moved by USD ${((report.ledger.settledAfterNanousd - report.ledger.settledBeforeNanousd) / 1e9).toFixed(6)}`,

@@ -14,6 +14,7 @@ import { RetentionRepository } from './retention.js';
 import { OperatorRepository, paidState, stopPaid } from './operator.js';
 import { OutboxRepository } from './outbox.js';
 import { FundingRepository } from './funding.js';
+import { EvaluationRepository } from './evaluation.js';
 import { ExhibitionRepository } from './exhibitions.js';
 import type { StoreOperations } from './contracts.js';
 import { parseChallenge, publicBoard, publicReport } from './publicData.js';
@@ -188,6 +189,10 @@ async function handle(request: StoreRequest): Promise<unknown> {
         ? 'Sponsored play is out of budget and has been paused.' : 'This attempt has reached its sponsored budget.');
       return prepared;
     }
+    case 'registerEvaluationRun': return transaction(() => new EvaluationRepository(db).register(input));
+    case 'evaluationRun': return new EvaluationRepository(db).get(input.runId);
+    case 'evaluationPhases': return new EvaluationRepository(db).phases(input.attemptId);
+    case 'createEvaluationAttempt': return refuseStart(transaction(() => new EvaluationRepository(db).create(input,getAttempt,createAttempt)));
     case 'saveProviderDecision': return transaction(() => new ProviderCallRepository(db).saveDecision(input));
     case 'providerDecisions': return new ProviderCallRepository(db).decisions(input.operationId);
     case 'createExhibition': return transaction(() => new ExhibitionRepository(db).create(input));
