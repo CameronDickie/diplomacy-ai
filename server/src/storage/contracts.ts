@@ -87,6 +87,7 @@ export interface StoreOperations {
   finishProviderCall: { input: { id:string; outcome:ProviderOutcome; now:number }; output: ProviderCallRecord };
   providerCall: { input: { id:string }; output: ProviderCallRecord|null };
   providerCallsForOperation: { input: { operationId:string }; output: ProviderCallRecord[] };
+  providerCallsForAttempt: { input: { attemptId:string }; output: ProviderCallRecord[] };
   providerCallTotals: { input: { operationId:string }; output: ProviderTotals };
   admitAttempt: { input: { id:string; playerId:string; requestId:string; challengeId:string; challengeVersion:number; now:number; maxActive:number; maxPerAccount:number; dailyLimit:number; replayOnly?:boolean; sponsored?:SponsoredStart }; output: StoredAttempt };
   ownedAttempts: { input: { playerId:string; before?:{createdAt:number;id:string}; limit?:number }; output: StoredAttempt[] };

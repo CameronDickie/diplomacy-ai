@@ -31,7 +31,8 @@ Status: **not release-ready.** The open rows below are blockers.
 | Luna request contract, bounded context, decision provider, funded crash recovery | Verified offline with a mock transport | `LunaPreset.test.ts`, `LunaContext.test.ts`, `LunaProvider.test.ts` |
 | Sponsored attempt mode in the API and UI | Verified offline with a mock transport; browser pass against the local mock | `SponsoredMode.test.ts` |
 | Any call to the real provider | **Open — never made; startup still refuses paid AI** | owner authorization |
-| Quality, latency and cost targets (mean attempt under USD 1, phase p95 under 30 s) | **Open — needs an authorized paid evaluation** | DIC-68 |
+| Evaluation harness: restartable, reconciles to the ledger, reports against targets | Verified offline with the mock | `Evaluation.test.ts`; [evaluation.md](evaluation.md) |
+| Quality, latency and cost targets (mean attempt under USD 1, phase p95 under 30 s, under 5 % unusable calls) | **Open — no live run has been made; needs the owner's authorized evaluation** | DIC-68 |
 | End-to-end verification with the funded path | **Open** | DIC-70 |
 | Real sign-in, desktop and mobile smoke test on the deployed origin | **Open — needs a deployment** | DIC-72 |
 | Human review of repository history before publication | **Open** | DIC-72 |

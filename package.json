@@ -12,6 +12,7 @@
   "scripts": {
     "fixture": "node server/dist/fixtures/cli.js",
     "storage": "node server/dist/storage/cli.js",
+    "evaluate": "node server/dist/evaluation/cli.js",
     "dev": "npm run build:engine && npm run build -w shared && npm run build -w server && concurrently \"npm run dev -w shared\" \"npm run dev -w server\" \"npm run dev -w client\"",
     "build:engine": "mkdir -p engine/bin engine/.cache/go-build && GOCACHE=$PWD/engine/.cache/go-build go -C engine build -buildvcs=false -o bin/diplomacy-engine ./cmd/diplomacy-engine",
     "generate:board": "GOCACHE=$PWD/engine/.cache/go-build go -C engine run -buildvcs=false ./cmd/generate-board -out ../shared/src/constants/adjacency.generated.ts",

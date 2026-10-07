@@ -22,6 +22,7 @@ needs fixing.
 | [configuration.md](configuration.md) | every runtime setting and profile |
 | [deployment.md](deployment.md) | container image and Lightsail procedure |
 | [release-evidence.md](release-evidence.md) | what has been verified, how, and what still blocks release |
+| [evaluation.md](evaluation.md) | the evaluation harness, its report, and the conditions for a live run |
 | [provider-accounting.md](provider-accounting.md) | recording every provider call before interpreting it |
 | [luna-preset.md](luna-preset.md) | the fixed `gpt-6-luna` request and price contract |
 | [luna-context.md](luna-context.md) | what an opponent request contains, its choices and its size bounds |

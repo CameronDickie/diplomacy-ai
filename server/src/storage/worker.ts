@@ -199,6 +199,7 @@ async function handle(request: StoreRequest): Promise<unknown> {
     case 'finishProviderCall': return transaction(() => new ProviderCallRepository(db).finish(input));
     case 'providerCall': return new ProviderCallRepository(db).get(input.id);
     case 'providerCallsForOperation': return new ProviderCallRepository(db).list(input.operationId);
+    case 'providerCallsForAttempt': return new ProviderCallRepository(db).forAttempt(input.attemptId);
     case 'providerCallTotals': return new ProviderCallRepository(db).totals(input);
     case 'admitAttempt': return refuseStart(transaction(() => {
       validText(input.id,100); validText(input.requestId,100); validTime(input.now);

@@ -120,6 +120,12 @@ export class ProviderCallRepository {
     if(rows.length>1000)throw new StoreError('STORE_UNAVAILABLE','Provider recovery record count exceeds its bound.');
     return rows.map(r=>this.required(String(r.id)));
   }
+  forAttempt(attemptId:string):ProviderCallRecord[] {
+    identifier(attemptId);
+    const rows=this.db.prepare('SELECT id FROM provider_calls WHERE attempt_id=? ORDER BY created_at,id LIMIT 2001').all(attemptId);
+    if(rows.length>2000)throw new StoreError('STORE_UNAVAILABLE','Provider record count for this attempt exceeds its bound.');
+    return rows.map(r=>this.required(String(r.id)));
+  }
   totals(input:StoreOperations['providerCallTotals']['input']):StoreOperations['providerCallTotals']['output'] {
     identifier(input.operationId);
     const r=this.db.prepare(`SELECT count(*) calls,
