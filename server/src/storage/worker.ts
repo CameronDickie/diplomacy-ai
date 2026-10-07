@@ -11,6 +11,8 @@ import { scoreChallenge } from '../challenge/TunisPilot.js';
 import { migrate, verifyMigrationHistory } from './migrations.js';
 import { PhaseRepository } from './phases.js';
 import { RetentionRepository } from './retention.js';
+import { OperatorRepository, paidState } from './operator.js';
+import { OutboxRepository } from './outbox.js';
 import type { StoreOperations } from './contracts.js';
 import { parseChallenge, publicBoard, publicReport } from './publicData.js';
 import { StoreError, type StoreRequest, type StoredAttempt, type StoredPlayer, type StoredReceipt, type StoredChallenge } from './contracts.js';
@@ -185,6 +187,8 @@ async function handle(request: StoreRequest): Promise<unknown> {
       const created = createAttempt({...input,reconnectTokenHash:hash(randomBytes(32).toString('hex'))});
       db.prepare('INSERT INTO start_receipts(player_id,request_id,attempt_id,challenge_id,challenge_version,created_at) VALUES(?,?,?,?,?,?)').run(input.playerId,input.requestId,created.id,input.challengeId,input.challengeVersion,input.now);
       db.prepare('INSERT INTO account_starts(player_id,utc_day,accepted) VALUES(?,?,1) ON CONFLICT(player_id,utc_day) DO UPDATE SET accepted=accepted+1').run(input.playerId,day);
+      // Same transaction as the start, so the owner notice exists exactly when the attempt does.
+      new OutboxRepository(db).enqueue('ATTEMPT_STARTED',`start:${created.id}`,{attemptId:created.id,challengeId:input.challengeId,challengeVersion:input.challengeVersion,mode:created.mode,at:input.now},input.now);
       return created;
     });
     case 'ownedAttempts': {
@@ -194,6 +198,14 @@ async function handle(request: StoreRequest): Promise<unknown> {
       return db.prepare('SELECT * FROM attempts WHERE player_id=? AND (created_at<? OR (created_at=? AND id<?)) ORDER BY created_at DESC,id DESC LIMIT ?')
         .all(input.playerId,before.createdAt,before.createdAt,before.id,limit).map(attempt);
     }
+    case 'operatorOverview': return new OperatorRepository(db).overview();
+    case 'operatorAttempt': return new OperatorRepository(db).attempt(input);
+    case 'setPaidStopped': return transaction(() => new OperatorRepository(db).setPaid(input));
+    case 'recordOperatorAction': return transaction(() => new OperatorRepository(db).record(input));
+    case 'paidState': return paidState(db);
+    case 'requestCredit': return transaction(() => new OperatorRepository(db).requestCredit(input));
+    case 'claimOutbox': return transaction(() => new OutboxRepository(db).claim(input));
+    case 'settleOutbox': return transaction(() => new OutboxRepository(db).settle(input));
     case 'sweepRetention': return transaction(() => new RetentionRepository(db).sweep(input));
     case 'deleteAccount': return transaction(() => new RetentionRepository(db).deleteAccount(input));
     case 'latestSubmission': {
@@ -245,6 +257,7 @@ async function handle(request: StoreRequest): Promise<unknown> {
     case 'banPlayer': return transaction(() => {
       validTime(input.now);
       db.prepare('UPDATE players SET banned_at=? WHERE id=?').run(input.banned ? input.now : null,input.playerId);
+      const sessions = input.banned ? db.prepare('SELECT token_hash FROM sessions WHERE player_id=? AND revoked_at IS NULL').all(input.playerId).map(r => String(r.token_hash)) : [];
       if (input.banned) {
         db.prepare('UPDATE sessions SET revoked_at=? WHERE player_id=?').run(input.now,input.playerId);
         for (const row of db.prepare("SELECT * FROM attempts WHERE player_id=? AND lifecycle='ACTIVE'").all(input.playerId)) {
@@ -255,7 +268,7 @@ async function handle(request: StoreRequest): Promise<unknown> {
           db.prepare("UPDATE attempts SET lifecycle='STOPPED',execution='IDLE',revision=revision+1,score_json=?,updated_at=? WHERE id=?").run(canonicalJson(score),input.now,active.id);
         }
       }
-      return null;
+      return {sessions};
     });
     case 'registerChallenge': return transaction(() => {
       const definition = parseChallenge(input.definition);

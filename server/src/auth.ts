@@ -65,10 +65,10 @@ export class AuthService {
     await this.store.call('revokeSession', { tokenHash, now: this.now() });
     for (const listener of this.invalidation) listener(tokenHash);
   }
-  /** Ends sessions the store has already removed: live sockets are dropped and this browser's cookies cleared. */
-  forget(tokenHashes: readonly string[], response: express.Response): void {
+  /** Ends sessions the store has already removed or revoked: live sockets are dropped and, given a response, its cookies cleared. */
+  forget(tokenHashes: readonly string[], response?: express.Response): void {
     for (const tokenHash of tokenHashes) for (const listener of this.invalidation) listener(tokenHash);
-    response.clearCookie(this.cookieName, this.cookieOptions()); response.clearCookie(this.flowCookie, this.cookieOptions());
+    response?.clearCookie(this.cookieName, this.cookieOptions()); response?.clearCookie(this.flowCookie, this.cookieOptions());
   }
   private allowStart(ip: string): boolean {
     const now = this.now();

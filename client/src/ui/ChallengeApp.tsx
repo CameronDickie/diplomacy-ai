@@ -2,6 +2,7 @@ import { useEffect,useMemo,useState } from 'react';
 import { TERRITORIES, type ChallengeAction,type ChallengeAttemptView,type ChallengeCard,type ChallengeLimits,type PublicPhaseReport,type Unit } from '@diplomacy/shared';
 import { useChallenge } from '../hooks/useChallenge.js';
 import { MapGraph } from './MapGraph.js';
+import { OperatorPanel } from './OperatorPanel.js';
 import { territoryName } from '../lib/game.js';
 
 export function ChallengeApp(){
@@ -9,7 +10,7 @@ export function ChallengeApp(){
   const [selected,setSelected]=useState<string|null>(null),[choices,setChoices]=useState<Record<string,string>>({});
   const [retreats,setRetreats]=useState<Record<string,string>>({}),[builds,setBuilds]=useState<Record<string,string>>({}),[disbands,setDisbands]=useState<string[]>([]);
   const [replay,setReplay]=useState<{reports:PublicPhaseReport[];index:number;after:boolean;reference:boolean}|null>(null),[confirmAbandon,setConfirmAbandon]=useState(false),[confirmDelete,setConfirmDelete]=useState(false);
-  const [clock,setClock]=useState(Date.now());
+  const [clock,setClock]=useState(Date.now()),[operatorView,setOperatorView]=useState(false);
   useEffect(()=>{const timer=setInterval(()=>setClock(Date.now()),1000);return()=>clearInterval(timer);},[]);
   useEffect(()=>{setChoices({});setRetreats({});setBuilds({});setDisbands([]);setSelected(null);setReplay(null);setConfirmAbandon(false);},[a?.id,a?.phaseId,game.auth.user?.id]);
   useEffect(()=>setConfirmDelete(false),[game.auth.user?.id]);
@@ -35,10 +36,10 @@ export function ChallengeApp(){
   const complete=a?.board.phase!=='ORDERS'||(!!game.legal&&chosenOrders.length===own.filter(u=>!u.mustRetreat).length);
   return <main className="challenge-shell">
     <header className="challenge-header"><div><p className="eyebrow">DIPLOMACY · SCENARIO LAB</p><h1>{card?.title??'Diplomacy challenges'}</h1><p>Small objectives. Seven powers. Every order matters.</p></div>
-      <nav aria-label="Project links"><a href="/legal.html">Credits & licenses</a><a href="https://github.com/CameronDickie/diplomacy-ai" target="_blank" rel="noreferrer">Source code</a></nav></header>
+      <nav aria-label="Project links">{game.auth.operator&&<button onClick={()=>setOperatorView(v=>!v)}>{operatorView?'Back to challenge':'Operator'}</button>}<a href="/legal.html">Credits & licenses</a><a href="https://github.com/CameronDickie/diplomacy-ai" target="_blank" rel="noreferrer">Source code</a></nav></header>
     {game.error&&<div className="challenge-alert" role="alert">{game.error}<button onClick={game.clearError}>Dismiss</button>{!game.loaded&&<button onClick={()=>window.location.reload()}>Retry</button>}</div>}
     {!game.loaded&&!game.error&&<p>Loading the challenge…</p>}
-    <div className="challenge-layout">
+    {operatorView&&game.auth.operator?<OperatorPanel/>:<div className="challenge-layout">
       <aside className="challenge-brief">
         <span className="challenge-badge">Development pilot · {replay?(replay.reference?'Reference replay':'Your replay'):'Offline practice'}</span>
         <h2>Your mission</h2><p>{card?.objectiveText}</p>
@@ -52,6 +53,9 @@ export function ChallengeApp(){
           {clock>=a.idleWarnAt&&<div className="challenge-alert">Your attempt expires after inactivity. <button onClick={()=>void game.activity(true)}>I’m still here</button></div>}
           {confirmAbandon?<div><p>End this attempt? Its saved result will remain available.</p><button onClick={()=>void game.abandon()} disabled={game.busy}>End attempt</button><button onClick={()=>setConfirmAbandon(false)}>Keep playing</button></div>:<button className="subtle" onClick={()=>setConfirmAbandon(true)}>Abandon attempt</button>}
         </>}
+        {game.capacity==='FULL'&&(!a||a.lifecycle!=='ACTIVE')&&<p role="status">All {game.limits?.maxActiveAttempts} game slots are in use right now. There is no queue: try again in a few minutes, or watch the reference replay meanwhile.</p>}
+        {game.sponsoredPlay==='PAUSED'&&<div className="challenge-alert" role="status">Sponsored play against GPT-6 Luna is paused. Practice and the replay still work.
+          {game.auth.authenticated&&<button disabled={game.busy||game.creditRequested} onClick={()=>void game.requestCredit()}>{game.creditRequested?'Request sent to the owner':'Ask the owner to resume it'}</button>}</div>}
         {!game.auth.authenticated&&<p>Sign in with Google or GitHub to save your attempt. The reference replay needs no account.</p>}
         {a&&a.lifecycle!=='ACTIVE'&&<Outcome attempt={a} limits={game.limits}/>}
         <button onClick={()=>game.demo&&setReplay({reports:game.demo.reports,index:0,after:false,reference:true})} disabled={!game.demo||replay?.reference}>Watch reference replay</button>
@@ -98,7 +102,7 @@ export function ChallengeApp(){
           {game.reports.length>0&&<section><h2>Phase reports</h2>{game.reports.map((r,i)=><button className="attempt-history" key={r.id} onClick={()=>setReplay({reports:game.reports,index:i,after:true,reference:false})}>{r.year} {r.season} · {r.phase}</button>)}</section>}
         </>}
       </aside>
-    </div>
+    </div>}
   </main>;
 }
 function Outcome({attempt,limits}:{attempt:ChallengeAttemptView;limits:ChallengeLimits|null}){

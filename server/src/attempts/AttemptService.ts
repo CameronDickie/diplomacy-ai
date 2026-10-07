@@ -125,9 +125,11 @@ export class AttemptService {
     if(result.lifecycle !== 'ACTIVE') this.running.get(id)?.controller.abort();
     return result;
   }
-  async banPlayer(playerId:string,banned=true): Promise<void> {
-    await this.store.call('banPlayer',{playerId,banned,now:this.now()});
+  /** Returns the session hashes the ban revoked so live sockets can be dropped. */
+  async banPlayer(playerId:string,banned=true): Promise<string[]> {
+    const {sessions} = await this.store.call('banPlayer',{playerId,banned,now:this.now()});
     if (banned) for (const work of this.running.values()) if (work.playerId === playerId) work.controller.abort();
+    return sessions;
   }
   /** Removes the account's rows first; aborted work then fails its fence and cannot dispatch or commit. */
   async deleteAccount(playerId:string): Promise<string[]> {

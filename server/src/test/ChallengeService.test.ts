@@ -114,7 +114,7 @@ test('public catalog and reference replay need no login or provider, publish the
   t.after(()=>{globalThis.fetch=realFetch;});
   const catalog=await (await f.request('/challenges')).json() as ChallengeCatalog;
   assert.deepEqual(catalog.limits,{maxActiveAttempts:f.config.maxActiveAttempts,maxActivePerAccount:f.config.maxActivePerAccount,dailyStartLimit:f.config.dailyStartLimit,idleWarnMinutes:f.config.idleWarnMinutes,idleExpireMinutes:f.config.idleExpireMinutes,resultRetentionDays:30});
-  assert.equal(catalog.sponsoredPlay,'UNAVAILABLE');assert.deepEqual(Object.keys(catalog).sort(),['challenges','limits','sponsoredPlay']);
+  assert.equal(catalog.sponsoredPlay,'NOT_OFFERED');assert.equal(catalog.capacity,'OPEN');assert.deepEqual(Object.keys(catalog).sort(),['capacity','challenges','limits','sponsoredPlay']);
   const response=await f.request('/challenges/demo');assert.equal(response.status,200);assert.equal(response.headers.get('set-cookie'),null);
   const text=await response.text(),demo=JSON.parse(text) as ChallengeReplay;
   assert.equal(demo.kind,'REFERENCE');assert.deepEqual(demo.reports.map(r=>r.id),['reference-1','reference-2','reference-3','reference-4']);

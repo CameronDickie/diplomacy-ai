@@ -27,6 +27,10 @@ export interface ChallengeHistoryPage { attempts:ChallengeAttemptView[]; next:st
 export interface ChallengeLegalCatalog { attemptId:string; phaseId:string; revision:number; options:Array<{id:string;unitTerritory:string;order:Order;description:string}> }
 /** Server-enforced limits, published so visitor copy never drifts from what admission actually applies. */
 export interface ChallengeLimits { maxActiveAttempts:number; maxActivePerAccount:number; dailyStartLimit:number; idleWarnMinutes:number; idleExpireMinutes:number; resultRetentionDays:number }
-export interface ChallengeCatalog { challenges:ChallengeCard[]; limits:ChallengeLimits; sponsoredPlay:'UNAVAILABLE' }
+/**
+ * `sponsoredPlay`: NOT_OFFERED until the funded adapter is enabled, PAUSED while the operator or an
+ * exhausted budget has stopped it. `capacity` reflects the global active-attempt limit right now.
+ */
+export interface ChallengeCatalog { challenges:ChallengeCard[]; limits:ChallengeLimits; sponsoredPlay:'NOT_OFFERED'|'PAUSED'|'OPEN'; capacity:'OPEN'|'FULL' }
 /** `REFERENCE` is the packaged public run; a player's own phase history is never served under this type. */
 export interface ChallengeReplay { kind:'REFERENCE'; challenge:ChallengeCard; reports:PublicPhaseReport[] }

@@ -3,6 +3,7 @@ import { ALL_POWERS } from '@diplomacy/shared';
 import { canonicalJson } from '../fixtures/BoardFixture.js';
 import { providerOutcomes, type ProviderCallIntent, type ProviderCallRecord, type ProviderUsage } from '../providers/accounting.js';
 import { StoreError, type StoreOperations } from './contracts.js';
+import { paidState } from './operator.js';
 
 const invalid = (): never => { throw new StoreError('STORE_INVALID','Invalid provider accounting metadata.'); };
 const conflict = (): never => { throw new StoreError('STORE_CONFLICT','Provider call already exists or changed; reconcile its durable record.'); };
@@ -38,6 +39,8 @@ export class ProviderCallRepository {
   private required(id:string):ProviderCallRecord { return this.get(id)??conflict(); }
   private current(v:ProviderCallIntent):void {
     const f=v.fence;
+    // An operator or exhaustion stop closes every new paid prepare/dispatch, including queued and recovered work.
+    if(paidState(this.db).stopped)throw new StoreError('STORE_CONFLICT','Sponsored play is stopped; no new provider call may begin.');
     const row=this.db.prepare(`SELECT j.id FROM phase_jobs j JOIN attempts a ON a.id=j.attempt_id JOIN players p ON p.id=a.player_id
       WHERE j.id=? AND j.attempt_id=? AND j.phase_id=? AND j.revision=? AND a.revision=j.revision AND a.phase_id=j.phase_id
       AND json_extract(j.definition_json,'$.humanPower')<>? AND json_extract(j.board_json,'$.phase')=?

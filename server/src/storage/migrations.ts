@@ -99,6 +99,22 @@ CREATE TABLE deleted_identities (
  identity_hash TEXT PRIMARY KEY CHECK(length(identity_hash)=64), utc_day TEXT NOT NULL,
  accepted INTEGER NOT NULL CHECK(accepted>0), deleted_at INTEGER NOT NULL
 ) STRICT;
+` }, { version: 6, sql: `
+CREATE TABLE operator_state (
+ key TEXT PRIMARY KEY, value_json TEXT NOT NULL CHECK(json_valid(value_json)), updated_at INTEGER NOT NULL
+) STRICT;
+CREATE TABLE operator_audit (
+ id INTEGER PRIMARY KEY, at INTEGER NOT NULL, operator_id TEXT NOT NULL, action TEXT NOT NULL, target TEXT
+) STRICT;
+CREATE TABLE outbox (
+ id INTEGER PRIMARY KEY, dedupe_key TEXT NOT NULL UNIQUE,
+ kind TEXT NOT NULL CHECK(kind IN ('ATTEMPT_STARTED','CREDIT_REQUEST')),
+ payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
+ state TEXT NOT NULL CHECK(state IN ('PENDING','SENDING','SENT','FAILED')),
+ attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0), next_attempt_at INTEGER NOT NULL,
+ created_at INTEGER NOT NULL, sent_at INTEGER, channel TEXT CHECK(channel IS NULL OR channel IN ('outbox','resend')), last_error TEXT
+) STRICT;
+CREATE INDEX outbox_due ON outbox(state,next_attempt_at);
 ` }];
 
 export function verifyMigrationHistory(db: DatabaseSync, requireExisting = false): number {

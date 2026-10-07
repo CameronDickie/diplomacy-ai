@@ -1507,3 +1507,25 @@ fieldset.order-builder { min-width: 0; margin: 0; border: 0; padding: 0; }
 .challenge-guide p + p { margin-top:8px; }
 .challenge-shell summary:focus-visible { outline:2px solid #f1d38a; outline-offset:3px; }
 .challenge-account { border-top:1px solid #34433c; padding-top:12px; display:grid; gap:8px; }
+.operator-panel { padding:24px; display:flex; flex-direction:column; gap:16px; overflow:auto; flex:1; min-height:0; background:#151e1e; }
+.operator-panel > * { flex:none; }
+.operator-panel h2 { font-size:14px; font-weight:600; margin:0; color:#e6d7ae; }
+.operator-panel p, .operator-panel span, .operator-panel li, .operator-panel dd, .operator-panel dt { font-size:13px; line-height:1.5; margin:0; }
+.operator-tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
+.operator-tiles > div { border:1px solid #34433c; border-radius:8px; padding:14px; display:flex; flex-direction:column; gap:8px; background:#101719; }
+.operator-tiles strong { font-size:18px; color:#f2e6ca; font-weight:500; }
+.operator-tiles span { color:#9daaa5; font-size:12px; }
+.operator-tiles dl { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:0; }
+.operator-tiles dt { color:#9daaa5; }
+.operator-table { display:flex; flex-direction:column; border:1px solid #34433c; border-radius:8px; }
+.operator-table [role=row] { display:grid; grid-template-columns:minmax(150px,1fr) minmax(180px,1.4fr) minmax(220px,1.6fr) 110px auto; gap:8px 14px; align-items:center; padding:10px 14px; border-bottom:1px solid #2a3531; }
+.operator-table [role=row]:last-child { border-bottom:0; }
+.operator-table [role=row].selected { background:#1d2a27; }
+.operator-actions, .operator-steps { display:flex; flex-wrap:wrap; gap:6px; }
+.operator-actions button, .operator-steps button { padding:5px 10px; font-size:12px; }
+.operator-spectate { display:flex; flex-direction:column; gap:10px; }
+.operator-map { width:100%; max-width:680px; aspect-ratio:1.15; position:relative; border:1px solid #34433c; border-radius:8px; overflow:hidden; background:#1b2426; display:flex; flex-direction:column; }
+.operator-map > .map-frame { flex:1; min-height:0; height:auto; }
+.operator-map .map-canvas { min-width:0; min-height:0; }
+.operator-list { margin:0; padding-left:18px; color:#c9cfc8; }
+@media(max-width:900px){ .operator-panel { padding:16px; } .operator-table [role=row] { grid-template-columns:1fr; } }

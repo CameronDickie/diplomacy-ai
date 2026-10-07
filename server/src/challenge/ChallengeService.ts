@@ -92,10 +92,20 @@ export class ChallengeService {
         res.status(status).json({code,message:error instanceof StoreError?error.message:'Challenge play is temporarily unavailable. Retry shortly.'});
       });
     };
-    // Public GETs read only startup-packaged content: no store, session or provider work.
-    const catalog:ChallengeCatalog={challenges:this.cards,sponsoredPlay:'UNAVAILABLE',limits:{maxActiveAttempts:this.config.maxActiveAttempts,maxActivePerAccount:this.config.maxActivePerAccount,
-      dailyStartLimit:this.config.dailyStartLimit,idleWarnMinutes:this.config.idleWarnMinutes,idleExpireMinutes:this.config.idleExpireMinutes,resultRetentionDays:this.config.resultRetentionDays}};
-    router.get('/challenges',run(async(_req,res)=>{res.json(catalog);}));
+    // Public GETs make no session or provider call; the catalog adds two counters so availability is honest.
+    router.get('/challenges',run(async(_req,res)=>{
+      const [active,paid]=await Promise.all([this.store.call('activeAttempts',{}),this.store.call('paidState',{})]);
+      const catalog:ChallengeCatalog={challenges:this.cards,sponsoredPlay:!this.config.llm.paidEnabled?'NOT_OFFERED':paid.stopped?'PAUSED':'OPEN',
+        capacity:active.length>=this.config.maxActiveAttempts?'FULL':'OPEN',limits:{maxActiveAttempts:this.config.maxActiveAttempts,maxActivePerAccount:this.config.maxActivePerAccount,
+        dailyStartLimit:this.config.dailyStartLimit,idleWarnMinutes:this.config.idleWarnMinutes,idleExpireMinutes:this.config.idleExpireMinutes,resultRetentionDays:this.config.resultRetentionDays}};
+      res.json(catalog);
+    }));
+    // One owner notice per account per pause; the store refuses unless sponsored play is actually stopped.
+    router.post('/credit-request',auth.requirePlayer(),run(async(req,res)=>{
+      schema.fields(req.body,[],'credit request');
+      if(!this.config.llm.paidEnabled)throw new StoreError('STORE_CONFLICT','Sponsored play is not offered yet, so there is nothing to request.');
+      res.json(await this.store.call('requestCredit',{playerId:player(res),now:this.now()}));
+    }));
     router.get('/challenges/demo',run(async(_req,res)=>{res.json(this.demo);}));
     router.get('/attempts',auth.requirePlayer(),run(async(req,res)=>{
       const cursor=typeof req.query.before==='string'?/^(\d{1,16})\.([-A-Za-z0-9_]{1,100})$/.exec(req.query.before):null;

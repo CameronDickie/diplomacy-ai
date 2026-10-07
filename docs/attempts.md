@@ -18,8 +18,8 @@ reservations.
 
 Public `GET /api/challenges` and `/api/challenges/demo` expose the fixed Tunis
 pilot and an offline reference replay. The catalog also publishes the enforced
-start/idle limits and `sponsoredPlay: "UNAVAILABLE"`, which the visitor guide
-renders instead of hard-coded numbers. The replay is tagged `kind: "REFERENCE"`,
+start/idle limits plus live `capacity` and `sponsoredPlay` availability (see
+`docs/operator.md`), which the visitor guide renders instead of hard-coded numbers. The replay is tagged `kind: "REFERENCE"`,
 passes through `publicReplay` (explicit fields, stable `reference-N` IDs and a
 fixed timestamp) and is identical across restarts; neither route touches the
 store, sessions or a provider. Authenticated players start with

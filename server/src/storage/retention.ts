@@ -39,6 +39,8 @@ export class RetentionRepository {
     // A daily counter only limits its own UTC day, so removing a past day never restores a start.
     this.db.prepare('DELETE FROM account_starts WHERE utc_day<?').run(utcDay(input.now));
     this.db.prepare('DELETE FROM deleted_identities WHERE utc_day<?').run(utcDay(input.now));
+    this.db.prepare("DELETE FROM outbox WHERE state IN ('SENT','FAILED') AND created_at<=?").run(input.diagnosticBefore);
+    this.db.prepare('DELETE FROM operator_audit WHERE at<=?').run(input.resultBefore);
     return { attempts: expired.length, diagnostics: stale.length, sessions, more: [expired.length,stale.length,sessions].includes(input.limit) };
   }
   deleteAccount(input: StoreOperations['deleteAccount']['input']): StoreOperations['deleteAccount']['output'] {

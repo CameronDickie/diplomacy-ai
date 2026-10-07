@@ -38,7 +38,30 @@ export interface StoredReceipt {
   state: SubmissionState;
   createdAt: number;
 }
+export interface PaidState { stopped: boolean; episode: number; updatedAt: number | null }
+export interface SpendTotals { calls:number; unresolvedCalls:number; knownCostNanousd:number; unresolvedLiabilityNanousd:number; inputTokens:number; outputTokens:number }
+export type OutboxKind = 'ATTEMPT_STARTED' | 'CREDIT_REQUEST';
+export interface OutboxMessage {
+  id: number; dedupeKey: string; kind: OutboxKind; payload: Record<string,string|number|null>;
+  state: 'PENDING' | 'SENDING' | 'SENT' | 'FAILED'; attempts: number; nextAttemptAt: number; createdAt: number;
+  sentAt: number | null; channel: 'outbox' | 'resend' | null; lastError: string | null;
+}
+/** What an operator may see of an attempt: pseudonymous owner, public position, timings. */
+export interface OperatorAttemptRow {
+  id: string; playerId: string; playerProvider: StoredPlayer['provider']; playerBanned: boolean;
+  challengeId: string; challengeVersion: number; mode: 'PRACTICE'; lifecycle: AttemptLifecycle; execution: AttemptExecution;
+  year: number; season: BoardFixture['season']; phase: BoardFixture['phase']; createdAt: number; updatedAt: number; lastActivityAt: number;
+}
+export type OperatorAction = 'ATTEMPT_STOP' | 'PLAYER_BAN' | 'PLAYER_UNBAN' | 'SPECTATE';
 export interface StoreOperations {
+  operatorOverview: { input: {}; output: { activeAttempts:number; attempts:OperatorAttemptRow[]; spend:SpendTotals; paid:PaidState; outbox:{counts:Record<OutboxMessage['state'],number>;recent:OutboxMessage[]}; audit:Array<{at:number;operatorId:string;action:string;target:string|null}> } };
+  operatorAttempt: { input: { id:string }; output: { attempt:OperatorAttemptRow; board:BoardFixture; score:ChallengeScore|null; reports:PublicPhaseReport[]; spend:SpendTotals } | null };
+  setPaidStopped: { input: { stopped:boolean; operatorId:string; now:number }; output: PaidState };
+  recordOperatorAction: { input: { operatorId:string; action:OperatorAction; target:string; now:number }; output: null };
+  paidState: { input: {}; output: PaidState };
+  requestCredit: { input: { playerId:string; now:number }; output: { recorded:true; duplicate:boolean } };
+  claimOutbox: { input: { now:number; limit:number; leaseMs:number }; output: OutboxMessage[] };
+  settleOutbox: { input: { id:number; ok:true; channel:'outbox'|'resend'; now:number } | { id:number; ok:false; error:string; now:number }; output: OutboxMessage };
   prepareProviderCall: { input: { intent:ProviderCallIntent; now:number }; output: ProviderCallRecord };
   dispatchProviderCall: { input: { id:string; now:number }; output: ProviderCallRecord };
   receiveProviderCall: { input: { id:string; responseId:string|null; usage:ProviderUsage|null; now:number }; output: ProviderCallRecord };
@@ -64,7 +87,7 @@ export interface StoreOperations {
   createSession: { input: { tokenHash: string; playerId: string; expiresAt: number; now: number }; output: null };
   session: { input: { tokenHash: string; now: number }; output: StoredSession | null };
   revokeSession: { input: { tokenHash: string; now: number }; output: null };
-  banPlayer: { input: { playerId: string; now: number; banned: boolean }; output: null };
+  banPlayer: { input: { playerId: string; now: number; banned: boolean }; output: { sessions: string[] } };
   registerChallenge: { input: StoredChallenge & { now: number }; output: null };
   challenge: { input: { id: string; version: number }; output: StoredChallenge | null };
   createAttempt: { input: { id: string; playerId: string; challengeId: string; challengeVersion: number; now: number; reconnectTokenHash: string }; output: StoredAttempt };
