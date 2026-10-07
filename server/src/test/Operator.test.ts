@@ -23,7 +23,7 @@ const usage:ProviderUsage={inputTokens:100,cachedInputTokens:0,cacheWriteTokens:
 async function setup(t:test.TestContext,build?:(store:Store,now:()=>number)=>AttemptService){
   const dir=await mkdtemp(join(tmpdir(),'diplomacy-operator-'));let now=Date.parse('2027-01-01T12:00:00Z');
   const path=join(dir,'game.sqlite');let store=await Store.open(path);
-  const env={DIPLOMACY_PROFILE:'showcase',DIPLOMACY_AUTH_SESSION_SECRET:'test-secret-'.repeat(4),DIPLOMACY_ADMIN_GITHUB_USER_IDS:'4242'};
+  const env={DIPLOMACY_PROFILE:'showcase',DIPLOMACY_AUTH_SESSION_SECRET:'test-secret-'.repeat(4),DIPLOMACY_ADMIN_GITHUB_USER_IDS:'900000000017'};
   const config=readRuntimeConfig(env),auth=new AuthService(store,config,env,undefined,()=>now);
   const service=await ChallengeService.open(store,config,()=>now);
   await store.call('grantFunding',{amountNanousd:1_000_000_000,authorizationRef:'test-grant-0001',grantedBy:'test',now});
@@ -57,7 +57,7 @@ async function phase(store:Store,playerId:string,id:string,now:number){
 }
 
 test('operator routes reject guests, ordinary players, look-alike identities, revoked sessions and origin-less writes',async t=>{
-  const f=await setup(t),owner=await f.user('4242'),player=await f.user('player'),google=await f.user('4242','google');
+  const f=await setup(t),owner=await f.user('900000000017'),player=await f.user('player'),google=await f.user('900000000017','google');
   const attempt=await f.play(player.cookie,'start-1');
   const routes:Array<[string,unknown?]>=[['/operator/overview'],[`/operator/attempts/${attempt.id}`],['/operator/paid',{stopped:true}],[`/operator/attempts/${attempt.id}/stop`,{}],[`/operator/players/${player.player.id}/ban`,{banned:true}]];
   for(const [route,body] of routes){
@@ -79,7 +79,7 @@ test('operator routes reject guests, ordinary players, look-alike identities, re
 });
 
 test('overview and spectator view reconcile with the ledger and expose no identity, session or provider internals',async t=>{
-  const f=await setup(t),owner=await f.user('4242'),player=await f.user('player');
+  const f=await setup(t),owner=await f.user('900000000017'),player=await f.user('player');
   const played=await f.play(player.cookie,'start-1');
   const a=await phase(f.store,player.player.id,'ledger-a',f.now()),b=await phase(f.store,owner.player.id,'ledger-b',f.now());
   for(const [p,ids] of [[a,['a1','a2']],[b,['b1']]] as const)for(const id of ids){await f.store.call('prepareProviderCall',{intent:p.intent(id),now:f.now()});await f.store.call('dispatchProviderCall',{id,now:f.now()});}
@@ -94,7 +94,7 @@ test('overview and spectator view reconcile with the ledger and expose no identi
   assert.deepEqual([overview.funding.settledNanousd,overview.funding.reservedNanousd,overview.funding.unknownLiabilityNanousd,overview.reservedNanousd],[12845,100000,0,100000]);
   assert.equal(overview.funding.availableNanousd,overview.funding.ceilingNanousd-12845-100000);assert.equal(overview.paidConfigured,false);assert.equal(overview.notifyMode,'outbox');
   assert.equal(overview.activeAttempts,3);assert.equal(overview.maxActiveAttempts,3);assert.equal(overview.attempts.length,3);
-  for(const secret of ['Private name','4242','"subject"','displayName','tokenHash','token_hash','reconnect','requestHash','intent','decisions','humanAction'])assert.ok(!text.includes(secret),secret);
+  for(const secret of ['Private name','900000000017','"subject"','displayName','tokenHash','token_hash','reconnect','requestHash','intent','decisions','humanAction'])assert.ok(!text.includes(secret),secret);
   const detailText=await (await f.request(`/operator/attempts/${played.id}`,owner.cookie)).text(),detail=JSON.parse(detailText) as OperatorAttemptDetail;
   assert.deepEqual(detail.reports,(await (await f.request(`/attempts/${played.id}/reports`,player.cookie)).json()).reports);
   assert.equal(detail.attempt.playerId,player.player.id);assert.equal(detail.board.season,'FALL');assert.equal(detail.spend.calls,0);
@@ -106,7 +106,7 @@ test('overview and spectator view reconcile with the ledger and expose no identi
 });
 
 test('paid stop is durable, blocks new prepare and dispatch including recovered work, and still reconciles late bills',async t=>{
-  const f=await setup(t),owner=await f.user('4242'),player=await f.user('player');
+  const f=await setup(t),owner=await f.user('900000000017'),player=await f.user('player');
   const p=await phase(f.store,player.player.id,'paid-attempt',f.now());
   await f.store.call('prepareProviderCall',{intent:p.intent('prepared'),now:f.now()});
   await f.store.call('prepareProviderCall',{intent:p.intent('in-flight'),now:f.now()});await f.store.call('dispatchProviderCall',{id:'in-flight',now:f.now()});
@@ -136,7 +136,7 @@ test('operator stop and ban abort in-flight work, revoke access and leave nothin
   let started!:(context:{job:PhaseJob;signal:AbortSignal})=>void;const rules=new PhaseRules(),fallback=offlineDecisions(rules);
   const contexts:Array<{job:PhaseJob;signal:AbortSignal}>=[];let waiting=new Promise<{job:PhaseJob;signal:AbortSignal}>(done=>{started=done;});
   const f=await setup(t,(store,now)=>new AttemptService(store,{decide:async context=>{contexts.push(context);started(context);return new Promise<PhaseDecisions>(()=>{});},recover:fallback.recover},rules,{now}));
-  const owner=await f.user('4242'),one=await f.user('one'),two=await f.user('two');
+  const owner=await f.user('900000000017'),one=await f.user('one'),two=await f.user('two');
   const revoked:string[]=[];f.auth.onRevoke(hash=>revoked.push(hash));
   const orderIds=async(board:Parameters<PhaseRules['legal']>[0])=>(await rules.legal(board,'TURKEY',new AbortController().signal)).filter(o=>o.order.type==='HOLD').map(o=>o.id);
   async function inFlight(playerId:string,id:string){
@@ -167,7 +167,7 @@ test('operator stop and ban abort in-flight work, revoke access and leave nothin
 });
 
 test('start and credit-request notices are recorded once per logical event',async t=>{
-  const f=await setup(t),owner=await f.user('4242'),player=await f.user('player'),other=await f.user('other');
+  const f=await setup(t),owner=await f.user('900000000017'),player=await f.user('player'),other=await f.user('other');
   const copies=await Promise.all([f.request('/attempts',player.cookie,f.start('start-1')),f.request('/attempts',player.cookie,f.start('start-1')),f.request('/attempts',player.cookie,f.start('start-1'))]);
   const id=(await copies[0].json()).id;
   const outbox=async()=>(await (await f.request('/operator/overview',owner.cookie)).json() as OperatorOverview).outbox;

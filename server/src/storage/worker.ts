@@ -11,7 +11,7 @@ import { scoreChallenge } from '../challenge/TunisPilot.js';
 import { migrate, verifyMigrationHistory } from './migrations.js';
 import { PhaseRepository } from './phases.js';
 import { RetentionRepository } from './retention.js';
-import { OperatorRepository, paidState } from './operator.js';
+import { OperatorRepository, paidState, stopPaid } from './operator.js';
 import { OutboxRepository } from './outbox.js';
 import { FundingRepository } from './funding.js';
 import type { StoreOperations } from './contracts.js';
@@ -71,7 +71,7 @@ function player(row: Row): StoredPlayer {
   return { id: String(row.id), provider: row.provider as StoredPlayer['provider'], subject: String(row.subject), displayName: String(row.display_name), bannedAt: row.banned_at === null ? null : Number(row.banned_at) };
 }
 function attempt(row: Row): StoredAttempt {
-  return { mode: 'PRACTICE', id: String(row.id), playerId: String(row.player_id), challengeId: String(row.challenge_id), challengeVersion: Number(row.challenge_version), revision: Number(row.revision), phaseId: String(row.phase_id), lifecycle: row.lifecycle as StoredAttempt['lifecycle'], execution: row.execution as StoredAttempt['execution'], board: parseBoard(JSON.parse(String(row.board_json))), score: row.score_json === null ? null : JSON.parse(String(row.score_json)), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at), lastActivityAt: Number(row.last_activity_at) };
+  return { mode: row.opponents === 'LUNA' ? 'SPONSORED' : 'PRACTICE', preset: row.preset_id === null ? null : { id: String(row.preset_id), pricingVersion: String(row.pricing_version) }, id: String(row.id), playerId: String(row.player_id), challengeId: String(row.challenge_id), challengeVersion: Number(row.challenge_version), revision: Number(row.revision), phaseId: String(row.phase_id), lifecycle: row.lifecycle as StoredAttempt['lifecycle'], execution: row.execution as StoredAttempt['execution'], board: parseBoard(JSON.parse(String(row.board_json))), score: row.score_json === null ? null : JSON.parse(String(row.score_json)), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at), lastActivityAt: Number(row.last_activity_at) };
 }
 function getAttempt(id: string): StoredAttempt | null {
   const row = db.prepare('SELECT * FROM attempts WHERE id=?').get(id);
@@ -111,7 +111,13 @@ function reports(id: string): PublicPhaseReport[] {
   return db.prepare('SELECT report_json FROM reports WHERE attempt_id=? ORDER BY sequence').all(id).map(r => JSON.parse(String(r.report_json)));
 }
 
-function createAttempt(input: StoreOperations['createAttempt']['input']): StoredAttempt {
+type StartRefusal = { refused: 'SPONSORED_UNAVAILABLE' };
+const refuseStart = (result: StoredAttempt | StartRefusal | null): StoredAttempt | null => {
+  // Thrown only after COMMIT so the pause recorded when the pool is empty is durable.
+  if (result && 'refused' in result) throw new StoreError('SPONSORED_UNAVAILABLE','Sponsored play is out of budget and has been paused. Practice and the replay are still available.');
+  return result;
+};
+function createAttempt(input: StoreOperations['createAttempt']['input']): StoredAttempt | StartRefusal {
   validText(input.id,100); validTime(input.now); validHash(input.reconnectTokenHash);
   const definition = getChallenge(input.challengeId,input.challengeVersion);
   if (!definition) invalid('Unknown challenge version.');
@@ -119,8 +125,20 @@ function createAttempt(input: StoreOperations['createAttempt']['input']): Stored
   if (!owner) throw new StoreError('STORE_FORBIDDEN', 'Player is unavailable.');
   const board = definition!.board;
   const phaseId = gamePhaseId({gameId:input.id,...board});
-  db.prepare(`INSERT INTO attempts(id,player_id,challenge_id,challenge_version,phase_id,lifecycle,execution,board_json,reconnect_token_hash,created_at,updated_at,last_activity_at)
-    VALUES(?,?,?,?,?,'ACTIVE','ACCEPTING',?,?,?,?,?)`).run(input.id,input.playerId,input.challengeId,input.challengeVersion,phaseId,canonicalJson(board),input.reconnectTokenHash,input.now,input.now,input.now);
+  const sponsored = input.sponsored;
+  if (sponsored) {
+    // Checked in the admission transaction: a sponsored attempt never begins against a paused or empty pool.
+    validText(sponsored.preset.id,80); validText(sponsored.preset.pricingVersion,80);
+    if (!Number.isSafeInteger(sponsored.minimumAvailableNanousd) || sponsored.minimumAvailableNanousd < 1) invalid('Invalid sponsored start.');
+    if (paidState(db).stopped) throw new StoreError('SPONSORED_UNAVAILABLE','Sponsored play is paused. Practice and the replay are still available.');
+    if (new FundingRepository(db).totals().availableNanousd < sponsored.minimumAvailableNanousd) {
+      stopPaid(db,'BUDGET_EXHAUSTED',input.now);
+      return { refused: 'SPONSORED_UNAVAILABLE' as const };
+    }
+  }
+  db.prepare(`INSERT INTO attempts(id,player_id,challenge_id,challenge_version,phase_id,lifecycle,execution,board_json,reconnect_token_hash,created_at,updated_at,last_activity_at,opponents,preset_id,pricing_version)
+    VALUES(?,?,?,?,?,'ACTIVE','ACCEPTING',?,?,?,?,?,?,?,?)`).run(input.id,input.playerId,input.challengeId,input.challengeVersion,phaseId,canonicalJson(board),input.reconnectTokenHash,input.now,input.now,input.now,
+      sponsored ? 'LUNA' : 'HOLD',sponsored?.preset.id ?? null,sponsored?.preset.pricingVersion ?? null);
   return getAttempt(input.id)!;
 }
 
@@ -182,13 +200,15 @@ async function handle(request: StoreRequest): Promise<unknown> {
     case 'providerCall': return new ProviderCallRepository(db).get(input.id);
     case 'providerCallsForOperation': return new ProviderCallRepository(db).list(input.operationId);
     case 'providerCallTotals': return new ProviderCallRepository(db).totals(input);
-    case 'admitAttempt': return transaction(() => {
+    case 'admitAttempt': return refuseStart(transaction(() => {
       validText(input.id,100); validText(input.requestId,100); validTime(input.now);
       for (const limit of [input.maxActive,input.maxPerAccount,input.dailyLimit]) if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) invalid('Invalid admission limit.');
       if (!db.prepare('SELECT id FROM players WHERE id=? AND banned_at IS NULL').get(input.playerId)) throw new StoreError('STORE_FORBIDDEN','Player is unavailable.');
       const prior = db.prepare('SELECT * FROM start_receipts WHERE player_id=? AND request_id=?').get(input.playerId,input.requestId);
       if (prior) {
         if (prior.challenge_id !== input.challengeId || prior.challenge_version !== input.challengeVersion) conflict('Start request ID was already used for another challenge.');
+        // A retried start can never turn a practice attempt into a sponsored one, or the reverse.
+        if ((prior.opponents === 'LUNA') !== Boolean(input.sponsored)) conflict('Start request ID was already used for another mode.');
         return getAttempt(String(prior.attempt_id));
       }
       // The challenge is no longer featured: an earlier accepted start may be replayed, a new one may not begin.
@@ -202,12 +222,14 @@ async function handle(request: StoreRequest): Promise<unknown> {
       const starts = Number(db.prepare('SELECT accepted FROM account_starts WHERE player_id=? AND utc_day=?').get(input.playerId,day)?.accepted ?? 0);
       if (starts >= input.dailyLimit) throw new StoreError('DAILY_LIMIT','Your daily start allowance is used. Try again after midnight UTC.');
       const created = createAttempt({...input,reconnectTokenHash:hash(randomBytes(32).toString('hex'))});
-      db.prepare('INSERT INTO start_receipts(player_id,request_id,attempt_id,challenge_id,challenge_version,created_at) VALUES(?,?,?,?,?,?)').run(input.playerId,input.requestId,created.id,input.challengeId,input.challengeVersion,input.now);
+      // Refused sponsored start: nothing was created, so no receipt, quota use or notice is recorded.
+      if ('refused' in created) return created;
+      db.prepare('INSERT INTO start_receipts(player_id,request_id,attempt_id,challenge_id,challenge_version,created_at,opponents) VALUES(?,?,?,?,?,?,?)').run(input.playerId,input.requestId,created.id,input.challengeId,input.challengeVersion,input.now,input.sponsored ? 'LUNA' : 'HOLD');
       db.prepare('INSERT INTO account_starts(player_id,utc_day,accepted) VALUES(?,?,1) ON CONFLICT(player_id,utc_day) DO UPDATE SET accepted=accepted+1').run(input.playerId,day);
       // Same transaction as the start, so the owner notice exists exactly when the attempt does.
       new OutboxRepository(db).enqueue('ATTEMPT_STARTED',`start:${created.id}`,{attemptId:created.id,challengeId:input.challengeId,challengeVersion:input.challengeVersion,mode:created.mode,at:input.now},input.now);
       return created;
-    });
+    }));
     case 'ownedAttempts': {
       const limit = input.limit ?? 30, before = input.before ?? {createdAt:Number.MAX_SAFE_INTEGER,id:''};
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 31 || typeof before.id !== 'string' || before.id.length > 100) invalid('Invalid history page.');
@@ -300,7 +322,7 @@ async function handle(request: StoreRequest): Promise<unknown> {
       return null;
     });
     case 'challenge': return getChallenge(input.id,input.version);
-    case 'createAttempt': return transaction(() => createAttempt(input));
+    case 'createAttempt': return refuseStart(transaction(() => createAttempt(input)));
     case 'attempt': {
       const result = getAttempt(input.id);
       return result && (input.playerId === undefined || result.playerId === input.playerId) ? result : null;

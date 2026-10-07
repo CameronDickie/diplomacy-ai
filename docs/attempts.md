@@ -127,3 +127,51 @@ concurrent admission, quota persistence, idle races and restart. Browser evidenc
 covers real GitHub sign-in, four legal phases, API restart after the first phase,
 Fall 1902 success/Early capture, saved replay, mobile layout and logout. These
 checks use offline opponents and outbox mode, with no paid calls or live emails.
+
+## Practice and sponsored attempts
+
+Every attempt has one of two modes, chosen at start and never changed:
+
+| Mode | Opponents | Start request | Cost |
+| -- | -- | -- | -- |
+| `PRACTICE` | hold every turn (`offlineDecisions`) | default | none |
+| `SPONSORED` | decided by the server-owned Luna preset (`LunaDecisionProvider`) | `"mode":"SPONSORED"` | reserved and settled through the funding ledger |
+
+`mode` is the only optional field a start accepts. Model, preset, price list,
+budget, board, persona and any other field are rejected. The attempt stores
+`opponents`, the preset ID and its pricing version; a database trigger refuses
+to change them, and `routedDecisions` picks the provider from that stored value
+for every phase. A retried start returns the original attempt; reusing its
+request ID with the other mode is a conflict, not a conversion. A sponsored
+attempt in a process with no sponsored provider fails its phase and waits; it is
+never decided by the practice provider.
+
+A sponsored start is admitted in the same transaction as the quotas and only if
+paid play is running and the pool can cover at least one worst-case call.
+Otherwise it answers `409 SPONSORED_UNAVAILABLE`, creates nothing and consumes
+no daily start; an empty pool also pauses paid play. The catalog reports
+`sponsoredPlay` as `NOT_OFFERED`, `OPEN` or `PAUSED`, and while paused a signed-in
+player can send one credit request per pause.
+
+When a sponsored phase cannot be decided the attempt stays `RECOVERING` with the
+player's orders saved, and its view carries a `notice`:
+
+| Notice | Meaning | What the player can do |
+| -- | -- | -- |
+| `SPONSORED_PAUSED` | paid play is paused or out of budget | wait and continue when it resumes, or end the attempt |
+| `ATTEMPT_BUDGET` | this attempt reached its per-attempt cap | end the attempt and review it |
+| `SPONSORED_RETRY` | an opponent's answer was missing or unusable | try again (a new reserved call, at most three per power per phase) |
+
+### Where sponsored play can run today
+
+Nowhere with a real provider: `DIPLOMACY_PAID_AI_ENABLED=true` is still refused
+at startup and the HTTP transport is not constructed. `DIPLOMACY_LUNA_TRANSPORT=mock`
+(local, non-production profile only) offers sponsored attempts against a
+deterministic stand-in that reads the same request, answers in the provider's
+format and is priced like a real answer, so the ledger, limits, notices and
+recovery can all be exercised in a browser. The UI labels it "Mock Luna
+opponents". It needs a grant in the local database:
+
+```bash
+npm run storage -- grant ./data/diplomacy.sqlite 0.05 local-mock-grant-1
+```

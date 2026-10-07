@@ -58,7 +58,7 @@ export function OperatorPanel(){
     <h2>Attempts</h2>
     {o.attempts.length===0?<p>No attempts are stored.</p>:<div className="operator-table" role="table" aria-label="Attempts">
       {o.attempts.map(a=><div role="row" key={a.id} className={detail?.attempt.id===a.id?'selected':''}>
-        <span role="cell"><strong>{a.lifecycle}</strong> · {a.execution}</span>
+        <span role="cell"><strong>{a.lifecycle}</strong> · {a.execution} · {a.mode==='SPONSORED'?'sponsored':'practice'}</span>
         <span role="cell">{a.challengeId} v{a.challengeVersion} · {a.year} {a.season} {a.phase}</span>
         <span role="cell">Attempt {short(a.id)} · account {short(a.playerId)} ({a.playerProvider}){a.playerBanned?' · banned':''}</span>
         <span role="cell">Active {ago(a.lastActivityAt,clock)}</span>

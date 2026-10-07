@@ -33,10 +33,13 @@ links to the [credits and licenses page](client/public/legal.html) and the
 
 This is a development pilot, not the finished product.
 
-- **Opponents hold every turn.** Play against AI opponents (the server-owned
-  `gpt-6-luna` preset) is not connected. Its accounting and request contract are
-  merged, but budget reservation and the adapter are still in progress, and the
-  server refuses to start with paid AI enabled.
+- **No live AI opponents.** Everything needed to play against the server-owned
+  `gpt-6-luna` preset is built and tested against a mock: the budget ledger, the
+  request contract, bounded prompts, crash recovery and a sponsored attempt
+  mode. No call to the real provider has ever been made, and the server refuses
+  to start with paid AI enabled until the owner authorizes spend. On a
+  deployment today, opponents hold every turn. Locally you can try the sponsored
+  flow against a stand-in with `DIPLOMACY_LUNA_TRANSPORT=mock`.
 - **The scenarios are test content.** They were generated to exercise rotation
   and scoring and are easy against holding opponents. No public daily schedule
   has been approved, and the UI does not call this a daily game.

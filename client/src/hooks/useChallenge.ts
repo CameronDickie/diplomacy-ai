@@ -1,5 +1,5 @@
 import { useEffect,useRef,useState } from 'react';
-import type { ChallengeAction,ChallengeAttemptView,ChallengeCard,ChallengeCatalog,ChallengeHistoryPage,ChallengeLegalCatalog,ChallengeReplay,PublicPhaseReport,SubmissionState } from '@diplomacy/shared';
+import type { ChallengeAction,ChallengeAttemptView,ChallengeCard,ChallengeMode,ChallengeCatalog,ChallengeHistoryPage,ChallengeLegalCatalog,ChallengeReplay,PublicPhaseReport,SubmissionState } from '@diplomacy/shared';
 import { useAuth } from './useAuth.js';
 const base=import.meta.env.VITE_SERVER_URL||'';
 export async function challengeRequest<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
@@ -18,7 +18,7 @@ export function useChallenge(){
   const [older,setOlder]=useState<string|null>(null),[creditRequested,setCreditRequested]=useState(false);
   const [error,setError]=useState(''),[busy,setBusy]=useState(false),[loaded,setLoaded]=useState(false);
   const current=useRef(attempt);current.current=attempt;
-  const startId=useRef<string|null>(null),pending=useRef<{phaseId:string;requestId:string;action:ChallengeAction}|null>(null);
+  const startMode=useRef<ChallengeMode|null>(null),startId=useRef<string|null>(null),pending=useRef<{phaseId:string;requestId:string;action:ChallengeAction}|null>(null);
   const lastActivity=useRef(0),mutation=useRef(false);
   useEffect(()=>{
     const controller=new AbortController();
@@ -79,10 +79,12 @@ export function useChallenge(){
     const list=await challengeRequest<ChallengeHistoryPage>('/attempts');
     if(identityRef.current===owner){setHistory(list.attempts);setOlder(list.next);}
   }
-  return {auth,older,cards:catalog?.challenges??[],limits:catalog?.limits??null,rotation:catalog?.rotation??null,sponsoredPlay:catalog?.sponsoredPlay??null,capacity:catalog?.capacity??null,creditRequested,demo,attempt,history,legal,reports,error,busy,loaded,clearError:()=>setError(''),
-    start:(card:ChallengeCard)=>mutate(async owner=>{
+  return {auth,older,cards:catalog?.challenges??[],limits:catalog?.limits??null,rotation:catalog?.rotation??null,sponsoredPlay:catalog?.sponsoredPlay??null,sponsoredMock:catalog?.sponsoredMock??false,capacity:catalog?.capacity??null,creditRequested,demo,attempt,history,legal,reports,error,busy,loaded,clearError:()=>setError(''),
+    start:(card:ChallengeCard,mode:ChallengeMode='PRACTICE')=>mutate(async owner=>{
       startId.current??=crypto.randomUUID();
-      const result=await challengeRequest<ChallengeAttemptView>('/attempts',{requestId:startId.current,challengeId:card.id,challengeVersion:card.version});
+      // The start ID is tied to the chosen mode, so switching mode after an uncertain response is a new request.
+      if(startMode.current!==mode){startId.current=crypto.randomUUID();startMode.current=mode;}
+      const result=await challengeRequest<ChallengeAttemptView>('/attempts',{requestId:startId.current,challengeId:card.id,challengeVersion:card.version,...(mode==='SPONSORED'?{mode}:{})});
       if(identityRef.current===owner){startId.current=null;setAttempt(result);await refresh(result.id,owner);}
       // A refused start usually means capacity or availability changed since the page loaded.
     }).finally(()=>{void challengeRequest<ChallengeCatalog>('/challenges').then(setCatalog).catch(()=>{});}),

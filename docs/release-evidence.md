@@ -28,8 +28,9 @@ Status: **not release-ready.** The open rows below are blockers.
 | Backup, restart and restore preserve identity, attempts, reports, spend, unresolved liability | Verified in a local container | `scripts/staging-check.sh` |
 | Rollback | Procedure documented; older-image refusal covered by migration-mismatch tests | [deployment.md](deployment.md), `Store.test.ts` |
 | Budget ledger: grants, reservations, per-attempt and total caps, exhaustion, crash safety | Verified offline with synthetic amounts | `Funding.test.ts`, staging check; [funding.md](funding.md) |
-| Luna adapter, bounded prompts, funded recovery | **Open** | DIC-66, DIC-67, DIC-60 |
-| Sponsored attempt mode in the UI and API | **Open** | DIC-54 |
+| Luna request contract, bounded context, decision provider, funded crash recovery | Verified offline with a mock transport | `LunaPreset.test.ts`, `LunaContext.test.ts`, `LunaProvider.test.ts` |
+| Sponsored attempt mode in the API and UI | Verified offline with a mock transport; browser pass against the local mock | `SponsoredMode.test.ts` |
+| Any call to the real provider | **Open — never made; startup still refuses paid AI** | owner authorization |
 | Quality, latency and cost targets (mean attempt under USD 1, phase p95 under 30 s) | **Open — needs an authorized paid evaluation** | DIC-68 |
 | End-to-end verification with the funded path | **Open** | DIC-70 |
 | Real sign-in, desktop and mobile smoke test on the deployed origin | **Open — needs a deployment** | DIC-72 |

@@ -32,6 +32,7 @@ export interface RuntimeConfig {
   notifyMode: 'outbox' | 'resend';
   admins: string[];
   trustedProxy: 'none' | 'private';
+  lunaTransport: 'none' | 'mock';
   idleWarnMinutes: number;
   idleExpireMinutes: number;
   maxActiveAttempts: number;

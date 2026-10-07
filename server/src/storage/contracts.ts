@@ -14,8 +14,14 @@ export interface StoredPlayer {
 export interface StoredSession { player: StoredPlayer; expiresAt: number }
 export type AttemptLifecycle = 'ACTIVE' | 'COMPLETED' | 'ABANDONED' | 'EXPIRED' | 'STOPPED';
 export type AttemptExecution = 'ACCEPTING' | 'DECIDING' | 'RESOLVING' | 'RECOVERING' | 'IDLE';
+export type AttemptMode = 'PRACTICE' | 'SPONSORED';
+/** The sponsored contract an attempt was started under; null for practice. Never changes after admission. */
+export interface AttemptPreset { id: string; pricingVersion: string }
+/** A sponsored start is admitted only while paid play is running and at least this much is available. */
+export interface SponsoredStart { preset: AttemptPreset; minimumAvailableNanousd: number }
 export interface StoredAttempt {
-  mode: 'PRACTICE';
+  mode: AttemptMode;
+  preset: AttemptPreset | null;
   id: string;
   playerId: string;
   challengeId: string;
@@ -54,7 +60,7 @@ export interface OutboxMessage {
 /** What an operator may see of an attempt: pseudonymous owner, public position, timings. */
 export interface OperatorAttemptRow {
   id: string; playerId: string; playerProvider: StoredPlayer['provider']; playerBanned: boolean;
-  challengeId: string; challengeVersion: number; mode: 'PRACTICE'; lifecycle: AttemptLifecycle; execution: AttemptExecution;
+  challengeId: string; challengeVersion: number; mode: AttemptMode; lifecycle: AttemptLifecycle; execution: AttemptExecution;
   year: number; season: BoardFixture['season']; phase: BoardFixture['phase']; createdAt: number; updatedAt: number; lastActivityAt: number;
 }
 export type OperatorAction = 'ATTEMPT_STOP' | 'PLAYER_BAN' | 'PLAYER_UNBAN' | 'SPECTATE';
@@ -82,7 +88,7 @@ export interface StoreOperations {
   providerCall: { input: { id:string }; output: ProviderCallRecord|null };
   providerCallsForOperation: { input: { operationId:string }; output: ProviderCallRecord[] };
   providerCallTotals: { input: { operationId:string }; output: ProviderTotals };
-  admitAttempt: { input: { id:string; playerId:string; requestId:string; challengeId:string; challengeVersion:number; now:number; maxActive:number; maxPerAccount:number; dailyLimit:number; replayOnly?:boolean }; output: StoredAttempt };
+  admitAttempt: { input: { id:string; playerId:string; requestId:string; challengeId:string; challengeVersion:number; now:number; maxActive:number; maxPerAccount:number; dailyLimit:number; replayOnly?:boolean; sponsored?:SponsoredStart }; output: StoredAttempt };
   ownedAttempts: { input: { playerId:string; before?:{createdAt:number;id:string}; limit?:number }; output: StoredAttempt[] };
   sweepRetention: { input: { now:number; resultBefore:number; diagnosticBefore:number; receiptBefore?:number; limit:number }; output: { attempts:number; diagnostics:number; sessions:number; receipts:number; more:boolean } };
   deleteAccount: { input: { playerId:string; now:number }; output: { sessions:string[]; attempts:number } };
@@ -103,7 +109,7 @@ export interface StoreOperations {
   banPlayer: { input: { playerId: string; now: number; banned: boolean }; output: { sessions: string[] } };
   registerChallenge: { input: StoredChallenge & { now: number }; output: null };
   challenge: { input: { id: string; version: number }; output: StoredChallenge | null };
-  createAttempt: { input: { id: string; playerId: string; challengeId: string; challengeVersion: number; now: number; reconnectTokenHash: string }; output: StoredAttempt };
+  createAttempt: { input: { id: string; playerId: string; challengeId: string; challengeVersion: number; now: number; reconnectTokenHash: string; sponsored?: SponsoredStart }; output: StoredAttempt };
   attempt: { input: { id: string; playerId?: string }; output: StoredAttempt | null };
   activeAttempts: { input: {}; output: StoredAttempt[] };
   receipt: { input: { attemptId: string; playerId: string; requestId: string }; output: StoredReceipt | null };
@@ -115,7 +121,7 @@ export interface StoreOperations {
 }
 export type StoreOperation = keyof StoreOperations;
 export type StoreRequest = { [K in StoreOperation]: { id: number; operation: K; input: StoreOperations[K]['input'] } }[StoreOperation];
-export type StoreErrorCode = 'STORE_UNAVAILABLE' | 'STORE_BUSY' | 'STORE_CONFLICT' | 'STORE_FORBIDDEN' | 'STORE_INVALID' | 'STORE_SCHEMA' | 'CAPACITY_FULL' | 'ACTIVE_ATTEMPT_EXISTS' | 'DAILY_LIMIT' | 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED';
+export type StoreErrorCode = 'STORE_UNAVAILABLE' | 'STORE_BUSY' | 'STORE_CONFLICT' | 'STORE_FORBIDDEN' | 'STORE_INVALID' | 'STORE_SCHEMA' | 'CAPACITY_FULL' | 'ACTIVE_ATTEMPT_EXISTS' | 'DAILY_LIMIT' | 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED' | 'SPONSORED_UNAVAILABLE';
 export class StoreError extends Error {
   constructor(readonly code: StoreErrorCode, message: string) { super(message); this.name = 'StoreError'; }
 }

@@ -4,7 +4,7 @@ import type { Phase, Season } from './game.js';
 
 export interface OperatorSpend { calls:number; unresolvedCalls:number; knownCostNanousd:number; unresolvedLiabilityNanousd:number; inputTokens:number; outputTokens:number }
 export interface OperatorAttemptRow {
-  id:string; playerId:string; playerProvider:'github'|'google'; playerBanned:boolean; challengeId:string; challengeVersion:number; mode:'PRACTICE';
+  id:string; playerId:string; playerProvider:'github'|'google'; playerBanned:boolean; challengeId:string; challengeVersion:number; mode:'PRACTICE'|'SPONSORED';
   lifecycle:'ACTIVE'|'COMPLETED'|'ABANDONED'|'EXPIRED'|'STOPPED'; execution:'ACCEPTING'|'DECIDING'|'RESOLVING'|'RECOVERING'|'IDLE';
   year:number; season:Season; phase:Phase; createdAt:number; updatedAt:number; lastActivityAt:number;
 }

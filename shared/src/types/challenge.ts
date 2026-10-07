@@ -7,17 +7,21 @@ export type ChallengeAction =
   | { phase: 'ORDERS'; orderIds: string[] }
   | { phase: 'RETREATS'; retreats: Record<string, RetreatDestination | null> }
   | { phase: 'BUILDS'; builds: SubmitBuildsPayload['builds']; disbands: string[] };
+/** PRACTICE opponents hold every turn. SPONSORED opponents are decided by the server-owned Luna preset. */
+export type ChallengeMode = 'PRACTICE' | 'SPONSORED';
 export interface ChallengeCard {
   id: string; version: number; title: string; objectiveText: string; humanPower: Power; targetTerritory: string;
   deadlineYear: number; earlyAchievementYear: number;
-  label: 'DEVELOPMENT_PILOT'; mode: 'PRACTICE'; opponentLabel: string;
+  label: 'DEVELOPMENT_PILOT'; mode: ChallengeMode; opponentLabel: string;
   board: PublicBoardSnapshot & {year:number;season:Season;phase:Phase};
 }
 export interface ChallengeAttemptView {
   id: string; revision: number; phaseId: string; challenge: ChallengeCard;
   lifecycle: 'ACTIVE' | 'COMPLETED' | 'ABANDONED' | 'EXPIRED' | 'STOPPED';
   execution: 'ACCEPTING' | 'DECIDING' | 'RESOLVING' | 'RECOVERING' | 'IDLE';
-  mode: 'PRACTICE';
+  mode: ChallengeMode;
+  /** Why a sponsored phase is waiting, when it is: paid play paused, this attempt's budget used, or a retry is possible. */
+  notice: 'SPONSORED_PAUSED' | 'ATTEMPT_BUDGET' | 'SPONSORED_RETRY' | null;
   board: ChallengeCard['board'];
   score: {outcome:'INCOMPLETE'|'SUCCESS'|'FAILURE'|'ABANDONED';reason:string;completedYear:number|null;achievementIds:readonly string[]}|null;
   receipt: SubmissionState | null; acceptedAction: ChallengeAction | null;
@@ -33,6 +37,6 @@ export interface ChallengeLimits { maxActiveAttempts:number; maxActivePerAccount
  */
 /** Which pinned scenario is featured for the current UTC day. A development rotation is not a public daily schedule. */
 export interface ChallengeRotation { id:string; version:number; label:'DEVELOPMENT_ROTATION'; day:string; index:number; size:number; nextChangeAt:number }
-export interface ChallengeCatalog { challenges:ChallengeCard[]; rotation:ChallengeRotation; limits:ChallengeLimits; sponsoredPlay:'NOT_OFFERED'|'PAUSED'|'OPEN'; capacity:'OPEN'|'FULL' }
+export interface ChallengeCatalog { challenges:ChallengeCard[]; rotation:ChallengeRotation; limits:ChallengeLimits; sponsoredPlay:'NOT_OFFERED'|'PAUSED'|'OPEN'; sponsoredMock:boolean; capacity:'OPEN'|'FULL' }
 /** `REFERENCE` is the packaged public run; a player's own phase history is never served under this type. */
 export interface ChallengeReplay { kind:'REFERENCE'; challenge:ChallengeCard; reports:PublicPhaseReport[] }

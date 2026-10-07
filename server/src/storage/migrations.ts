@@ -160,6 +160,13 @@ CREATE TABLE provider_decisions (
 CREATE INDEX provider_decisions_operation ON provider_decisions(operation_id);
 CREATE TRIGGER provider_decisions_immutable BEFORE UPDATE ON provider_decisions BEGIN
  SELECT RAISE(ABORT,'immutable provider decision'); END;
+` }, { version: 9, sql: `
+ALTER TABLE attempts ADD COLUMN opponents TEXT NOT NULL DEFAULT 'HOLD' CHECK(opponents IN ('HOLD','LUNA'));
+ALTER TABLE attempts ADD COLUMN preset_id TEXT;
+ALTER TABLE attempts ADD COLUMN pricing_version TEXT;
+ALTER TABLE start_receipts ADD COLUMN opponents TEXT NOT NULL DEFAULT 'HOLD';
+CREATE TRIGGER attempts_mode_immutable BEFORE UPDATE OF mode,opponents,preset_id,pricing_version ON attempts BEGIN
+ SELECT RAISE(ABORT,'immutable attempt mode'); END;
 ` }];
 
 export function verifyMigrationHistory(db: DatabaseSync, requireExisting = false): number {

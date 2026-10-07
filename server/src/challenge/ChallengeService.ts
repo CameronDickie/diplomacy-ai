@@ -2,7 +2,7 @@ import express, { type Request, type Response } from 'express';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { RuntimeConfig } from '../../../config/runtime.cjs';
-import type { ChallengeCard, ChallengeAttemptView, ChallengeCatalog, ChallengeReplay } from '@diplomacy/shared';
+import type { ChallengeCard, ChallengeAttemptView, ChallengeCatalog, ChallengeMode, ChallengeReplay } from '@diplomacy/shared';
 import { featuredSlot, parseRotation, type RotationManifest } from './Catalog.js';
 import { AuthService, type Principal } from '../auth.js';
 import { Store } from '../storage/Store.js';
@@ -14,6 +14,10 @@ import type { ChallengeDefinition } from './TunisPilot.js';
 import { AttemptService, offlineDecisions } from '../attempts/AttemptService.js';
 import { PhaseRules } from '../attempts/PhaseRules.js';
 import { RateLimiter, type RateCategory } from '../limits/RateLimiter.js';
+import { LUNA_PRESET, lunaReservationNanousd } from '../providers/LunaPreset.js';
+import { LunaDecisionProvider } from '../luna/LunaDecisionProvider.js';
+import { routedDecisions } from '../luna/Routing.js';
+import { mockLunaTransport, type LunaTransport } from '../luna/Transport.js';
 
 const HISTORY_PAGE=20;
 export class ChallengeService {
@@ -26,14 +30,21 @@ export class ChallengeService {
   private sweeping?: Promise<void>;
   private nextRetention = 0;
   private limits: RateLimiter;
-  private constructor(private store:Store,private config:RuntimeConfig,private now:()=>number) {
-    // Paid startup remains interlocked; this mode must never silently become sponsored.
+  /** Set when sponsored attempts can be offered by this process: a development mock, or an injected test transport. */
+  private readonly sponsoredMock:boolean;
+  private readonly sponsoredOffered:boolean;
+  private constructor(private store:Store,private config:RuntimeConfig,private now:()=>number,transport?:LunaTransport) {
+    // The real provider transport is deliberately not selectable here: paid startup stays refused until the owner authorizes spend.
     if(config.llm.paidEnabled)throw Error('Funded challenge adapter is not integrated.');
+    this.sponsoredMock=!transport&&config.lunaTransport==='mock';
+    const luna=transport??(this.sponsoredMock?mockLunaTransport({pick:'seeded',seed:now()%2_147_483_647}):undefined);
+    this.sponsoredOffered=Boolean(luna);
     this.limits=new RateLimiter(config.trustedProxy,now);
-    this.attempts=new AttemptService(store,offlineDecisions(this.rules),this.rules,{maxRunning:config.maxActiveAttempts,idleExpireMs:config.idleExpireMinutes*60_000,now});
+    this.attempts=new AttemptService(store,routedDecisions(store,offlineDecisions(this.rules),luna?new LunaDecisionProvider(store,this.rules,luna,{now}):null),this.rules,
+      {maxRunning:config.maxActiveAttempts,idleExpireMs:config.idleExpireMinutes*60_000,now});
   }
-  static async open(store:Store,config:RuntimeConfig,now=Date.now):Promise<ChallengeService> {
-    const service=new ChallengeService(store,config,now);
+  static async open(store:Store,config:RuntimeConfig,now=Date.now,options:{lunaTransport?:LunaTransport}={}):Promise<ChallengeService> {
+    const service=new ChallengeService(store,config,now,options.lunaTransport);
     const load=async(path:string)=>JSON.parse(await readFile(new URL(`../../fixtures/${path}`,import.meta.url),'utf8'));
     service.rotation=parseRotation(await load('rotation/development.v1.json'));
     for(const entry of service.rotation.entries){
@@ -68,16 +79,22 @@ export class ChallengeService {
     }
     return packaged;
   }
-  private card(definition:ChallengeDefinition,board:StoredAttempt['board']):ChallengeCard {
+  private card(definition:ChallengeDefinition,board:StoredAttempt['board'],mode:ChallengeMode='PRACTICE'):ChallengeCard {
     return {id:definition.id,version:definition.version,title:definition.title,objectiveText:definition.objectiveText,humanPower:definition.humanPower,targetTerritory:definition.objective.territory,
       deadlineYear:definition.objective.deadlineYear,earlyAchievementYear:definition.earlyAchievementYear,
-      label:'DEVELOPMENT_PILOT',mode:'PRACTICE',opponentLabel:'Offline practice · hold-only opponents',
+      label:'DEVELOPMENT_PILOT',mode,opponentLabel:mode==='PRACTICE'?'Offline practice · hold-only opponents':this.sponsoredMock?'Mock Luna opponents · development stand-in, no provider calls':'GPT-6 Luna opponents · sponsored',
       board:{...publicBoard(board),year:board.year,season:board.season,phase:board.phase}};
   }
   private async view(attempt:StoredAttempt):Promise<ChallengeAttemptView> {
     const challenge=(await this.store.call('challenge',{id:attempt.challengeId,version:attempt.challengeVersion}))!;
     const submission=await this.store.call('latestSubmission',{attemptId:attempt.id,playerId:attempt.playerId,phaseId:attempt.phaseId});
-    return {id:attempt.id,revision:attempt.revision,phaseId:attempt.phaseId,challenge:this.card(challenge.definition,challenge.board),mode:attempt.mode,
+    // A waiting sponsored phase tells the player which of three things is true, so the next action is clear.
+    let notice:ChallengeAttemptView['notice']=null;
+    if(attempt.mode==='SPONSORED'&&attempt.lifecycle==='ACTIVE'&&attempt.execution==='RECOVERING'){
+      const [paid,funding,own]=await Promise.all([this.store.call('paidState',{}),this.store.call('fundingTotals',{}),this.store.call('attemptFunding',{attemptId:attempt.id})]);
+      notice=paid.stopped?'SPONSORED_PAUSED':own.settledNanousd+own.heldNanousd+lunaReservationNanousd(LUNA_PRESET.maxInputTokens)>funding.attemptCapNanousd?'ATTEMPT_BUDGET':'SPONSORED_RETRY';
+    }
+    return {id:attempt.id,revision:attempt.revision,phaseId:attempt.phaseId,challenge:this.card(challenge.definition,challenge.board,attempt.mode),mode:attempt.mode,notice,
       lifecycle:attempt.lifecycle,execution:attempt.execution,board:{...publicBoard(attempt.board),year:attempt.board.year,season:attempt.board.season,phase:attempt.board.phase},
       score:attempt.score,receipt:submission?.receipt.state??null,acceptedAction:submission?.action??null,lastActivityAt:attempt.lastActivityAt,
       idleWarnAt:attempt.lastActivityAt+this.config.idleWarnMinutes*60_000,expiresAt:attempt.lastActivityAt+this.config.idleExpireMinutes*60_000};
@@ -121,7 +138,7 @@ export class ChallengeService {
       void handler(req,res).catch(error=>{
         if(error instanceof FixtureError){res.status(400).json({code:'INVALID_REQUEST',message:'Choose valid challenge fields and current legal actions.'});return;}
         const code=error instanceof StoreError?error.code:'SERVICE_UNAVAILABLE';
-        const status=code==='STORE_FORBIDDEN'?404:code==='STORE_INVALID'?400:['CAPACITY_FULL','ACTIVE_ATTEMPT_EXISTS','DAILY_LIMIT','STORE_CONFLICT','BUDGET_EXHAUSTED','ATTEMPT_BUDGET_EXHAUSTED'].includes(code)?409:503;
+        const status=code==='STORE_FORBIDDEN'?404:code==='STORE_INVALID'?400:['CAPACITY_FULL','ACTIVE_ATTEMPT_EXISTS','DAILY_LIMIT','STORE_CONFLICT','BUDGET_EXHAUSTED','ATTEMPT_BUDGET_EXHAUSTED','SPONSORED_UNAVAILABLE'].includes(code)?409:503;
         res.status(status).json({code,message:error instanceof StoreError?error.message:'Challenge play is temporarily unavailable. Retry shortly.'});
       });
     };
@@ -129,7 +146,7 @@ export class ChallengeService {
     router.get('/challenges',this.limits.address('public'),run(async(_req,res)=>{
       const [active,paid]=await Promise.all([this.store.call('activeAttempts',{}),this.store.call('paidState',{})]);
       const {slot,entry}=this.featured();
-      const catalog:ChallengeCatalog={challenges:[entry.card],rotation:{id:this.rotation.id,version:this.rotation.version,label:'DEVELOPMENT_ROTATION',day:slot.day,index:slot.index,size:this.catalog.length,nextChangeAt:slot.nextChangeAt},sponsoredPlay:!this.config.llm.paidEnabled?'NOT_OFFERED':paid.stopped?'PAUSED':'OPEN',
+      const catalog:ChallengeCatalog={challenges:[entry.card],rotation:{id:this.rotation.id,version:this.rotation.version,label:'DEVELOPMENT_ROTATION',day:slot.day,index:slot.index,size:this.catalog.length,nextChangeAt:slot.nextChangeAt},sponsoredPlay:!this.sponsoredOffered?'NOT_OFFERED':paid.stopped?'PAUSED':'OPEN',sponsoredMock:this.sponsoredMock,
         capacity:active.length>=this.config.maxActiveAttempts?'FULL':'OPEN',limits:{maxActiveAttempts:this.config.maxActiveAttempts,maxActivePerAccount:this.config.maxActivePerAccount,
         dailyStartLimit:this.config.dailyStartLimit,idleWarnMinutes:this.config.idleWarnMinutes,idleExpireMinutes:this.config.idleExpireMinutes,resultRetentionDays:this.config.resultRetentionDays}};
       res.json(catalog);
@@ -137,7 +154,7 @@ export class ChallengeService {
     // One owner notice per account per pause; the store refuses unless sponsored play is actually stopped.
     router.post('/credit-request',guarded('account'),run(async(req,res)=>{
       schema.fields(req.body,[],'credit request');
-      if(!this.config.llm.paidEnabled)throw new StoreError('STORE_CONFLICT','Sponsored play is not offered yet, so there is nothing to request.');
+      if(!this.sponsoredOffered)throw new StoreError('STORE_CONFLICT','Sponsored play is not offered yet, so there is nothing to request.');
       res.json(await this.store.call('requestCredit',{playerId:player(res),now:this.now()}));
     }));
     router.get('/challenges/demo',this.limits.address('public'),run(async(_req,res)=>{res.json(await this.replay(this.featured().entry));}));
@@ -156,14 +173,20 @@ export class ChallengeService {
       res.json({deleted:true});
     }));
     router.post('/attempts',guarded('start'),run(async(req,res)=>{
-      const body=schema.fields(req.body,['requestId','challengeId','challengeVersion'],'start');
+      // `mode` is the one optional field. Model, preset, budget, board or persona are never accepted from a client.
+      const body=schema.fields(req.body,['requestId','challengeId','challengeVersion',...(req.body&&typeof req.body==='object'&&Object.hasOwn(req.body,'mode')?['mode']:[])],'start');
+      const mode=body.mode===undefined?'PRACTICE':body.mode;
+      if(mode!=='PRACTICE'&&mode!=='SPONSORED')throw new StoreError('STORE_INVALID','Choose practice or sponsored play.');
+      if(mode==='SPONSORED'&&!this.sponsoredOffered)throw new StoreError('SPONSORED_UNAVAILABLE','Sponsored play is not offered yet. Practice and the replay are available.');
       if(typeof body.requestId!=='string'||!/^[-a-zA-Z0-9_]{1,100}$/.test(body.requestId))throw new StoreError('STORE_INVALID','A valid start request ID is required.');
       // A page left open across midnight UTC still holds yesterday's card: its accepted start can be replayed, nothing new begins.
       const featured=this.featured().entry.card,selected=this.catalog.find(e=>e.card.id===body.challengeId&&e.card.version===body.challengeVersion)?.card;
       if(!selected)throw new StoreError('STORE_INVALID','Choose a challenge from the current catalog.');
       await this.sweep();
       const attempt=await this.store.call('admitAttempt',{id:randomUUID(),playerId:player(res),requestId:body.requestId,challengeId:selected.id,challengeVersion:selected.version,
-        now:this.now(),maxActive:this.config.maxActiveAttempts,maxPerAccount:this.config.maxActivePerAccount,dailyLimit:this.config.dailyStartLimit,replayOnly:selected!==featured});
+        now:this.now(),maxActive:this.config.maxActiveAttempts,maxPerAccount:this.config.maxActivePerAccount,dailyLimit:this.config.dailyStartLimit,replayOnly:selected!==featured,
+        // The preset and its price list are pinned to the attempt; the pool must cover at least one worst-case call.
+        ...(mode==='SPONSORED'?{sponsored:{preset:{id:LUNA_PRESET.id,pricingVersion:LUNA_PRESET.pricingVersion},minimumAvailableNanousd:lunaReservationNanousd(LUNA_PRESET.maxInputTokens)}}:{})});
       res.json(await this.view(attempt));
     }));
     router.get('/attempts/:id',guarded('read'),run(async(req,res)=>{res.json(await this.view(await this.owned(req.params.id,player(res))));}));

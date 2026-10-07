@@ -41,17 +41,22 @@ export function ChallengeApp(){
     {!game.loaded&&!game.error&&<p>Loading the challenge…</p>}
     {operatorView&&game.auth.operator?<OperatorPanel/>:<div className="challenge-layout">
       <aside className="challenge-brief">
-        <span className="challenge-badge">Development pilot · {replay?(replay.reference?'Reference replay':'Your replay'):'Offline practice'}</span>
+        <span className="challenge-badge">Development pilot · {replay?(replay.reference?'Reference replay':'Your replay'):a?.mode==='SPONSORED'?(game.sponsoredMock?'Mock Luna opponents':'Sponsored · GPT-6 Luna opponents'):'Offline practice'}</span>
         <h2>Your mission</h2>{card&&<p>As {title(card.humanPower)}, own {territoryName(card.targetTerritory)} after Fall {card.deadlineYear} or sooner.</p>}
         <p>Own the supply center after a settled Fall turn, no later than Fall {card?.deadlineYear}. Moving there in Spring is not enough.</p>
         {card&&board&&<Progress card={card} board={board} live={a?.lifecycle==='ACTIVE'}/>}
         <div className="challenge-achievement"><strong>Early capture</strong><span>Complete by Fall {card?.earlyAchievementYear}.</span></div>
-        <p>{card?.opponentLabel}. No paid model is used in this practice mode.</p>
+        <p>{a?.mode==='SPONSORED'?`${a.challenge.opponentLabel}.`:`${card?.opponentLabel}. No paid model is used in this practice mode.`}</p>
         {game.rotation&&(!a||a.lifecycle!=='ACTIVE')&&<p className="muted">Development rotation: challenge {game.rotation.index+1} of {game.rotation.size} for {game.rotation.day} UTC. {game.cards[0]&&a&&a.challenge.id!==game.cards[0].id?`The current challenge is now ${game.cards[0].title}. `:''}The next one starts in {untilChange(game.rotation.nextChangeAt,clock)}.</p>}
-        {!a||a.lifecycle!=='ACTIVE'?<button className="primary" disabled={!game.auth.authenticated||game.busy||!game.cards[0]} onClick={()=>game.cards[0]&&void game.start(game.cards[0])}>{a&&game.cards[0]&&a.challenge.id!==game.cards[0].id?`Start ${game.cards[0].title}`:'Start practice'}</button>:<>
+        {!a||a.lifecycle!=='ACTIVE'?<><button className="primary" disabled={!game.auth.authenticated||game.busy||!game.cards[0]} onClick={()=>game.cards[0]&&void game.start(game.cards[0])}>{a&&game.cards[0]&&a.challenge.id!==game.cards[0].id?`Start ${game.cards[0].title}`:'Start practice'}</button>
+          {game.sponsoredPlay==='OPEN'&&<button className="primary" disabled={!game.auth.authenticated||game.busy||!game.cards[0]} onClick={()=>game.cards[0]&&void game.start(game.cards[0],'SPONSORED')}>{game.sponsoredMock?'Play against mock Luna opponents':'Play against Luna opponents'}</button>}</>:<>
           <div className="challenge-phase">{a.board.year} {a.board.season} · {a.board.phase}</div>
-          <p role="status">{a.execution==='ACCEPTING'?'Your move':a.execution==='RECOVERING'?'Your orders are saved. Processing needs recovery.':'Your orders are saved. Resolving this phase…'}</p>
-          {a.execution==='RECOVERING'&&<button onClick={()=>void game.recover()} disabled={game.busy}>Recover saved phase</button>}
+          <p role="status">{a.execution==='ACCEPTING'?'Your move':a.execution!=='RECOVERING'?(a.mode==='SPONSORED'?'Your orders are saved. The opponents are deciding…':'Your orders are saved. Resolving this phase…')
+            :a.notice==='SPONSORED_PAUSED'?'Your orders are saved. Sponsored play is paused, so the opponents cannot move yet. Nothing is lost: continue when it resumes, or end the attempt.'
+            :a.notice==='ATTEMPT_BUDGET'?'Your orders are saved, but this attempt has used its sponsored budget and cannot continue. You can end it and review what happened.'
+            :a.notice==='SPONSORED_RETRY'?'Your orders are saved. An opponent did not answer in time. Try again to continue.'
+            :'Your orders are saved. Processing needs recovery.'}</p>
+          {a.execution==='RECOVERING'&&a.notice!=='ATTEMPT_BUDGET'&&<button onClick={()=>void game.recover()} disabled={game.busy||a.notice==='SPONSORED_PAUSED'&&game.sponsoredPlay==='PAUSED'}>{a.notice==='SPONSORED_RETRY'?'Try again':a.notice==='SPONSORED_PAUSED'?'Continue when resumed':'Recover saved phase'}</button>}
           {clock>=a.idleWarnAt&&<div className="challenge-alert">Your attempt expires after inactivity. <button onClick={()=>void game.activity(true)}>I’m still here</button></div>}
           {confirmAbandon?<div><p>End this attempt? Its saved result will remain available.</p><button onClick={()=>void game.abandon()} disabled={game.busy}>End attempt</button><button onClick={()=>setConfirmAbandon(false)}>Keep playing</button></div>:<button className="subtle" onClick={()=>setConfirmAbandon(true)}>Abandon attempt</button>}
         </>}
@@ -123,7 +128,7 @@ function Outcome({attempt,limits}:{attempt:ChallengeAttemptView;limits:Challenge
     {score?.completedYear&&<p>Fall {score.completedYear}</p>}{score?.achievementIds.includes('EARLY_CAPTURE')&&<strong>Achievement: Early capture</strong>}
     {attempt.lifecycle==='EXPIRED'&&<p>It closed after {limits?`${limits.idleExpireMinutes} minutes`:'a period'} without an action from you and cannot be resumed. You can start a new attempt if you have starts left today.</p>}
     {attempt.lifecycle==='STOPPED'&&<p>The site operator closed this attempt.</p>}
-    <p>This was offline practice. Your phase reports are saved{limits?` for ${limits.resultRetentionDays} days`:''}.</p></section>;
+    <p>{attempt.mode==='SPONSORED'?'This was a sponsored attempt against Luna opponents.':'This was offline practice.'} Your phase reports are saved{limits?` for ${limits.resultRetentionDays} days`:''}.</p></section>;
 }
 function Guide({card,limits,open}:{card:ChallengeCard;limits:ChallengeLimits|null;open:boolean}){
   const power=title(card.humanPower),n=(count:number,noun:string)=>`${count} ${noun}${count===1?'':'s'}`;
@@ -138,8 +143,8 @@ function Guide({card,limits,open}:{card:ChallengeCard;limits:ChallengeLimits|nul
     <h3>Legal is not successful</h3>
     <p>The order menus list only moves the rules engine allows. Whether an order succeeds depends on what every other power does in the same turn: a legal move can still bounce or be cut.</p>
     <h3>Opponents</h3>
-    <p>Practice opponents hold every turn and use no AI model. Opponents played by GPT-6 Luna, paid for by the site owner, are not available yet.</p>
-    <p>When sponsored play is offered it will run on a fixed budget. If that budget runs out or play is paused, you will be told and no new sponsored attempts will start; the replay and your saved results stay available. Luna opponents are never silently swapped for practice opponents.</p>
+    <p>Practice opponents hold every turn and use no AI model. Sponsored attempts are played against opponents decided by GPT-6 Luna, paid for by the site owner; they are offered only when a second start button appears.</p>
+    <p>Sponsored play runs on a fixed budget. If that budget runs out or play is paused, you are told, no new sponsored attempts start, and an attempt in progress waits with your orders saved; the replay and your saved results stay available. Luna opponents are never silently swapped for practice opponents, and an attempt keeps the mode it started in.</p>
     {limits&&<><h3>Limits</h3>
     <p>{n(limits.maxActivePerAccount,'active attempt')} per account and {n(limits.dailyStartLimit,'start')} per account per UTC day; an abandoned start still counts. The site runs at most {n(limits.maxActiveAttempts,'attempt')} at once. There is no queue: if it is full, try again later.</p>
     <p>You are warned after {limits.idleWarnMinutes} minutes without an action and the attempt expires at {limits.idleExpireMinutes}. Only your own actions count; leaving the page open does not. Expired and finished attempts stay readable for {limits.resultRetentionDays} days, then are deleted.</p></>}
