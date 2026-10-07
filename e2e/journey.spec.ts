@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
-type State = { origin: string; cookieName: string; cookies: Record<'practice' | 'sponsored' | 'leaver' | 'operator', string> };
+type State = { origin: string; cookieName: string; cookies: Record<'practice' | 'sponsored' | 'leaver' | 'bot' | 'operator', string> };
 const state = (): State => JSON.parse(readFileSync(join(__dirname, '.state.json'), 'utf8'));
 const signIn = async (context: BrowserContext, who: keyof State['cookies']) => {
   const s = state();
@@ -66,6 +66,23 @@ test('a signed-in player plays a practice turn, keeps a chosen order through the
   await expect(page.getByLabel('Attempt result')).toContainText('Attempt abandoned');
 });
 
+test('the practice bot is the main free way to play: labelled, and its opponents move', async ({ page, context }) => {
+  await signIn(context, 'bot');
+  await page.goto('/challenge');
+  await page.getByRole('button', { name: 'Play against the practice bot' }).click();
+  await expect(page.locator('.challenge-badge')).toContainText('Practice bot');
+  await expect(brief(page)).toContainText('free scripted opponents, no AI model');
+  await expect(page.getByRole('button', { name: 'Submit orders' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Submit orders' }).click();
+  await expect(page.locator('.challenge-phase')).toHaveText('1901 FALL · ORDERS', { timeout: 20_000 });
+  const moved = await page.evaluate(async () => {
+    const attempt = (await (await fetch('/api/attempts', { credentials: 'include' })).json()).attempts[0];
+    const reports = (await (await fetch(`/api/attempts/${attempt.id}/reports`, { credentials: 'include' })).json()).reports;
+    return reports[0].resolvedOrders.filter((o: { power: string; type: string }) => o.power !== attempt.challenge.humanPower && o.type === 'MOVE').length;
+  });
+  expect(moved).toBeGreaterThan(5);
+});
+
 test('a sponsored attempt against the mock opponents is labelled as such and the opponents move', async ({ page, context }) => {
   await signIn(context, 'sponsored');
   await page.goto('/challenge');
@@ -101,7 +118,7 @@ test('the operator sees attempts and budget, can pause and resume paid play, and
   const visitor = await browser.newContext(), guest = await visitor.newPage();
   await guest.goto(`${state().origin}/challenge`);
   await expect(guest.locator('.challenge-brief')).toContainText('Sponsored play against GPT-6 Luna is paused');
-  await expect(guest.getByRole('button', { name: /Play against/ })).toHaveCount(0);
+  await expect(guest.getByRole('button', { name: /Luna opponents/ })).toHaveCount(0);
   await visitor.close();
   await panel.getByRole('button', { name: 'Resume paid calls' }).click();
   await panel.getByRole('button', { name: 'Confirm resume' }).click();

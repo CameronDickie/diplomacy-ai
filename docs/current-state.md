@@ -18,6 +18,7 @@ listed in [README.md](README.md).
 | Limits | Global, per-account and daily quotas in the admission transaction; idle expiry; per-route rate buckets | [limits.md](limits.md) |
 | Retention | Results 30 days, diagnostics 7 days, session and counter pruning; account deletion | [storage.md](storage.md) |
 | Operator | Overview, spectator view, paid stop switch, attempt stop, account ban, audit trail, notification outbox | [operator.md](operator.md) |
+| Practice bot | Free deterministic opponents as their own pinned mode (`BOT`); legal by construction, reproducible per attempt | [attempts.md](attempts.md) |
 | Sponsored mode (mock only) | Pinned per-attempt mode, typed refusals, waiting notices, recovery; playable locally with `DIPLOMACY_LUNA_TRANSPORT=mock` | [attempts.md](attempts.md), [luna-context.md](luna-context.md) |
 | Provider accounting | Every provider call recorded before its output is interpreted; late bills reconcile | [provider-accounting.md](provider-accounting.md) |
 | Funding ledger | Explicit grants, atomic worst-case reservations, exactly-once settlement, typed exhaustion that pauses paid play | [funding.md](funding.md) |
@@ -27,7 +28,7 @@ listed in [README.md](README.md).
 
 | Gap | Consequence | Linear |
 | -- | -- | -- |
-| Live Luna opponents | The request contract, bounded context, decision provider, recovery and sponsored attempt mode are built and tested against a mock transport only. The server still refuses to start with paid AI enabled, so on any deployment opponents hold every turn | owner authorization, then DIC-68 |
+| Live Luna opponents | The request contract, bounded context, decision provider, recovery and sponsored attempt mode are built and tested against a mock transport only. The server still refuses to start with paid AI enabled, so on any deployment the opponents are the practice bot or holding units | owner authorization, then DIC-68 |
 | Quality, latency and cost measurement | No evidence that Luna opponents are fair, fast or affordable | DIC-68 |
 | End-to-end release verification and runbook exercise | Not release-ready | DIC-70, DIC-72 |
 | Approved public catalog | The rotation is test content and is not labelled daily | owner decision |

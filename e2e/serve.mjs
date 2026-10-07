@@ -10,7 +10,7 @@ import { Store, newToken } from '../server/dist/storage/Store.js';
 const port = process.env.E2E_PORT ?? '3999', origin = `http://127.0.0.1:${port}`;
 const database = join(mkdtempSync(join(tmpdir(), 'diplomacy-e2e-')), 'game.sqlite'), secret = randomBytes(32).toString('hex'), operatorId = '900000000017';
 const store = await Store.open(database), now = Date.now(), cookies = {};
-for (const [name, subject] of [['practice', 'e2e-practice'], ['sponsored', 'e2e-sponsored'], ['leaver', 'e2e-leaver'], ['operator', operatorId]]) {
+for (const [name, subject] of [['practice', 'e2e-practice'], ['sponsored', 'e2e-sponsored'], ['leaver', 'e2e-leaver'], ['bot', 'e2e-bot'], ['operator', operatorId]]) {
   const player = await store.call('identity', { provider: 'github', subject, displayName: `E2E ${name}`, now });
   const token = newToken();
   await store.call('createSession', { tokenHash: createHmac('sha256', secret).update(token).digest('hex'), playerId: player.id, now, expiresAt: now + 3_600_000 });

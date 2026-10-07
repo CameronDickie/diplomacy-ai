@@ -7,8 +7,8 @@ export type ChallengeAction =
   | { phase: 'ORDERS'; orderIds: string[] }
   | { phase: 'RETREATS'; retreats: Record<string, RetreatDestination | null> }
   | { phase: 'BUILDS'; builds: SubmitBuildsPayload['builds']; disbands: string[] };
-/** PRACTICE opponents hold every turn. SPONSORED opponents are decided by the server-owned Luna preset. */
-export type ChallengeMode = 'PRACTICE' | 'SPONSORED';
+/** PRACTICE opponents hold every turn. BOT is the free deterministic practice opponent. SPONSORED opponents are decided by the server-owned Luna preset. */
+export type ChallengeMode = 'PRACTICE' | 'BOT' | 'SPONSORED';
 export interface ChallengeCard {
   id: string; version: number; title: string; objectiveText: string; humanPower: Power; targetTerritory: string;
   deadlineYear: number; earlyAchievementYear: number;

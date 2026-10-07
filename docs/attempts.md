@@ -130,11 +130,12 @@ checks use offline opponents and outbox mode, with no paid calls or live emails.
 
 ## Practice and sponsored attempts
 
-Every attempt has one of two modes, chosen at start and never changed:
+Every attempt has one of three modes, chosen at start and never changed:
 
 | Mode | Opponents | Start request | Cost |
 | -- | -- | -- | -- |
 | `PRACTICE` | hold every turn (`offlineDecisions`) | default | none |
+| `BOT` | free scripted opponents (`practiceBot`) | `"mode":"BOT"` | none |
 | `SPONSORED` | decided by the server-owned Luna preset (`LunaDecisionProvider`) | `"mode":"SPONSORED"` | reserved and settled through the funding ledger |
 
 `mode` is the only optional field a start accepts. Model, preset, price list,
@@ -175,3 +176,21 @@ opponents". It needs a grant in the local database:
 ```bash
 npm run storage -- grant ./data/diplomacy.sqlite 0.05 local-mock-grant-1
 ```
+
+### The practice bot
+
+`server/src/attempts/PracticeBot.ts` is a deterministic opponent for free play.
+Each unit heads for the nearest supply center it does not own, valuing an
+arrival in Fall (when centers change hands) above one in Spring; no two units
+are sent to the same place; a unit with nothing better to do supports a
+friend's move or a threatened home center; a unit on a threatened home center
+stays. Retreats prefer a center, builds fill free home centers with a rough
+two-to-one balance of armies to fleets, and forced disbands take the units
+furthest from home.
+
+Every order is picked from the rules engine's legal catalog, so it is legal by
+construction, and its small random tie-breaks are seeded from the attempt and
+the phase: the same attempt replays identically and a recovery repeats the same
+decision. It never reads the human's submitted orders, makes no provider call
+and writes nothing to the ledger. It is a plain heuristic, not a strong player,
+and it is never used for a sponsored attempt.

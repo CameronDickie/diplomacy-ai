@@ -14,7 +14,8 @@ export interface StoredPlayer {
 export interface StoredSession { player: StoredPlayer; expiresAt: number }
 export type AttemptLifecycle = 'ACTIVE' | 'COMPLETED' | 'ABANDONED' | 'EXPIRED' | 'STOPPED';
 export type AttemptExecution = 'ACCEPTING' | 'DECIDING' | 'RESOLVING' | 'RECOVERING' | 'IDLE';
-export type AttemptMode = 'PRACTICE' | 'SPONSORED';
+/** PRACTICE: opponents hold. BOT: the free deterministic practice opponent. SPONSORED: the Luna preset. */
+export type AttemptMode = 'PRACTICE' | 'BOT' | 'SPONSORED';
 /** The sponsored contract an attempt was started under; null for practice. Never changes after admission. */
 export interface AttemptPreset { id: string; pricingVersion: string }
 /** A sponsored start is admitted only while paid play is running and at least this much is available. */
@@ -91,7 +92,7 @@ export interface StoreOperations {
   providerCallsForOperation: { input: { operationId:string }; output: ProviderCallRecord[] };
   providerCallsForAttempt: { input: { attemptId:string }; output: ProviderCallRecord[] };
   providerCallTotals: { input: { operationId:string }; output: ProviderTotals };
-  admitAttempt: { input: { id:string; playerId:string; requestId:string; challengeId:string; challengeVersion:number; now:number; maxActive:number; maxPerAccount:number; dailyLimit:number; replayOnly?:boolean; sponsored?:SponsoredStart }; output: StoredAttempt };
+  admitAttempt: { input: { id:string; playerId:string; requestId:string; challengeId:string; challengeVersion:number; now:number; maxActive:number; maxPerAccount:number; dailyLimit:number; replayOnly?:boolean; sponsored?:SponsoredStart; bot?:boolean }; output: StoredAttempt };
   ownedAttempts: { input: { playerId:string; before?:{createdAt:number;id:string}; limit?:number }; output: StoredAttempt[] };
   sweepRetention: { input: { now:number; resultBefore:number; diagnosticBefore:number; receiptBefore?:number; limit:number }; output: { attempts:number; diagnostics:number; sessions:number; receipts:number; more:boolean } };
   deleteAccount: { input: { playerId:string; now:number }; output: { sessions:string[]; attempts:number } };
@@ -112,7 +113,7 @@ export interface StoreOperations {
   banPlayer: { input: { playerId: string; now: number; banned: boolean }; output: { sessions: string[] } };
   registerChallenge: { input: StoredChallenge & { now: number }; output: null };
   challenge: { input: { id: string; version: number }; output: StoredChallenge | null };
-  createAttempt: { input: { id: string; playerId: string; challengeId: string; challengeVersion: number; now: number; reconnectTokenHash: string; sponsored?: SponsoredStart }; output: StoredAttempt };
+  createAttempt: { input: { id: string; playerId: string; challengeId: string; challengeVersion: number; now: number; reconnectTokenHash: string; sponsored?: SponsoredStart; bot?: boolean }; output: StoredAttempt };
   attempt: { input: { id: string; playerId?: string }; output: StoredAttempt | null };
   activeAttempts: { input: {}; output: StoredAttempt[] };
   receipt: { input: { attemptId: string; playerId: string; requestId: string }; output: StoredReceipt | null };

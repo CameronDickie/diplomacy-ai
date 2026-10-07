@@ -167,6 +167,10 @@ ALTER TABLE attempts ADD COLUMN pricing_version TEXT;
 ALTER TABLE start_receipts ADD COLUMN opponents TEXT NOT NULL DEFAULT 'HOLD';
 CREATE TRIGGER attempts_mode_immutable BEFORE UPDATE OF mode,opponents,preset_id,pricing_version ON attempts BEGIN
  SELECT RAISE(ABORT,'immutable attempt mode'); END;
+` }, { version: 10, sql: `
+ALTER TABLE attempts ADD COLUMN practice_bot INTEGER NOT NULL DEFAULT 0 CHECK(practice_bot IN (0,1) AND (practice_bot=0 OR opponents='HOLD'));
+CREATE TRIGGER attempts_bot_immutable BEFORE UPDATE OF practice_bot ON attempts BEGIN
+ SELECT RAISE(ABORT,'immutable attempt mode'); END;
 ` }];
 
 export function verifyMigrationHistory(db: DatabaseSync, requireExisting = false): number {

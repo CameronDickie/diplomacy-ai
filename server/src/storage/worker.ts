@@ -71,7 +71,7 @@ function player(row: Row): StoredPlayer {
   return { id: String(row.id), provider: row.provider as StoredPlayer['provider'], subject: String(row.subject), displayName: String(row.display_name), bannedAt: row.banned_at === null ? null : Number(row.banned_at) };
 }
 function attempt(row: Row): StoredAttempt {
-  return { mode: row.opponents === 'LUNA' ? 'SPONSORED' : 'PRACTICE', preset: row.preset_id === null ? null : { id: String(row.preset_id), pricingVersion: String(row.pricing_version) }, id: String(row.id), playerId: String(row.player_id), challengeId: String(row.challenge_id), challengeVersion: Number(row.challenge_version), revision: Number(row.revision), phaseId: String(row.phase_id), lifecycle: row.lifecycle as StoredAttempt['lifecycle'], execution: row.execution as StoredAttempt['execution'], board: parseBoard(JSON.parse(String(row.board_json))), score: row.score_json === null ? null : JSON.parse(String(row.score_json)), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at), lastActivityAt: Number(row.last_activity_at) };
+  return { mode: row.opponents === 'LUNA' ? 'SPONSORED' : Number(row.practice_bot) === 1 ? 'BOT' : 'PRACTICE', preset: row.preset_id === null ? null : { id: String(row.preset_id), pricingVersion: String(row.pricing_version) }, id: String(row.id), playerId: String(row.player_id), challengeId: String(row.challenge_id), challengeVersion: Number(row.challenge_version), revision: Number(row.revision), phaseId: String(row.phase_id), lifecycle: row.lifecycle as StoredAttempt['lifecycle'], execution: row.execution as StoredAttempt['execution'], board: parseBoard(JSON.parse(String(row.board_json))), score: row.score_json === null ? null : JSON.parse(String(row.score_json)), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at), lastActivityAt: Number(row.last_activity_at) };
 }
 function getAttempt(id: string): StoredAttempt | null {
   const row = db.prepare('SELECT * FROM attempts WHERE id=?').get(id);
@@ -126,6 +126,7 @@ function createAttempt(input: StoreOperations['createAttempt']['input']): Stored
   const board = definition!.board;
   const phaseId = gamePhaseId({gameId:input.id,...board});
   const sponsored = input.sponsored;
+  if (sponsored && input.bot) invalid('An attempt has exactly one kind of opponent.');
   if (sponsored) {
     // Checked in the admission transaction: a sponsored attempt never begins against a paused or empty pool.
     validText(sponsored.preset.id,80); validText(sponsored.preset.pricingVersion,80);
@@ -136,9 +137,9 @@ function createAttempt(input: StoreOperations['createAttempt']['input']): Stored
       return { refused: 'SPONSORED_UNAVAILABLE' as const };
     }
   }
-  db.prepare(`INSERT INTO attempts(id,player_id,challenge_id,challenge_version,phase_id,lifecycle,execution,board_json,reconnect_token_hash,created_at,updated_at,last_activity_at,opponents,preset_id,pricing_version)
-    VALUES(?,?,?,?,?,'ACTIVE','ACCEPTING',?,?,?,?,?,?,?,?)`).run(input.id,input.playerId,input.challengeId,input.challengeVersion,phaseId,canonicalJson(board),input.reconnectTokenHash,input.now,input.now,input.now,
-      sponsored ? 'LUNA' : 'HOLD',sponsored?.preset.id ?? null,sponsored?.preset.pricingVersion ?? null);
+  db.prepare(`INSERT INTO attempts(id,player_id,challenge_id,challenge_version,phase_id,lifecycle,execution,board_json,reconnect_token_hash,created_at,updated_at,last_activity_at,opponents,preset_id,pricing_version,practice_bot)
+    VALUES(?,?,?,?,?,'ACTIVE','ACCEPTING',?,?,?,?,?,?,?,?,?)`).run(input.id,input.playerId,input.challengeId,input.challengeVersion,phaseId,canonicalJson(board),input.reconnectTokenHash,input.now,input.now,input.now,
+      sponsored ? 'LUNA' : 'HOLD',sponsored?.preset.id ?? null,sponsored?.preset.pricingVersion ?? null,input.bot ? 1 : 0);
   return getAttempt(input.id)!;
 }
 
@@ -211,8 +212,9 @@ async function handle(request: StoreRequest): Promise<unknown> {
       if (prior) {
         if (prior.challenge_id !== input.challengeId || prior.challenge_version !== input.challengeVersion) conflict('Start request ID was already used for another challenge.');
         // A retried start can never turn a practice attempt into a sponsored one, or the reverse.
-        if ((prior.opponents === 'LUNA') !== Boolean(input.sponsored)) conflict('Start request ID was already used for another mode.');
-        return getAttempt(String(prior.attempt_id));
+        const earlier = getAttempt(String(prior.attempt_id));
+        if (earlier && earlier.mode !== (input.sponsored ? 'SPONSORED' : input.bot ? 'BOT' : 'PRACTICE')) conflict('Start request ID was already used for another mode.');
+        return earlier;
       }
       // The challenge is no longer featured: an earlier accepted start may be replayed, a new one may not begin.
       if (input.replayOnly) conflict('The featured challenge has changed. Reload to see the current one.');

@@ -18,6 +18,9 @@ links to the [credits and licenses page](client/public/legal.html) and the
   attempt. Orders are chosen from menus of moves the rules engine allows; the
   server keeps the board, scores settled Fall turns and saves every phase, so an
   attempt survives a browser reload or a server restart.
+- **A free practice bot:** scripted opponents that go for supply centers and
+  support each other, with no AI model and no cost. Opponents that simply hold
+  are also available for learning the controls.
 - **A rotating development catalog:** six generated scenarios, one featured per
   UTC day. An attempt keeps the scenario it started with.
 - **Limits:** three attempts at once site-wide, one per account, three starts per
@@ -38,10 +41,10 @@ This is a development pilot, not the finished product.
   request contract, bounded prompts, crash recovery and a sponsored attempt
   mode. No call to the real provider has ever been made, and the server refuses
   to start with paid AI enabled until the owner authorizes spend. On a
-  deployment today, opponents hold every turn. Locally you can try the sponsored
+  deployment today, the opponents are the practice bot or holding units. Locally you can try the sponsored
   flow against a stand-in with `DIPLOMACY_LUNA_TRANSPORT=mock`.
 - **The scenarios are test content.** They were generated to exercise rotation
-  and scoring and are easy against holding opponents. No public daily schedule
+  and scoring; they are short and have not been tuned for difficulty. No public daily schedule
   has been approved, and the UI does not call this a daily game.
 - **Nothing is deployed or published** by this repository's automation.
   Deployment, funding, and making the repository public are owner decisions.

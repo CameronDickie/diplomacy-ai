@@ -41,14 +41,15 @@ export function ChallengeApp(){
     {!game.loaded&&!game.error&&<p>Loading the challenge…</p>}
     {operatorView&&game.auth.operator?<OperatorPanel/>:<div className="challenge-layout">
       <aside className="challenge-brief">
-        <span className="challenge-badge">Development pilot · {replay?(replay.reference?'Reference replay':'Your replay'):a?.mode==='SPONSORED'?(game.sponsoredMock?'Mock Luna opponents':'Sponsored · GPT-6 Luna opponents'):'Offline practice'}</span>
+        <span className="challenge-badge">Development pilot · {replay?(replay.reference?'Reference replay':'Your replay'):a?.mode==='SPONSORED'?(game.sponsoredMock?'Mock Luna opponents':'Sponsored · GPT-6 Luna opponents'):a?.mode==='BOT'?'Practice bot':'Offline practice'}</span>
         <h2>Your mission</h2>{card&&<p>As {title(card.humanPower)}, own {territoryName(card.targetTerritory)} after Fall {card.deadlineYear} or sooner.</p>}
         <p>Own the supply center after a settled Fall turn, no later than Fall {card?.deadlineYear}. Moving there in Spring is not enough.</p>
         {card&&board&&<Progress card={card} board={board} live={a?.lifecycle==='ACTIVE'}/>}
         <div className="challenge-achievement"><strong>Early capture</strong><span>Complete by Fall {card?.earlyAchievementYear}.</span></div>
-        <p>{a?.mode==='SPONSORED'?`${a.challenge.opponentLabel}.`:`${card?.opponentLabel}. No paid model is used in this practice mode.`}</p>
+        <p>{a&&a.mode!=='PRACTICE'?`${a.challenge.opponentLabel}.`:a?`${a.challenge.opponentLabel}. No paid model is used in this practice mode.`:'Practise for free against scripted opponents, or against opponents that simply hold.'}</p>
         {game.rotation&&(!a||a.lifecycle!=='ACTIVE')&&<p className="muted">Development rotation: challenge {game.rotation.index+1} of {game.rotation.size} for {game.rotation.day} UTC. {game.cards[0]&&a&&a.challenge.id!==game.cards[0].id?`The current challenge is now ${game.cards[0].title}. `:''}The next one starts in {untilChange(game.rotation.nextChangeAt,clock)}.</p>}
-        {!a||a.lifecycle!=='ACTIVE'?<><button className="primary" disabled={!game.auth.authenticated||game.busy||!game.cards[0]} onClick={()=>game.cards[0]&&void game.start(game.cards[0])}>{a&&game.cards[0]&&a.challenge.id!==game.cards[0].id?`Start ${game.cards[0].title}`:'Start practice'}</button>
+        {!a||a.lifecycle!=='ACTIVE'?<><button className="primary" disabled={!game.auth.authenticated||game.busy||!game.cards[0]} onClick={()=>game.cards[0]&&void game.start(game.cards[0],'BOT')}>{a&&game.cards[0]&&a.challenge.id!==game.cards[0].id?`Start ${game.cards[0].title}`:'Play against the practice bot'}</button>
+          <button disabled={!game.auth.authenticated||game.busy||!game.cards[0]} onClick={()=>game.cards[0]&&void game.start(game.cards[0])}>Start practice</button>
           {game.sponsoredPlay==='OPEN'&&<button className="primary" disabled={!game.auth.authenticated||game.busy||!game.cards[0]} onClick={()=>game.cards[0]&&void game.start(game.cards[0],'SPONSORED')}>{game.sponsoredMock?'Play against mock Luna opponents':'Play against Luna opponents'}</button>}</>:<>
           <div className="challenge-phase">{a.board.year} {a.board.season} · {a.board.phase}</div>
           <p role="status">{a.execution==='ACCEPTING'?'Your move':a.execution!=='RECOVERING'?(a.mode==='SPONSORED'?'Your orders are saved. The opponents are deciding…':'Your orders are saved. Resolving this phase…')
@@ -128,7 +129,7 @@ function Outcome({attempt,limits}:{attempt:ChallengeAttemptView;limits:Challenge
     {score?.completedYear&&<p>Fall {score.completedYear}</p>}{score?.achievementIds.includes('EARLY_CAPTURE')&&<strong>Achievement: Early capture</strong>}
     {attempt.lifecycle==='EXPIRED'&&<p>It closed after {limits?`${limits.idleExpireMinutes} minutes`:'a period'} without an action from you and cannot be resumed. You can start a new attempt if you have starts left today.</p>}
     {attempt.lifecycle==='STOPPED'&&<p>The site operator closed this attempt.</p>}
-    <p>{attempt.mode==='SPONSORED'?'This was a sponsored attempt against Luna opponents.':'This was offline practice.'} Your phase reports are saved{limits?` for ${limits.resultRetentionDays} days`:''}.</p></section>;
+    <p>{attempt.mode==='SPONSORED'?'This was a sponsored attempt against Luna opponents.':attempt.mode==='BOT'?'This was practice against the scripted bot.':'This was offline practice.'} Your phase reports are saved{limits?` for ${limits.resultRetentionDays} days`:''}.</p></section>;
 }
 function Guide({card,limits,open}:{card:ChallengeCard;limits:ChallengeLimits|null;open:boolean}){
   const power=title(card.humanPower),n=(count:number,noun:string)=>`${count} ${noun}${count===1?'':'s'}`;
@@ -143,7 +144,7 @@ function Guide({card,limits,open}:{card:ChallengeCard;limits:ChallengeLimits|nul
     <h3>Legal is not successful</h3>
     <p>The order menus list only moves the rules engine allows. Whether an order succeeds depends on what every other power does in the same turn: a legal move can still bounce or be cut.</p>
     <h3>Opponents</h3>
-    <p>Practice opponents hold every turn and use no AI model. Sponsored attempts are played against opponents decided by GPT-6 Luna, paid for by the site owner; they are offered only when a second start button appears.</p>
+    <p>The practice bot is free: scripted opponents that head for supply centers and support each other, using no AI model. It plays the same way for the same attempt and position, and it is not a strong player. “Start practice” gives opponents that hold every turn, useful for learning the controls. Sponsored attempts are played against opponents decided by GPT-6 Luna, paid for by the site owner; they are offered only when a second start button appears.</p>
     <p>Sponsored play runs on a fixed budget. If that budget runs out or play is paused, you are told, no new sponsored attempts start, and an attempt in progress waits with your orders saved; the replay and your saved results stay available. Luna opponents are never silently swapped for practice opponents, and an attempt keeps the mode it started in.</p>
     {limits&&<><h3>Limits</h3>
     <p>{n(limits.maxActivePerAccount,'active attempt')} per account and {n(limits.dailyStartLimit,'start')} per account per UTC day; an abandoned start still counts. The site runs at most {n(limits.maxActiveAttempts,'attempt')} at once. There is no queue: if it is full, try again later.</p>

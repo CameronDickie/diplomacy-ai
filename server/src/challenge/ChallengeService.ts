@@ -12,6 +12,7 @@ import { canonicalJson, FixtureError, fixtureSchema as schema } from '../fixture
 import { importScenario, challengeDefinition, playWitness, type ScenarioFixture } from '../fixtures/ScenarioFixture.js';
 import type { ChallengeDefinition } from './TunisPilot.js';
 import { AttemptService, offlineDecisions } from '../attempts/AttemptService.js';
+import { practiceBot } from '../attempts/PracticeBot.js';
 import { PhaseRules } from '../attempts/PhaseRules.js';
 import { RateLimiter, type RateCategory } from '../limits/RateLimiter.js';
 import { LUNA_PRESET, lunaReservationNanousd } from '../providers/LunaPreset.js';
@@ -40,7 +41,7 @@ export class ChallengeService {
     const luna=transport??(this.sponsoredMock?mockLunaTransport({pick:'seeded',seed:now()%2_147_483_647}):undefined);
     this.sponsoredOffered=Boolean(luna);
     this.limits=new RateLimiter(config.trustedProxy,now);
-    this.attempts=new AttemptService(store,routedDecisions(store,offlineDecisions(this.rules),luna?new LunaDecisionProvider(store,this.rules,luna,{now}):null),this.rules,
+    this.attempts=new AttemptService(store,routedDecisions(store,offlineDecisions(this.rules),practiceBot(this.rules),luna?new LunaDecisionProvider(store,this.rules,luna,{now}):null),this.rules,
       {maxRunning:config.maxActiveAttempts,idleExpireMs:config.idleExpireMinutes*60_000,now});
   }
   static async open(store:Store,config:RuntimeConfig,now=Date.now,options:{lunaTransport?:LunaTransport}={}):Promise<ChallengeService> {
@@ -82,7 +83,7 @@ export class ChallengeService {
   private card(definition:ChallengeDefinition,board:StoredAttempt['board'],mode:ChallengeMode='PRACTICE'):ChallengeCard {
     return {id:definition.id,version:definition.version,title:definition.title,objectiveText:definition.objectiveText,humanPower:definition.humanPower,targetTerritory:definition.objective.territory,
       deadlineYear:definition.objective.deadlineYear,earlyAchievementYear:definition.earlyAchievementYear,
-      label:'DEVELOPMENT_PILOT',mode,opponentLabel:mode==='PRACTICE'?'Offline practice · hold-only opponents':this.sponsoredMock?'Mock Luna opponents · development stand-in, no provider calls':'GPT-6 Luna opponents · sponsored',
+      label:'DEVELOPMENT_PILOT',mode,opponentLabel:mode==='PRACTICE'?'Offline practice · hold-only opponents':mode==='BOT'?'Practice bot · free scripted opponents, no AI model':this.sponsoredMock?'Mock Luna opponents · development stand-in, no provider calls':'GPT-6 Luna opponents · sponsored',
       board:{...publicBoard(board),year:board.year,season:board.season,phase:board.phase}};
   }
   private async view(attempt:StoredAttempt):Promise<ChallengeAttemptView> {
@@ -176,7 +177,7 @@ export class ChallengeService {
       // `mode` is the one optional field. Model, preset, budget, board or persona are never accepted from a client.
       const body=schema.fields(req.body,['requestId','challengeId','challengeVersion',...(req.body&&typeof req.body==='object'&&Object.hasOwn(req.body,'mode')?['mode']:[])],'start');
       const mode=body.mode===undefined?'PRACTICE':body.mode;
-      if(mode!=='PRACTICE'&&mode!=='SPONSORED')throw new StoreError('STORE_INVALID','Choose practice or sponsored play.');
+      if(mode!=='PRACTICE'&&mode!=='BOT'&&mode!=='SPONSORED')throw new StoreError('STORE_INVALID','Choose practice, the practice bot or sponsored play.');
       if(mode==='SPONSORED'&&!this.sponsoredOffered)throw new StoreError('SPONSORED_UNAVAILABLE','Sponsored play is not offered yet. Practice and the replay are available.');
       if(typeof body.requestId!=='string'||!/^[-a-zA-Z0-9_]{1,100}$/.test(body.requestId))throw new StoreError('STORE_INVALID','A valid start request ID is required.');
       // A page left open across midnight UTC still holds yesterday's card: its accepted start can be replayed, nothing new begins.
@@ -186,6 +187,7 @@ export class ChallengeService {
       const attempt=await this.store.call('admitAttempt',{id:randomUUID(),playerId:player(res),requestId:body.requestId,challengeId:selected.id,challengeVersion:selected.version,
         now:this.now(),maxActive:this.config.maxActiveAttempts,maxPerAccount:this.config.maxActivePerAccount,dailyLimit:this.config.dailyStartLimit,replayOnly:selected!==featured,
         // The preset and its price list are pinned to the attempt; the pool must cover at least one worst-case call.
+        ...(mode==='BOT'?{bot:true}:{}),
         ...(mode==='SPONSORED'?{sponsored:{preset:{id:LUNA_PRESET.id,pricingVersion:LUNA_PRESET.pricingVersion},minimumAvailableNanousd:lunaReservationNanousd(LUNA_PRESET.maxInputTokens)}}:{})});
       res.json(await this.view(attempt));
     }));

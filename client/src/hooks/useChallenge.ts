@@ -84,7 +84,7 @@ export function useChallenge(){
       startId.current??=crypto.randomUUID();
       // The start ID is tied to the chosen mode, so switching mode after an uncertain response is a new request.
       if(startMode.current!==mode){startId.current=crypto.randomUUID();startMode.current=mode;}
-      const result=await challengeRequest<ChallengeAttemptView>('/attempts',{requestId:startId.current,challengeId:card.id,challengeVersion:card.version,...(mode==='SPONSORED'?{mode}:{})});
+      const result=await challengeRequest<ChallengeAttemptView>('/attempts',{requestId:startId.current,challengeId:card.id,challengeVersion:card.version,...(mode==='PRACTICE'?{}:{mode})});
       if(identityRef.current===owner){startId.current=null;setAttempt(result);await refresh(result.id,owner);}
       // A refused start usually means capacity or availability changed since the page loaded.
     }).finally(()=>{void challengeRequest<ChallengeCatalog>('/challenges').then(setCatalog).catch(()=>{});}),

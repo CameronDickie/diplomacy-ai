@@ -44,7 +44,7 @@ export class OperatorRepository {
   private row(r: Record<string, unknown>): OperatorAttemptRow {
     const board = parseBoard(JSON.parse(String(r.board_json)));
     return { id:String(r.id), playerId:String(r.player_id), playerProvider:r.provider as OperatorAttemptRow['playerProvider'], playerBanned:r.banned_at !== null,
-      challengeId:String(r.challenge_id), challengeVersion:Number(r.challenge_version), mode:r.opponents === 'LUNA' ? 'SPONSORED' : 'PRACTICE', lifecycle:r.lifecycle as OperatorAttemptRow['lifecycle'], execution:r.execution as OperatorAttemptRow['execution'],
+      challengeId:String(r.challenge_id), challengeVersion:Number(r.challenge_version), mode:r.opponents === 'LUNA' ? 'SPONSORED' : Number(r.practice_bot) === 1 ? 'BOT' : 'PRACTICE', lifecycle:r.lifecycle as OperatorAttemptRow['lifecycle'], execution:r.execution as OperatorAttemptRow['execution'],
       year:board.year, season:board.season, phase:board.phase, createdAt:Number(r.created_at), updatedAt:Number(r.updated_at), lastActivityAt:Number(r.last_activity_at) };
   }
   overview(): StoreOperations['operatorOverview']['output'] {
