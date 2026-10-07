@@ -31,7 +31,7 @@ listed in [README.md](README.md).
 | Gap | Consequence | Linear |
 | -- | -- | -- |
 | Live Luna opponents | The request contract, bounded context, decision provider, recovery and sponsored attempt mode are built and tested against a mock transport only. The server still refuses to start with paid AI enabled, so on any deployment the opponents are the practice bot or holding units | owner authorization, then DIC-68 |
-| Quality, latency and cost measurement | No evidence that Luna opponents are fair, fast or affordable | DIC-68 |
+| Quality, latency and cost that meet the targets | One live attempt of the sequential preset (October 7, 2026) passed the cost target and missed the latency and unusable-call targets: a no-go. The concurrent preset built in response (`luna-challenge-v2`, up to six decisions in flight) has mock evidence only and needs a new owner-authorized live sample | [evaluation.md](evaluation.md), DIC-68 |
 | End-to-end release verification and runbook exercise | Not release-ready | DIC-70, DIC-72 |
 | Approved public catalog | The rotation is test content and is not labelled daily | owner decision |
 

@@ -52,10 +52,13 @@ is integrated and the owner authorizes spend.
 Today a deployment offers practice only. Everything below is deliberate work
 that has **not** been done, in the order it should happen:
 
-1. **Live evaluation.** On the machine that holds the ledger database, record a
-   grant for the experiment and run a small live batch
-   ([evaluation.md](evaluation.md)). This is the first time money is spent.
-   Read the report against the three targets.
+1. **Live evaluation.** A first live attempt of the sequential preset was run on
+   October 7, 2026 and missed two of the three targets
+   ([evaluation.md](evaluation.md)). The concurrent preset that followed has not
+   been measured live. On the machine that holds the ledger database, run a
+   small live batch under a new run ID against the same funded ledger; record a
+   further grant only if the owner authorizes more spend. Read the report
+   against the three targets.
 2. **Decide.** If the targets are missed, stop here. Do not relax them quietly.
 3. **Remove the two code interlocks in one reviewed change**: the refusal in
    `assertRuntimeReady` (`config/runtime.cjs`) and the matching check at the top
