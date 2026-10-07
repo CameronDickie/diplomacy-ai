@@ -1,30 +1,88 @@
-import { LUNA_PRESET } from '../providers/LunaPreset.js';
+import { LUNA_PRESET, buildLunaRequest } from '../providers/LunaPreset.js';
 
-/** Sends one already-serialized request. Must throw when no response was read; never retries. */
-export type LunaTransport = (request: { body: string; signal: AbortSignal }) => Promise<{ status: number; body: unknown }>;
+export interface LunaResponse { status: number; body: unknown }
+/** Sends one already-serialized request. No retries. Plain transports are local test doubles. */
+export type LunaTransport = ((request: { body: string; signal: AbortSignal }) => Promise<LunaResponse>) & {
+  /** HTTP transport must count the exact input first. The returned sender is bound to those bytes and usable once. */
+  preflight?: (request: { body: string; signal: AbortSignal }) => Promise<{ inputTokens: number; send: LunaTransport }>;
+};
 
-/**
- * The only code that talks to the provider. It is constructed nowhere at startup: paid operation is
- * still interlocked in configuration. The response is read with a hard size cap and never logged.
- */
-export function httpLunaTransport(apiKey: string, request: typeof fetch = fetch): LunaTransport {
-  if (typeof apiKey !== 'string' || apiKey.length < 8) throw new Error('A provider key is required.');
-  return async ({ body, signal }) => {
-    const response = await request(LUNA_PRESET.endpoint, { method: 'POST', signal, redirect: 'error',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body });
-    const reader = response.body?.getReader(), chunks: Uint8Array[] = [];
-    let size = 0;
+/** Read a bounded body. Raw errors and bodies are never logged. */
+async function readJson(response: Response, maxBytes: number): Promise<unknown> {
+  const reader = response.body?.getReader(), chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
     if (reader) for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > LUNA_PRESET.maxResponseBytes) { await reader.cancel().catch(() => {}); throw new Error('Provider response exceeds its size limit.'); }
+      if (size > maxBytes) throw new Error('Provider response exceeds its size limit.');
       chunks.push(value);
     }
-    let parsed: unknown = null;
-    try { parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { /* an unreadable body is normalized as an error with unknown billing */ }
-    return { status: response.status, body: parsed };
+  } finally { await reader?.cancel().catch(() => {}); reader?.releaseLock(); }
+  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return null; }
+}
+
+/** A counter or reader that ignores cancellation must not hold a phase indefinitely. */
+async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  // Always attach to work, even when fetch synchronously aborted the signal before returning it.
+  let onAbort: () => void = () => {};
+  const aborted = new Promise<never>((_,reject) => {
+    onAbort = () => reject(new Error('Luna preflight cancelled.'));
+    signal.addEventListener('abort',onAbort,{once:true});
+    if (signal.aborted) onAbort();
+  });
+  try { return await Promise.race([work,aborted]); }
+  finally { signal.removeEventListener('abort',onAbort); }
+}
+
+/**
+ * Uses the official input-token endpoint with every input-affecting field, including the schema.
+ * It never creates a model response during preflight. Reserve the full preset ceiling before
+ * preflight; take the durable dispatch claim afterwards so stop/ban/funding are checked again.
+ * Paid operation remains interlocked at application startup.
+ */
+export function httpLunaTransport(apiKey: string, request: typeof fetch = fetch): LunaTransport {
+  if (typeof apiKey !== 'string' || apiKey.length < 8) throw new Error('A provider key is required.');
+  const headers = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
+  const transport: LunaTransport = async () => { throw new Error('Luna HTTP dispatch requires a successful input-token preflight.'); };
+  transport.preflight = async ({ body, signal }) => {
+    signal.throwIfAborted();
+    // Reject settings/schema/model changes before either endpoint sees them.
+    let parsed: ReturnType<typeof JSON.parse>;
+    try {
+      parsed = JSON.parse(body);
+      if (body !== buildLunaRequest({ context: parsed.input[0].content[0].text }).body
+        || Buffer.byteLength(body,'utf8') > LUNA_PRESET.maxRequestBytes) throw new Error();
+    } catch { throw new Error('Invalid Luna request contract.'); }
+    const countBody = JSON.stringify({ model: parsed.model, input: parsed.input, instructions: parsed.instructions,
+      reasoning: parsed.reasoning, text: parsed.text, tools: parsed.tools, tool_choice: parsed.tool_choice, truncation: parsed.truncation });
+    const deadline = AbortSignal.any([signal,AbortSignal.timeout(LUNA_PRESET.countTimeoutMs)]);
+    let count: unknown;
+    try {
+      count = await abortable((async () => {
+        const response = await request(LUNA_PRESET.countEndpoint,{ method: 'POST', signal: deadline, redirect: 'error', headers, body: countBody });
+        const value = await readJson(response,LUNA_PRESET.maxCountResponseBytes);
+        if (response.status !== 200) throw new Error();
+        return value;
+      })(),deadline);
+    } catch { throw new Error('Luna input-token preflight unavailable.'); }
+    const tokens = (count as { input_tokens?: unknown } | null)?.input_tokens;
+    if (!count || typeof count !== 'object' || Array.isArray(count) || Object.keys(count).sort().join(',') !== 'input_tokens,object'
+      || (count as { object?: unknown }).object !== 'response.input_tokens'
+      || !Number.isSafeInteger(tokens) || (tokens as number) < 1 || (tokens as number) > LUNA_PRESET.maxInputTokens)
+      throw new Error('Luna input-token preflight exceeds its limit or is invalid.');
+    signal.throwIfAborted();
+    let used = false;
+    const send: LunaTransport = async ({ body: exact, signal: sendSignal }) => {
+      if (exact !== body || used) throw new Error('Luna preflight does not authorize these bytes or a repeated dispatch.');
+      sendSignal.throwIfAborted(); used = true;
+      const response = await request(LUNA_PRESET.endpoint,{ method: 'POST', signal: sendSignal, redirect: 'error', headers, body });
+      return { status: response.status, body: await readJson(response,LUNA_PRESET.maxResponseBytes) };
+    };
+    return { inputTokens: tokens as number, send };
   };
+  return transport;
 }
 
 export interface MockOptions {

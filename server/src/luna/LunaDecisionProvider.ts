@@ -12,7 +12,7 @@ import { forcedAction, parseChoices } from './Choices.js';
 import { lunaPrompt } from './Context.js';
 import type { LunaTransport } from './Transport.js';
 
-export type LunaFailure = 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED' | 'PAUSED_OR_CLOSED' | 'CALL_LIMIT' | 'PROVIDER';
+export type LunaFailure = 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED' | 'PAUSED_OR_CLOSED' | 'CALL_LIMIT' | 'PREFLIGHT' | 'PROVIDER';
 /** Why a sponsored phase could not be decided. The phase is left recoverable; opponents are never swapped for holds. */
 export class LunaDecisionError extends Error {
   constructor(readonly code: LunaFailure, readonly power: Power) { super(`Sponsored decision unavailable (${code}).`); this.name = 'LunaDecisionError'; }
@@ -67,7 +67,8 @@ export class LunaDecisionProvider implements DecisionProvider {
     let callId: string | undefined;
     for (const call of earlier.filter(c => c.state === 'PREPARED')) {
       // Never dispatched. Usable only if it reserved exactly this request under the current fence.
-      if (!callId && call.requestHash === prompt.request.requestHash && call.fence.revision === job.revision) callId = call.id;
+      if (!callId && call.requestHash === prompt.request.requestHash && call.fence.revision === job.revision
+        && call.maxCostNanousd === prompt.maxCostNanousd) callId = call.id;
       else await this.store.call('releaseProviderCall',{ id: call.id, now: this.now() }).catch(() => {});
     }
     // A call left DISPATCHED belongs to a run that no longer exists. Its outcome is unknown, so it is
@@ -90,9 +91,18 @@ export class LunaDecisionProvider implements DecisionProvider {
     }
     const id = callId!;
     await this.options.boundary?.('reserved',power,id);
+    let transport = this.transport;
+    if (transport.preflight) {
+      try { transport = (await transport.preflight({ body: prompt.request.body, signal })).send; }
+      catch {
+        // No generation sender was obtained: no model response was created and the hold is still PREPARED.
+        await this.store.call('releaseProviderCall',{ id, now: this.now() }).catch(() => {});
+        fail(signal.aborted ? 'PAUSED_OR_CLOSED' : 'PREFLIGHT');
+      }
+    }
     try {
       return await recordedCall({ store: this.store, id, signal, timeoutMs: this.options.timeoutMs ?? LUNA_PRESET.timeoutMs, now: this.now,
-        transport: async s => { const response = await this.transport({ body: prompt.request.body, signal: s }); return normalizeLunaResponse(response.body,response.status); },
+        transport: async s => { const response = await transport({ body: prompt.request.body, signal: s }); return normalizeLunaResponse(response.body,response.status); },
         validate: async (parsed,callSignal) => {
           const action = prompt.set.toAction(parseChoices(parsed));
           await this.rules.validate(job.board,power,action,callSignal);

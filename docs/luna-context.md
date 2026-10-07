@@ -39,11 +39,28 @@ legality.
 
 ## Bounds
 
-A request must fit `LUNA_PRESET.maxContextBytes` (24,000) and its serialized
-body must not exceed `maxInputTokens` (32,768) **in bytes**. Because a token is
-never shorter than one byte, the body's byte length is a true upper bound on its
-input tokens, and that bound is what `lunaReservationNanousd` prices for the
-reservation. It is deliberately pessimistic.
+A context must fit `LUNA_PRESET.maxContextBytes` (24,000 UTF-8 bytes) and the
+serialized body must fit `maxRequestBytes` (32,768 bytes). Neither byte count is
+claimed to bound model tokens: message framing and the response schema can add
+tokens that a local tokenizer does not see.
+
+Every call reserves the full accepted input ceiling (32,768 tokens priced at the
+cache-write rate) plus all 2,048 capped output tokens: USD 0.00512. The real HTTP
+transport then counts the exact model, input, instructions, reasoning, text/schema,
+tools, tool choice and truncation through the official input-token endpoint. A
+successful positive integer count no greater than the ceiling is required before
+model generation. Counting has a five-second deadline and 4 KiB response cap;
+there are no automatic retries. The returned sender accepts only the counted bytes
+and can be used once. A failed count releases the still-unsent PREPARED reservation;
+it never releases a dispatched or uncertain model call.
+
+The provider takes its durable dispatch claim after counting, so stop/ban/current
+phase and funding are checked again immediately before generation. A crash between
+reservation and counting leaves an unsent hold that recovery can reuse or release.
+A crash after counting must count again; only saved, validated game decisions are
+reused without another count or model request. This count protocol is documented
+by [OpenAI's token-counting guide](https://developers.openai.com/api/docs/guides/token-counting)
+and [endpoint reference](https://developers.openai.com/api/reference/python/resources/responses/subresources/input_tokens/methods/count).
 
 When the full text does not fit it is reduced in a fixed order and the reduction
 is reported in `LunaPrompt.measured` (`listed` of `total`, `recentLines`,
@@ -61,7 +78,7 @@ Standard 1901 opening, no previous phase, from `LunaContext.test.ts`:
 | Shared prefix | about 700 |
 | Whole context per power | under 2,500 |
 | Largest single-power legal catalog in the development fixtures | about 1,150 (a convoy position) |
-| Worst-case reservation for one opening call | under USD 0.0016 |
+| Worst-case reservation for any call | USD 0.00512 (entire preset ceiling) |
 
 For comparison, the legacy room-game prompts sent the full adjacency graph and
 conversation memory on every call. Real token counts, cache hits, latency and
@@ -80,8 +97,9 @@ byte measurements, not provider usage.
    reserved exactly this request under the current fence, otherwise it is
    released; a call left dispatched by a run that no longer exists is closed as
    an unknown outcome and its reservation stays held.
-4. A new call is reserved through the ledger, sent through `recordedCall` with
-   the exact reserved bytes, and its usage is recorded before the answer is read.
+4. A new call is reserved through the ledger. HTTP preflight counts the exact
+   input; `recordedCall` then takes the dispatch claim and sends those immutable
+   bytes. Usage is recorded before the answer is read.
 5. The answer is mapped to an action, checked by the rules engine, and stored
    before the call is marked finished.
 
@@ -94,8 +112,9 @@ replaced by holding units.
 
 `Transport.ts` holds the bounded HTTP transport and a deterministic mock that
 reads the numbered choices from the request and answers in the provider's
-envelope. Neither is constructed at startup: paid operation is still refused by
-configuration, and this provider is not yet selected for any attempt.
+envelope. The mock is selectable only in the local profile. The real HTTP transport is
+used by the explicitly authorized evaluation CLI; public paid operation is still
+refused by startup configuration. Mock usage is a stand-in, not token verification.
 
 Crash evidence (`LunaProvider.test.ts`, mock transport): a process killed after
 a reservation, after dispatch, after the usage receipt, after a decision is

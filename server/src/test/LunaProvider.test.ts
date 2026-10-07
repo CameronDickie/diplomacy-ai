@@ -16,7 +16,7 @@ import { AttemptService } from '../attempts/AttemptService.js';
 import { PhaseRules } from '../attempts/PhaseRules.js';
 import { LunaDecisionProvider } from '../luna/LunaDecisionProvider.js';
 import { httpLunaTransport,mockLunaTransport,type LunaTransport } from '../luna/Transport.js';
-import { LUNA_PRESET } from '../providers/LunaPreset.js';
+import { LUNA_PRESET,buildLunaRequest,lunaReservationNanousd } from '../providers/LunaPreset.js';
 
 const OPPONENTS:Power[]=['AUSTRIA','ENGLAND','FRANCE','GERMANY','ITALY','RUSSIA'];
 const powerOf=(body:string)=>/You are ([A-Z]+)\./.exec(body)![1] as Power;
@@ -77,7 +77,7 @@ test('a sponsored phase makes one reserved, settled call per opponent, commits t
 
 test('running out of budget mid-phase pauses paid play, leaves the phase recoverable and never substitutes holds; a grant resumes without re-buying',async t=>{
   // One worst-case reservation fits; after a few real bills there is no longer room for another.
-  const f=await setup(t,1_650_000),service=f.service(f.scripted());
+  const f=await setup(t,5_260_000),service=f.service(f.scripted());
   await service.submit(f.command);await service.wait(f.attempt.id);
   let state=(await f.current())!;
   assert.deepEqual([state.board.season,state.execution],['SPRING','RECOVERING']);
@@ -202,6 +202,8 @@ test('retreat and adjustment phases call only the powers that have something to 
 
 test('a process killed anywhere in a sponsored phase recovers to exactly one report without paying twice for a saved answer',async t=>{
   const expected={RESERVED:{asked:['GERMANY','ITALY','RUSSIA'],germany:['GERMANY:1 FINISHED CANCELLED','GERMANY:2 FINISHED VALID'],unknown:false},
+    COUNTING:{asked:['GERMANY','ITALY','RUSSIA'],germany:['GERMANY:1 FINISHED CANCELLED','GERMANY:2 FINISHED VALID'],unknown:false},
+    COUNTED:{asked:['GERMANY','ITALY','RUSSIA'],germany:['GERMANY:1 FINISHED CANCELLED','GERMANY:2 FINISHED VALID'],unknown:false},
     DISPATCHED:{asked:['GERMANY','ITALY','RUSSIA'],germany:['GERMANY:1 FINISHED TRANSPORT_ERROR','GERMANY:2 FINISHED VALID'],unknown:true},
     RECEIVED:{asked:['GERMANY','ITALY','RUSSIA'],germany:['GERMANY:1 RECEIVED -','GERMANY:2 FINISHED VALID'],unknown:false},
     DECIDED:{asked:['ITALY','RUSSIA'],germany:['GERMANY:1 FINISHED VALID'],unknown:false},
@@ -212,12 +214,18 @@ test('a process killed anywhere in a sponsored phase recovers to exactly one rep
     const child=spawn(process.execPath,[fileURLToPath(new URL('./fixtures/crashLuna.js',import.meta.url)),f.path,stage,JSON.stringify(f.command)],{stdio:'ignore',env:{PATH:process.env.PATH}});
     const [code,signal]=await once(child,'exit');assert.equal(code,null,stage);assert.equal(signal,'SIGKILL',stage);
     await f.reopen();
-    const service=f.service(f.scripted());
+    const counted:Power[]=[],mock=f.scripted();
+    const recovered=['COUNTING','COUNTED'].includes(stage)?httpLunaTransport('test-key-not-real',(async(url,init)=>{
+      if(String(url)===LUNA_PRESET.countEndpoint){counted.push(powerOf(String(init!.body)));return new Response('{"object":"response.input_tokens","input_tokens":100}');}
+      const result=await mock({body:String(init!.body),signal:init!.signal as AbortSignal});return new Response(JSON.stringify(result.body));
+    }) as typeof fetch):mock;
+    const service=f.service(recovered);
     await service.recover();await service.wait(f.attempt.id);
     const state=(await f.current())!;
     assert.deepEqual([state.board.season,state.execution,state.lifecycle],['FALL','ACCEPTING','ACTIVE'],stage);
     assert.equal((await f.reports()).length,1,stage);
     assert.deepEqual(f.sent.map(s=>s.power),expected[stage].asked,stage);
+    if(['COUNTING','COUNTED'].includes(stage))assert.deepEqual(counted,expected[stage].asked,stage);
     assert.deepEqual(f.calls("id LIKE '%GERMANY%'"),expected[stage].germany,stage);
     // Every known bill is in the ledger exactly once, and an unanswered dispatched call is still held.
     const ledger=await f.ledger();
@@ -226,20 +234,6 @@ test('a process killed anywhere in a sponsored phase recovers to exactly one rep
     assert.equal((await service.submit(f.command)).state.status,'ACCEPTED',stage);
     await assert.rejects(service.submit({...f.command,requestId:'again'}),{code:'STORE_CONFLICT'},stage);
   }
-});
-
-test('the HTTP transport sends the exact reserved bytes once, caps the response and surfaces failures without leaking them',async()=>{
-  const seen:Array<{url:string;init:RequestInit}>=[];
-  const respond=(body:string,status=200)=>(async(url:Parameters<typeof fetch>[0],init?:RequestInit)=>{seen.push({url:String(url),init:init!});return new Response(body,{status});}) as typeof fetch;
-  const send=(fetchImpl:typeof fetch)=>httpLunaTransport('test-key-not-real',fetchImpl)({body:'{"exact":"bytes"}',signal:new AbortController().signal});
-  assert.deepEqual(await send(respond('{"id":"resp_1"}')),{status:200,body:{id:'resp_1'}});
-  assert.equal(seen[0].url,LUNA_PRESET.endpoint);assert.equal(seen[0].init.body,'{"exact":"bytes"}');assert.equal(seen[0].init.method,'POST');
-  assert.equal((seen[0].init.headers as Record<string,string>).Authorization,'Bearer test-key-not-real');assert.equal(seen[0].init.redirect,'error');
-  assert.deepEqual(await send(respond('not json',500)),{status:500,body:null});
-  await assert.rejects(send(respond('x'.repeat(LUNA_PRESET.maxResponseBytes+1))),/size limit/);
-  await assert.rejects(send((async()=>{throw new Error('socket hang up with secret detail');}) as typeof fetch));
-  assert.equal(seen.length,3);
-  assert.throws(()=>httpLunaTransport(''),/key is required/);
 });
 
 test('validation completing after the call deadline cannot save an answer for recovery to reuse',async t=>{
@@ -260,4 +254,114 @@ test('validation completing after the call deadline cannot save an answer for re
   assert.equal((await f.current())!.board.season,'FALL');
   assert.deepEqual(f.sent.map(s=>s.power),['AUSTRIA',...OPPONENTS]);
   assert.ok((await f.ledger()).settled>paid);assert.equal((await f.ledger()).settled,f.billed());
+});
+
+
+test('HTTP preflight counts the complete fixed input, then sends its exact bytes only once',async()=>{
+  const seen:Array<{url:string;init:RequestInit}>=[],body=buildLunaRequest({context:'public board 🎲'}).body;
+  const fetchImpl=(async(url:Parameters<typeof fetch>[0],init?:RequestInit)=>{
+    seen.push({url:String(url),init:init!});
+    return new Response(String(url)===LUNA_PRESET.countEndpoint ? JSON.stringify({object:'response.input_tokens',input_tokens:LUNA_PRESET.maxInputTokens}) : '{"id":"resp_1"}');
+  }) as typeof fetch;
+  const http=httpLunaTransport('test-key-not-real',fetchImpl),signal=new AbortController().signal;
+  await assert.rejects(http({body,signal}),/requires a successful/);assert.equal(seen.length,0);
+  const counted=await http.preflight!({body,signal});assert.equal(counted.inputTokens,LUNA_PRESET.maxInputTokens);
+  const full=JSON.parse(body),input=JSON.parse(String(seen[0].init.body));
+  assert.deepEqual(Object.keys(input).sort(),['input','instructions','model','reasoning','text','tool_choice','tools','truncation']);
+  for(const key of Object.keys(input))assert.deepEqual(input[key],full[key],key);
+  assert.equal(seen[0].url,LUNA_PRESET.countEndpoint);
+  await assert.rejects(counted.send({body:body+' ',signal}),/does not authorize/);
+  assert.deepEqual(await counted.send({body,signal}),{status:200,body:{id:'resp_1'}});
+  assert.equal(seen[1].url,LUNA_PRESET.endpoint);assert.equal(seen[1].init.body,body);
+  for(const {init} of seen){assert.equal(init.method,'POST');assert.equal(init.redirect,'error');assert.equal((init.headers as Record<string,string>).Authorization,'Bearer test-key-not-real');}
+  await assert.rejects(counted.send({body,signal}),/repeated dispatch/);assert.equal(seen.length,2);
+  // A crafted fixed setting cannot reach either endpoint, even when its context is valid.
+  for(const patch of [{model:'another-model'},{instructions:'override'},{tools:[{type:'web_search'}]},{max_output_tokens:100000},{service_tier:'priority'}, {text:{format:{type:'text'}}}])
+    await assert.rejects(http.preflight!({body:JSON.stringify({...full,...patch}),signal}),/request contract/);
+  assert.equal(seen.length,2);assert.throws(()=>httpLunaTransport(''),/key is required/);
+});
+
+test('invalid, oversized, unavailable and cancelled counts never create a model response',async()=>{
+  const body=buildLunaRequest({context:'public board'}).body,signal=new AbortController().signal;
+  const invalid=[null,{}, {object:'response.input_tokens',input_tokens:0},{object:'response.input_tokens',input_tokens:1.5},
+    {object:'response.input_tokens',input_tokens:'1'},{object:'response.input_tokens',input_tokens:LUNA_PRESET.maxInputTokens+1},
+    {object:'response',input_tokens:100}, {object:'response.input_tokens',input_tokens:100,error:'private error'}];
+  for(const value of invalid){
+    let n=0;
+    const http=httpLunaTransport('test-key-not-real',(async()=>{n++;return new Response(JSON.stringify(value));}) as typeof fetch);
+    await assert.rejects(http.preflight!({body,signal}),/preflight/);assert.equal(n,1);
+  }
+  for(const [raw,status] of [['not json',200],['x'.repeat(LUNA_PRESET.maxCountResponseBytes+1),200],['private provider error',401]] as const){
+    const seen:string[]=[],http=httpLunaTransport('test-key-not-real',(async url=>{seen.push(String(url));return new Response(raw,{status});}) as typeof fetch);
+    await assert.rejects(http.preflight!({body,signal}),error=>error instanceof Error&&/preflight/.test(error.message)&&!error.message.includes('private'));
+    assert.deepEqual(seen,[LUNA_PRESET.countEndpoint]);
+  }
+  let reached!:()=>void,release!:()=>void;
+  const started=new Promise<void>(r=>{reached=r;}),blocked=new Promise<void>(r=>{release=r;}),controller=new AbortController(),seen:string[]=[];
+  const http=httpLunaTransport('test-key-not-real',(async url=>{seen.push(String(url));reached();await blocked;return new Response('{"object":"response.input_tokens","input_tokens":100}');}) as typeof fetch);
+  const pending=http.preflight!({body,signal:controller.signal});await started;controller.abort();
+  await assert.rejects(pending,/preflight unavailable/);release();await new Promise(done=>setImmediate(done));
+  assert.deepEqual(seen,[LUNA_PRESET.countEndpoint]);
+});
+
+test('generation keeps its body size cap and unknown-usage failure behavior after a successful count',async()=>{
+  const body=buildLunaRequest({context:'public board'}).body,signal=new AbortController().signal;
+  for(const [raw,status,tooLarge] of [['not json',500,false],['x'.repeat(LUNA_PRESET.maxResponseBytes+1),200,true]] as const){
+    const http=httpLunaTransport('test-key-not-real',(async url=>new Response(String(url)===LUNA_PRESET.countEndpoint ? '{"object":"response.input_tokens","input_tokens":100}' : raw,{status:String(url)===LUNA_PRESET.countEndpoint ? 200 : status})) as typeof fetch);
+    const prepared=await http.preflight!({body,signal});
+    if(tooLarge)await assert.rejects(prepared.send({body,signal}),/size limit/);
+    else assert.deepEqual(await prepared.send({body,signal}),{status:500,body:null});
+  }
+});
+
+test('counter refusal releases only the unsent reservation, leaves recovery possible, and retries under a new call',async t=>{
+  const f=await setup(t),seen:string[]=[],mock=mockLunaTransport();let valid=false;
+  const http=httpLunaTransport('test-key-not-real',(async(url,init)=>{
+    seen.push(String(url));
+    if(String(url)===LUNA_PRESET.countEndpoint)return new Response(JSON.stringify({object:'response.input_tokens',input_tokens:valid?100:LUNA_PRESET.maxInputTokens+1}));
+    const result=await mock({body:String(init!.body),signal:init!.signal as AbortSignal});return new Response(JSON.stringify(result.body));
+  }) as typeof fetch),service=f.service(http);
+  await service.submit(f.command);await service.wait(f.attempt.id);
+  assert.deepEqual(seen,[LUNA_PRESET.countEndpoint]);assert.deepEqual(await f.ledger(),{settled:0,reserved:0,unknown:0});
+  assert.deepEqual(f.calls(),['AUSTRIA:1 FINISHED CANCELLED']);assert.equal((await f.current())!.execution,'RECOVERING');
+  valid=true;await service.recover(f.attempt.id);await service.wait(f.attempt.id);
+  assert.equal((await f.current())!.board.season,'FALL');assert.equal((await f.reports()).length,1);
+  assert.equal(seen.filter(x=>String(x)===LUNA_PRESET.endpoint).length,6);
+  assert.ok((await f.store.call('providerCallsForAttempt',{attemptId:f.attempt.id})).every(c=>c.maxCostNanousd===lunaReservationNanousd(LUNA_PRESET.maxInputTokens)));
+});
+
+test('no funds means no count; stopping during count prevents subsequent generation dispatch',async t=>{
+  const empty=await setup(t,0);let outbound=0;
+  const noFunds=empty.service(httpLunaTransport('test-key-not-real',(async()=>{outbound++;throw new Error();}) as typeof fetch));
+  await noFunds.submit(empty.command);await noFunds.wait(empty.attempt.id);assert.equal(outbound,0);
+  const f=await setup(t),seen:string[]=[],service=f.service(httpLunaTransport('test-key-not-real',(async url=>{
+    seen.push(String(url));
+    await f.store.call('setPaidStopped',{stopped:true,operatorId:'owner',now:f.now()});
+    return new Response('{"object":"response.input_tokens","input_tokens":100}');
+  }) as typeof fetch));
+  await service.submit(f.command);await service.wait(f.attempt.id);
+  assert.deepEqual(seen,[LUNA_PRESET.countEndpoint]);assert.equal((await f.current())!.execution,'RECOVERING');
+  assert.equal((await f.ledger()).settled,0);assert.equal((await f.ledger()).unknown,0);
+  assert.deepEqual(f.calls(),['AUSTRIA:1 PREPARED -']);
+});
+
+
+test('the count deadline bounds a counter that ignores cancellation',async()=>{
+  const seen:string[]=[],body=buildLunaRequest({context:'public board'}).body;
+  const http=httpLunaTransport('test-key-not-real',(async url=>{
+    seen.push(String(url));await new Promise(done=>setTimeout(done,LUNA_PRESET.countTimeoutMs+200));
+    return new Response('{"object":"response.input_tokens","input_tokens":100}');
+  }) as typeof fetch);
+  const began=performance.now();
+  await assert.rejects(http.preflight!({body,signal:new AbortController().signal}),/preflight unavailable/);
+  assert.ok(performance.now()-began < LUNA_PRESET.countTimeoutMs+1500);
+  assert.deepEqual(seen,[LUNA_PRESET.countEndpoint]);
+});
+
+
+test('a fetch that aborts synchronously cannot leave an unhandled rejected count promise',async()=>{
+  const controller=new AbortController(),body=buildLunaRequest({context:'public board'}).body;
+  const http=httpLunaTransport('test-key-not-real',(()=>{controller.abort();return Promise.reject(new Error('private transport failure'));}) as typeof fetch);
+  await assert.rejects(http.preflight!({body,signal:controller.signal}),/preflight unavailable/);
+  await new Promise(done=>setImmediate(done));
 });

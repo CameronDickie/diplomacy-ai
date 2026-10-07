@@ -12,8 +12,8 @@ The request fixes Standard (`service_tier: default`), low reasoning, 2,048 outpu
 tokens including reasoning, no tools, no streaming/background work, `store:false`
 and disabled automatic truncation. There is no conversation or previous response
 ID. Context is capped at 24,000 UTF-8 bytes, input at 32,768 tokens, response body
-at 256 KiB, deadline at 20 seconds and automatic retries at zero. The future HTTP
-adapter must enforce the response-body limit while reading, not after allocating
+at 256 KiB, deadline at 20 seconds and automatic retries at zero. The HTTP
+adapter enforces the response-body limit while reading, before allocating
 an unbounded body. A caller must pass the preset deadline into `recordedCall`.
 Changing bounds/settings/schema or prices requires a new contract version.
 These are initial operating bounds, not measured game-quality/latency results.
@@ -47,23 +47,31 @@ A known charge is never clipped to an estimate. A future funding controller must
 halt further paid dispatch on contract violations or unresolved billing requiring
 reconciliation; it must not interpret an ERROR as evidence of zero spending.
 
-## Funding integration still required
+## Funding and token verification
 
-This module has no network client and reads no secrets. Sponsored startup remains
-interlocked. DIC-64 must bind each serialized request hash to a durable atomic
-reservation before transport, check stop/ban/expiry and remaining global/attempt
-funding at dispatch, and preserve unknown liabilities through crashes. DIC-60/67
-wire it into durable phase coordination. Do not call a provider directly merely
-because request construction and normalization are implemented.
+The durable ledger and decision provider now bind each request hash to an atomic
+reservation and check stop/ban/current phase and global/attempt funding before
+model dispatch. Unknown model outcomes stay held through recovery; known usage
+is settled before parsing or validating the answer. Sponsored startup remains
+interlocked; the evaluation CLI is the only real HTTP consumer.
 
-`lunaReservationNanousd` requires a verified input-token count or conservative
-bound for the exact request, including instructions, message framing and schema.
-The context byte check alone is not that verification; characters divided by four
-is not a safe bound. Token counting must not omit schema or permit the body to
-change after reservation. Reserve input at the cache-write rate and all capped
-output with no assumed cache savings. At the maximum accepted input count this
-contract reserves USD 0.00512 per call; that is a worst-case formula, not measured
-cost, a funding allowance, or proof of model access.
+The byte cap is a memory/prompt-size limit, not token verification. The HTTP
+transport requires preflight through
+[`POST /v1/responses/input_tokens`](https://developers.openai.com/api/reference/python/resources/responses/subresources/input_tokens/methods/count),
+including the fixed schema, instructions and all input-affecting fields. The
+[official counting guide](https://developers.openai.com/api/docs/guides/token-counting)
+says this includes model framing/schema overhead. An invalid, unavailable,
+oversized or cancelled count prevents model generation. The counted sender is
+bound to the exact immutable body and usable once; changing any fixed setting
+is rejected before counting. Counting creates no model response.
+
+The ledger reserves the entire accepted input ceiling at the cache-write rate
+plus all capped output, without assuming a cache hit. At the maximum accepted
+input count this contract reserves USD 0.00512 per call. This is a conservative
+hold, not measured cost, an allowance, or proof of access. Count failures release
+only PREPARED unsent holds. Once model dispatch is claimed, failures and timeouts
+retain uncertain liabilities exactly as before. Recovery re-counts prepared work
+and reuses validated saved decisions without buying them again.
 
 Live access, tactical quality, cost, latency and retry/fallback measurement remain
 DIC-68. Mock tests need no credentials: build, then run

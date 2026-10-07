@@ -29,7 +29,8 @@ npm run evaluate -- --db /tmp/eval.sqlite --run mock-a --attempts 3 --out /tmp/e
 
 Recorded mock result on October 6, 2026 (three attempts of `tunis-expedition`,
 `early-capture`, seed 1): 15 phases, 78 calls, all valid; about USD 0.0023
-settled per attempt at the mock's token counts; about USD 0.037 reserved per
+settled per attempt at the mock's token counts; its old byte-based reservation
+estimate is superseded by the full-ceiling hold. Previously about USD 0.037 reserved per
 attempt at worst case; ledger reconciled. These are stand-in numbers.
 
 ## What the report contains
@@ -88,3 +89,13 @@ contains no prompts, answers or keys, but it does contain cost figures.
 The game server itself still refuses to start with paid AI enabled. A go/no-go
 for offering sponsored play publicly should cite a live report against the three
 targets above.
+
+## Exact input verification
+
+Live evaluation uses the fixed HTTP token-counting preflight described in
+[luna-context.md](luna-context.md). Every generation has a full-ceiling ledger
+hold before counting; a valid count within the ceiling precedes the durable
+model dispatch claim. Mock transport does not call the counter or provider and
+its synthetic token counts cannot verify real cost or latency. Failed counts
+are unsent cancellations, so they remain visible in call outcomes; they do not
+silently become successful decisions. No live run has yet been recorded.

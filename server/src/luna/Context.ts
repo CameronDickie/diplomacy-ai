@@ -44,8 +44,7 @@ export interface LunaPrompt {
   context: string;
   /** Exact serialized request and its hash, as reserved and sent. */
   request: ReturnType<typeof buildLunaRequest>;
-  /** A safe upper bound on input tokens: no token is shorter than one byte of the serialized request. */
-  inputTokenBound: number;
+  /** Reserve the entire accepted token ceiling; bytes do not prove a model token bound. */
   maxCostNanousd: number;
   measured: { contextBytes: number; requestBytes: number; sharedBytes: number; listed: number; total: number; recentLines: number; compacted: boolean };
 }
@@ -73,8 +72,8 @@ export function lunaPrompt(job: Pick<PhaseJob,'board' | 'definition'>, power: Po
     const contextBytes = Buffer.byteLength(context,'utf8');
     if (contextBytes > LUNA_PRESET.maxContextBytes) continue;
     const request = buildLunaRequest({ context }), requestBytes = Buffer.byteLength(request.body,'utf8');
-    if (requestBytes > LUNA_PRESET.maxInputTokens) continue;
-    return { power, set, context, request, inputTokenBound: requestBytes, maxCostNanousd: lunaReservationNanousd(requestBytes),
+    if (requestBytes > LUNA_PRESET.maxRequestBytes) continue;
+    return { power, set, context, request, maxCostNanousd: lunaReservationNanousd(LUNA_PRESET.maxInputTokens),
       measured: { contextBytes, requestBytes, sharedBytes: Buffer.byteLength(shared,'utf8'), listed: set.coverage.listed, total: set.coverage.total, recentLines: shape.recent, compacted: shape !== shapes[0] } };
   }
   throw new ChoiceError('This position cannot be described within the request limits.');

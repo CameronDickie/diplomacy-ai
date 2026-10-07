@@ -127,7 +127,7 @@ test('a sponsored phase that cannot be paid for waits with a clear notice and re
   const f=await setup(t,{granted:6_000_000}),player=await f.user('player'),owner=await f.user('4242');
   const attempt=await (await f.request('/attempts',player.cookie,f.start('s-1',{mode:'SPONSORED'}))).json() as ChallengeAttemptView;
   // Lower the per-attempt cap below what six calls reserve and settle.
-  await f.store.call('setFundingPolicy',{attemptCapNanousd:1_500_000,ceilingLimitNanousd:null,now:f.now()});
+  await f.store.call('setFundingPolicy',{attemptCapNanousd:5_260_000,ceilingLimitNanousd:null,now:f.now()});
   const capped=await f.turn(player.cookie,attempt.id);
   assert.deepEqual([capped.board.season,capped.execution,capped.notice,capped.mode],['SPRING','RECOVERING','ATTEMPT_BUDGET','SPONSORED']);
   assert.equal((await f.store.call('paidState',{})).stopped,false);

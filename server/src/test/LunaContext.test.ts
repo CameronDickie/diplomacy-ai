@@ -31,10 +31,10 @@ test('opening prompts fit the preset, share one prefix, list every legal option 
     assert.ok(p.context.startsWith(`${shared}\n\nYou are ${p.power}.`),p.power);
     assert.deepEqual([p.measured.compacted,p.measured.listed],[false,p.measured.total],p.power);
     assert.ok(p.measured.contextBytes <= 2_500 && p.measured.contextBytes <= LUNA_PRESET.maxContextBytes,`${p.power} ${p.measured.contextBytes}`);
-    assert.ok(p.measured.requestBytes >= p.measured.contextBytes && p.inputTokenBound === p.measured.requestBytes && p.inputTokenBound <= LUNA_PRESET.maxInputTokens);
-    assert.equal(p.maxCostNanousd,lunaReservationNanousd(p.measured.requestBytes));
-    // Worst case for one opening call stays well under a tenth of a cent.
-    assert.ok(p.maxCostNanousd < 1_600_000,String(p.maxCostNanousd));
+    assert.ok(p.measured.requestBytes >= p.measured.contextBytes && p.measured.requestBytes <= LUNA_PRESET.maxRequestBytes);
+    assert.equal(p.maxCostNanousd,lunaReservationNanousd(LUNA_PRESET.maxInputTokens));
+    // Reserve all accepted input plus capped output; bytes alone do not prove the input tokens.
+    assert.equal(p.maxCostNanousd,5_120_000);
     assert.match(p.context,/goal is to own TUN after a Fall turn no later than Fall 1903/);
     for (const group of p.set.groups) assert.match(p.set.choices[group.choices[0]].label,/hold/i,`${p.power} ${group.id}`);
     assert.ok(!p.context.includes('SENTINEL') && !p.request.body.includes('SENTINEL'));
@@ -131,7 +131,7 @@ test('an oversized catalog is reduced in a fixed, reported order that always kee
     order: { ...o.order, id: `${o.unitTerritory}|SUPPORT_HOLD|X${i}`, type: 'SUPPORT_HOLD' as const }, description: `${o.unitTerritory} supports imaginary unit number ${i}` })));
   const big = [...legal,...flood], p = lunaPrompt(j,'FRANCE',big,null)!;
   assert.equal(p.measured.compacted,true);assert.equal(p.measured.total,big.length);assert.ok(p.measured.listed < big.length && p.measured.listed >= legal.length);
-  assert.ok(p.measured.contextBytes <= LUNA_PRESET.maxContextBytes && p.measured.requestBytes <= LUNA_PRESET.maxInputTokens);
+  assert.ok(p.measured.contextBytes <= LUNA_PRESET.maxContextBytes && p.measured.requestBytes <= LUNA_PRESET.maxRequestBytes);
   // Real moves are kept ahead of supports, and every unit still starts with its hold.
   for (const group of p.set.groups) assert.match(p.set.choices[group.choices[0]].label,/hold/i);
   for (const option of legal.filter(o => o.order.type === 'MOVE')) assert.ok(p.context.includes(option.description),option.description);
