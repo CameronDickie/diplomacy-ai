@@ -74,10 +74,33 @@ export class FundingRepository {
     this.db.prepare("INSERT INTO reservations(call_id,attempt_id,reserved_nanousd,state,created_at) VALUES(?,?,?,'HELD',?)").run(intent.id,intent.fence.attemptId,amount,now);
     return null;
   }
+  /** A queued call's hold must still fit policy when it actually leaves the process. */
+  dispatchAllowed(intent: ProviderCallIntent, now: number): Refusal | null {
+    const own=this.attempt(intent.fence.attemptId),totals=this.totals();
+    if(own.settledNanousd+own.heldNanousd>totals.attemptCapNanousd)return {refused:'ATTEMPT_BUDGET_EXHAUSTED'};
+    if(totals.settledNanousd+totals.reservedNanousd+totals.unknownLiabilityNanousd>totals.ceilingNanousd){
+      stopPaid(this.db,'BUDGET_EXHAUSTED',now);return {refused:'BUDGET_EXHAUSTED'};
+    }
+    return null;
+  }
   /** Called once, when a call's usage first becomes known. The full cost is kept even above its reservation. */
   settle(callId: string, attemptId: string, costNanousd: number, now: number): void {
-    const reservation = this.db.prepare('SELECT reserved_nanousd,state FROM reservations WHERE call_id=?').get(callId);
-    if (reservation?.state === 'SETTLED') return;
+    const reservation = this.db.prepare('SELECT reserved_nanousd,settled_nanousd,state FROM reservations WHERE call_id=?').get(callId);
+    if (reservation?.state === 'SETTLED') {
+      // A manually verified liability may later report a different actual bill.
+      // Keep the original closed reservation immutable and record only the extra
+      // charge. A lower bill never refunds the conservative amount already spent.
+      const credited = Number(reservation.settled_nanousd);
+      if (costNanousd !== credited && !this.db.prepare('SELECT 1 FROM funding_adjustments WHERE call_id=?').get(callId)) {
+        const delta = Math.max(0,costNanousd-credited);
+        this.db.prepare('INSERT INTO funding_adjustments(call_id,attempt_id,credited_nanousd,actual_nanousd,delta_nanousd,recorded_at) VALUES(?,?,?,?,?,?)')
+          .run(callId,attemptId,credited,costNanousd,delta,now);
+        this.db.prepare('UPDATE funding_pool SET settled_nanousd=settled_nanousd+?,updated_at=? WHERE id=1').run(delta,now);
+        this.db.prepare('UPDATE attempt_spend SET settled_nanousd=settled_nanousd+? WHERE attempt_id=?').run(delta,attemptId);
+        stopPaid(this.db,'COST_ANOMALY',now);
+      }
+      return;
+    }
     if (reservation?.state === 'HELD') this.db.prepare("UPDATE reservations SET state='SETTLED',settled_nanousd=?,closed_at=? WHERE call_id=?").run(costNanousd,now,callId);
     else if (!reservation) this.db.prepare("INSERT INTO reservations(call_id,attempt_id,reserved_nanousd,state,settled_nanousd,created_at,closed_at) VALUES(?,?,?,'SETTLED',?,?,?)").run(callId,attemptId,Math.max(1,costNanousd),costNanousd,now,now);
     this.db.prepare('UPDATE funding_pool SET settled_nanousd=settled_nanousd+?,updated_at=? WHERE id=1').run(costNanousd,now);
@@ -94,13 +117,14 @@ export class FundingRepository {
   resolve(input: StoreOperations['resolveLiability']['input']): FundingTotals {
     time(input.now);
     if (!Number.isSafeInteger(input.costNanousd) || input.costNanousd < 0 || input.costNanousd > 1_000_000_000_000 || typeof input.authorizationRef !== 'string' || !/^[A-Za-z0-9:_.-]{8,100}$/.test(input.authorizationRef)) invalid();
-    const row = this.db.prepare(`SELECT r.state,r.attempt_id,c.state call_state,c.outcome,c.received_at FROM reservations r LEFT JOIN provider_calls c ON c.id=r.call_id WHERE r.call_id=?`).get(input.callId);
+    const row = this.db.prepare(`SELECT r.state,r.attempt_id,r.reserved_nanousd,c.state call_state,c.outcome,c.received_at FROM reservations r LEFT JOIN provider_calls c ON c.id=r.call_id WHERE r.call_id=?`).get(input.callId);
     // A call still in flight may yet report its own usage; only an ended one can be resolved by hand.
     if (!row || row.state !== 'HELD' || (row.call_state !== null && row.outcome === null && row.received_at === null)) throw new StoreError('STORE_CONFLICT','Only a held reservation for a call that has ended can be resolved.');
     this.db.prepare("UPDATE reservations SET state='SETTLED',settled_nanousd=?,closed_at=? WHERE call_id=?").run(input.costNanousd,input.now,input.callId);
     this.db.prepare('UPDATE funding_pool SET settled_nanousd=settled_nanousd+?,updated_at=? WHERE id=1').run(input.costNanousd,input.now);
     this.db.prepare('INSERT INTO attempt_spend(attempt_id,settled_nanousd,calls) VALUES(?,?,1) ON CONFLICT(attempt_id) DO UPDATE SET settled_nanousd=settled_nanousd+excluded.settled_nanousd,calls=calls+1').run(String(row.attempt_id),input.costNanousd);
     this.db.prepare("INSERT INTO operator_audit(at,operator_id,action,target) VALUES(?,?,'LIABILITY_RESOLVED',?)").run(input.now,`cli:${input.authorizationRef}`.slice(0,100),input.callId);
+    if (input.costNanousd > Number(row.reserved_nanousd) || this.totals().settledNanousd > this.totals().ceilingNanousd) stopPaid(this.db,'COST_ANOMALY',input.now);
     return this.totals();
   }
   /** Lists what is still held, oldest first, so the owner can look each call up with the provider. */

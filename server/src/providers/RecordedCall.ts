@@ -23,7 +23,7 @@ export async function recordedCall<T>(options:{
   store:Store;
   id:string;
   transport:(signal:AbortSignal)=>Promise<ProviderResponse>;
-  validate:(value:unknown)=>T|Promise<T>;
+  validate:(value:unknown,signal:AbortSignal)=>T|Promise<T>;
   signal:AbortSignal;
   timeoutMs:number;
   now?:()=>number;
@@ -61,7 +61,7 @@ export async function recordedCall<T>(options:{
       parsed=JSON.parse(response.outputText);
     }catch{throw new ProviderCallError('INVALID_JSON');}
     let value:T;
-    try{value=await options.validate(parsed);}catch{throw new ProviderCallError('INVALID_ACTION');}
+    try{value=await options.validate(parsed,controller.signal);}catch{throw new ProviderCallError('INVALID_ACTION');}
     controller.signal.throwIfAborted();
     return value;
   });

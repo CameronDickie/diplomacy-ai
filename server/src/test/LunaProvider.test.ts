@@ -241,3 +241,23 @@ test('the HTTP transport sends the exact reserved bytes once, caps the response 
   assert.equal(seen.length,3);
   assert.throws(()=>httpLunaTransport(''),/key is required/);
 });
+
+test('validation completing after the call deadline cannot save an answer for recovery to reuse',async t=>{
+  const f=await setup(t),original=f.rules.validate.bind(f.rules);
+  let reached!:()=>void,release!:()=>void,delay=true;
+  const started=new Promise<void>(done=>{reached=done;}),blocked=new Promise<void>(done=>{release=done;});
+  f.rules.validate=async(board,power,action,signal)=>{
+    await original(board,power,action,signal);
+    if(power==='AUSTRIA'&&delay){reached();await blocked;}
+  };
+  const service=f.service(f.scripted(),{timeoutMs:30});
+  await service.submit(f.command);await started;await service.wait(f.attempt.id);
+  assert.deepEqual(f.calls(),['AUSTRIA:1 FINISHED TIMEOUT']);
+  const paid=(await f.ledger()).settled;assert.ok(paid>0);
+  delay=false;release();await new Promise(done=>setImmediate(done));
+  assert.deepEqual(await f.store.call('providerDecisions',{operationId:f.operation()}),[]);
+  await service.recover(f.attempt.id);await service.wait(f.attempt.id);
+  assert.equal((await f.current())!.board.season,'FALL');
+  assert.deepEqual(f.sent.map(s=>s.power),['AUSTRIA',...OPPONENTS]);
+  assert.ok((await f.ledger()).settled>paid);assert.equal((await f.ledger()).settled,f.billed());
+});

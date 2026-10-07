@@ -29,6 +29,9 @@ usable usage).
    attempt is active and the player is not banned, the per-attempt cap and the
    pool. If it does not fit, no call record is written.
 2. **Dispatch.** Refused unless a live reservation exists for exactly that call.
+   Recheck the total and attempt ceilings, so a policy narrowed after reservation
+   cannot be bypassed by queued work. A refused call keeps its undispatched hold
+   until it is explicitly released or its closed attempt is reconciled.
 3. **Settle.** The first receipt with usage moves the reservation to settled at
    the real cost, once. A repeated or concurrent receipt changes nothing; a
    conflicting one is rejected.
@@ -61,8 +64,13 @@ npm run storage -- resolve /data/diplomacy.sqlite <call-id> <USD> <authorization
 ```
 
 Only a held reservation for a call that has ended can be resolved; one still in
-flight cannot. It is recorded in the operator audit trail, and a bill arriving
-later for the same call is not charged again.
+flight cannot. A verified amount above the reservation or pool pauses spending
+with the same anomaly handling as a direct provider bill. It is recorded in the operator audit trail, and an identical bill arriving
+later for the same call is not charged again. If that bill is larger, an immutable
+correction adds only the difference to global and attempt spending once, then
+pauses paid play. A smaller bill leaves the conservative spent amount in place
+and also pauses for review. The original resolution remains immutable. Correction
+evidence survives receipt cleanup, backup and restart.
 
 ## Limits and refusals
 

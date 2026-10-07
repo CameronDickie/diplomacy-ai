@@ -146,3 +146,16 @@ test('usage above its estimate is retained in full rather than clipped to the es
   await f.store.call('receiveProviderCall',{id:'over',responseId:'resp_over',usage:actual,now});
   assert.equal((await f.store.call('providerCallTotals',{operationId:f.job.operationId})).knownCostNanousd,200000);
 });
+
+test('terminal call outcomes and recovered revisions fence late decision persistence while keeping bills',async t=>{
+  for(const changed of ['timeout','revision'] as const){
+    const f=await setup(t);await f.prepare(changed);
+    await f.store.call('dispatchProviderCall',{id:changed,now});
+    await f.store.call('receiveProviderCall',{id:changed,responseId:`resp_${changed}`,usage:known,now});
+    if(changed==='timeout')await f.store.call('finishProviderCall',{id:changed,outcome:'TIMEOUT',now});
+    else await f.store.call('recoverPhase',{fence:f.job,now});
+    await assert.rejects(f.store.call('saveProviderDecision',{callId:changed,action:{phase:'ORDERS',orderIds:['PAR|HOLD','MAR|HOLD','BRE|HOLD']},now}),{code:'STORE_CONFLICT'});
+    assert.deepEqual(await f.store.call('providerDecisions',{operationId:f.job.operationId}),[]);
+    assert.deepEqual((await f.store.call('providerCall',{id:changed}))!.usage,known);
+  }
+});

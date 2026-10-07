@@ -204,7 +204,11 @@ async function handle(request: StoreRequest): Promise<unknown> {
     case 'heldLiabilities': return new FundingRepository(db).held();
     case 'releaseProviderCall': return transaction(() => new FundingRepository(db).releasePrepared(input));
     case 'reconcileFunding': return transaction(() => ({released:new FundingRepository(db).reconcile(input.now)}));
-    case 'dispatchProviderCall': return transaction(() => new ProviderCallRepository(db).dispatch(input));
+    case 'dispatchProviderCall': {
+      const dispatched=transaction(() => new ProviderCallRepository(db).dispatch(input));
+      if('refused' in dispatched)throw new StoreError(dispatched.refused,'Queued provider call no longer fits the funding policy.');
+      return dispatched;
+    }
     case 'receiveProviderCall': return transaction(() => new ProviderCallRepository(db).receive(input));
     case 'finishProviderCall': return transaction(() => new ProviderCallRepository(db).finish(input));
     case 'providerCall': return new ProviderCallRepository(db).get(input.id);

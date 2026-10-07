@@ -295,3 +295,51 @@ test('a held liability for an ended call can be resolved once at a verified amou
   assert.deepEqual([(await storage('resolve',f.path,'in-flight','0','owner-verified-0002')).unknownLiabilityNanousd,(await f.totals()).settledNanousd],[0,52_000]);
   await assert.rejects(storage('resolve',f.path,'in-flight','0'));
 });
+
+test('a late bill corrects a manually resolved amount exactly once and preserves the conservative floor',async t=>{
+  for (const [verified,actual,expected] of [[42000,70000,70000],[70000,42000,70000],[0,70000,70000]]) {
+    const f=await setup(t),p=await f.phase('a');
+    await p.prepare('late-correction');await f.store.call('dispatchProviderCall',{id:'late-correction',now:f.now()});
+    await f.store.call('finishProviderCall',{id:'late-correction',outcome:'TIMEOUT',now:f.now()});
+    await f.store.call('resolveLiability',{callId:'late-correction',costNanousd:verified,authorizationRef:'owner-verified-late',now:f.now()});
+    await f.reopen();const other=await Store.open(f.path);
+    try {
+      const receipt={id:'late-correction',responseId:'resp_corrected',usage:usage(actual),now:f.now()};
+      await Promise.all([f.store.call('receiveProviderCall',receipt),other.call('receiveProviderCall',receipt)]);
+      await f.store.call('receiveProviderCall',receipt);
+    } finally { await other.close(); }
+    assert.equal((await f.totals()).settledNanousd,expected);
+    assert.equal((await f.store.call('attemptFunding',{attemptId:'a'})).settledNanousd,expected);
+    assert.equal((await f.store.call('paidState',{})).stopped,true);
+    await f.reopen();assert.equal((await f.totals()).settledNanousd,expected);
+    const backup=join(f.dir,'correction.sqlite');await f.store.call('backup',{destination:backup});
+    const restored=await Store.open(join(f.dir,'corrected-restored.sqlite'),backup);
+    try { assert.equal((await restored.call('fundingTotals',{})).settledNanousd,expected); } finally { await restored.close(); }
+    f.sql(db=>{
+      assert.equal(db.prepare('SELECT count(*) n FROM funding_adjustments').get()!.n,1);
+      assert.equal(db.prepare('SELECT calls FROM attempt_spend WHERE attempt_id=?').get('a')!.calls,1);
+      assert.throws(()=>db.exec('UPDATE funding_adjustments SET actual_nanousd=0'),/immutable billing correction/);
+      assert.throws(()=>db.exec('DELETE FROM funding_adjustments'),/evidence is permanent/);
+    });
+  }
+});
+
+test('manual resolution above the reserved bound pauses new spending and keeps the whole verified bill',async t=>{
+  const f=await setup(t),p=await f.phase('a');await p.prepare('resolved-over');
+  await f.store.call('dispatchProviderCall',{id:'resolved-over',now:f.now()});
+  await f.store.call('finishProviderCall',{id:'resolved-over',outcome:'TIMEOUT',now:f.now()});
+  await f.store.call('resolveLiability',{callId:'resolved-over',costNanousd:200000,authorizationRef:'owner-verified-over',now:f.now()});
+  assert.equal((await f.totals()).settledNanousd,200000);assert.equal((await f.store.call('paidState',{})).stopped,true);
+  await assert.rejects(p.prepare('after-anomaly'),{code:'STORE_CONFLICT'});
+});
+
+test('dispatch rechecks narrowed funding policy without dropping an existing reservation',async t=>{
+  for(const limit of ['pool','attempt'] as const){
+    const f=await setup(t),p=await f.phase('a');await p.prepare('queued');
+    await f.store.call('setFundingPolicy',{attemptCapNanousd:limit==='attempt'?50000:1_000_000_000,ceilingLimitNanousd:limit==='pool'?50000:null,now:f.now()});
+    await assert.rejects(f.store.call('dispatchProviderCall',{id:'queued',now:f.now()}),{code:limit==='pool'?'BUDGET_EXHAUSTED':'ATTEMPT_BUDGET_EXHAUSTED'});
+    assert.equal((await f.store.call('providerCall',{id:'queued'}))!.state,'PREPARED');
+    assert.equal((await f.totals()).reservedNanousd,COST);
+    if(limit==='pool')assert.equal((await f.store.call('paidState',{})).stopped,true);
+  }
+});

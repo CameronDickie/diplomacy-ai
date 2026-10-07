@@ -61,12 +61,14 @@ export class ProviderCallRepository {
       .run(v.id,v.fence.operationId,v.fence.attemptId,canonicalJson(v),input.now);
     return this.required(v.id);
   }
-  dispatch(input:StoreOperations['dispatchProviderCall']['input']):ProviderCallRecord {
+  dispatch(input:StoreOperations['dispatchProviderCall']['input']):ProviderCallRecord|Refusal {
     integer(input.now);const old=this.required(input.id);
     if(old.state!=='PREPARED'||input.now<old.createdAt)conflict();
     this.current(old);
     // No dispatch without a live reservation for exactly this call.
     if(!this.db.prepare("SELECT 1 FROM reservations WHERE call_id=? AND state='HELD'").get(input.id))conflict();
+    const refusal=new FundingRepository(this.db).dispatchAllowed(old,input.now);
+    if(refusal)return refusal;
     this.db.prepare("UPDATE provider_calls SET state='DISPATCHED',dispatched_at=? WHERE id=?").run(input.now,input.id);
     return this.required(input.id);
   }
@@ -101,11 +103,15 @@ export class ProviderCallRepository {
   saveDecision(input:StoreOperations['saveProviderDecision']['input']):null {
     integer(input.now);const call=this.required(input.callId),action=parseAction(input.action);
     if(call.receivedAt===null||action.phase!==call.role)conflict();
-    const live=this.db.prepare(`SELECT 1 FROM phase_jobs j JOIN attempts a ON a.id=j.attempt_id JOIN players p ON p.id=a.player_id
-      WHERE j.id=? AND j.status IN ('DECIDING','RECOVERING') AND a.lifecycle='ACTIVE' AND p.banned_at IS NULL`).get(call.fence.operationId);
-    if(!live)conflict();
     const old=this.db.prepare('SELECT action_json FROM provider_decisions WHERE call_id=?').get(input.callId);
     if(old){if(String(old.action_json)!==canonicalJson(action))conflict();return null;}
+    if(call.outcome!==null || call.state!=='RECEIVED')conflict();
+    const f=call.fence;
+    const live=this.db.prepare(`SELECT 1 FROM phase_jobs j JOIN attempts a ON a.id=j.attempt_id JOIN players p ON p.id=a.player_id
+      WHERE j.id=? AND j.attempt_id=? AND j.phase_id=? AND j.revision=? AND a.revision=j.revision AND a.phase_id=j.phase_id
+      AND j.status IN ('DECIDING','RECOVERING') AND a.lifecycle='ACTIVE' AND p.banned_at IS NULL`)
+      .get(f.operationId,f.attemptId,f.phaseId,f.revision);
+    if(!live)conflict();
     this.db.prepare('INSERT INTO provider_decisions(call_id,operation_id,power,action_json,created_at) VALUES(?,?,?,?,?)').run(input.callId,call.fence.operationId,call.power,canonicalJson(action),input.now);
     return null;
   }

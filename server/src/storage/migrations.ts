@@ -188,6 +188,18 @@ CREATE TABLE exhibition_reports (
  sequence INTEGER NOT NULL CHECK(sequence>0), report_json TEXT NOT NULL CHECK(json_valid(report_json)),
  PRIMARY KEY(exhibition_id,sequence)
 ) STRICT;
+` }, { version: 12, sql: `
+CREATE TABLE funding_adjustments (
+ call_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL,
+ credited_nanousd INTEGER NOT NULL CHECK(credited_nanousd>=0),
+ actual_nanousd INTEGER NOT NULL CHECK(actual_nanousd>=0),
+ delta_nanousd INTEGER NOT NULL CHECK(delta_nanousd=max(0,actual_nanousd-credited_nanousd)),
+ recorded_at INTEGER NOT NULL
+) STRICT;
+CREATE TRIGGER funding_adjustments_immutable BEFORE UPDATE ON funding_adjustments BEGIN
+ SELECT RAISE(ABORT,'immutable billing correction'); END;
+CREATE TRIGGER funding_adjustments_permanent BEFORE DELETE ON funding_adjustments BEGIN
+ SELECT RAISE(ABORT,'billing correction evidence is permanent'); END;
 ` }];
 
 export function verifyMigrationHistory(db: DatabaseSync, requireExisting = false): number {

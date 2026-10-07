@@ -60,7 +60,7 @@ digest() {
   "$DOCKER" exec "$1" node -e '
     const {DatabaseSync}=require("node:sqlite"),{createHash}=require("node:crypto");
     const db=new DatabaseSync("/data/diplomacy.sqlite",{readOnly:true}),h=createHash("sha256");
-    for(const t of ["players","sessions","challenges","attempts","reports","receipts","phase_jobs","start_receipts","account_starts","provider_calls","provider_decisions","operator_state","funding_grants","funding_pool","reservations","attempt_spend","exhibitions","exhibition_reports","schema_migrations"])
+    for(const t of ["players","sessions","challenges","attempts","reports","receipts","phase_jobs","start_receipts","account_starts","provider_calls","provider_decisions","operator_state","funding_grants","funding_adjustments","funding_pool","reservations","attempt_spend","exhibitions","exhibition_reports","schema_migrations"])
       h.update(t+JSON.stringify(db.prepare(`SELECT * FROM ${t} ORDER BY 1,2`).all(),(k,v)=>typeof v==="bigint"?String(v):v));
     console.log(h.digest("hex"));'
 }

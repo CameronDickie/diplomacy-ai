@@ -93,9 +93,10 @@ export class LunaDecisionProvider implements DecisionProvider {
     try {
       return await recordedCall({ store: this.store, id, signal, timeoutMs: this.options.timeoutMs ?? LUNA_PRESET.timeoutMs, now: this.now,
         transport: async s => { const response = await this.transport({ body: prompt.request.body, signal: s }); return normalizeLunaResponse(response.body,response.status); },
-        validate: async parsed => {
+        validate: async (parsed,callSignal) => {
           const action = prompt.set.toAction(parseChoices(parsed));
-          await this.rules.validate(job.board,power,action,signal);
+          await this.rules.validate(job.board,power,action,callSignal);
+          callSignal.throwIfAborted();
           // Stored before the call is finished, so an interruption between the two cannot lose a paid answer.
           await this.store.call('saveProviderDecision',{ callId: id, action, now: this.now() });
           await this.options.boundary?.('decided',power,id);
