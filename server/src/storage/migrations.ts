@@ -80,6 +80,20 @@ CREATE TABLE account_starts (
  player_id TEXT NOT NULL REFERENCES players(id), utc_day TEXT NOT NULL,
  accepted INTEGER NOT NULL CHECK(accepted>=0), PRIMARY KEY(player_id,utc_day)
 ) STRICT;
+` }, { version: 4, sql: `
+CREATE TABLE provider_calls (
+ id TEXT PRIMARY KEY, operation_id TEXT NOT NULL, attempt_id TEXT NOT NULL,
+ intent_json TEXT NOT NULL CHECK(json_valid(intent_json)),
+ state TEXT NOT NULL CHECK(state IN ('PREPARED','DISPATCHED','RECEIVED','FINISHED')),
+ created_at INTEGER NOT NULL, dispatched_at INTEGER, received_at INTEGER, finished_at INTEGER,
+ response_id TEXT, usage_json TEXT CHECK(usage_json IS NULL OR json_valid(usage_json)),
+ outcome TEXT CHECK(outcome IS NULL OR outcome IN ('VALID','INVALID_JSON','INVALID_ACTION','REFUSED','INCOMPLETE','PROVIDER_ERROR','TRANSPORT_ERROR','TIMEOUT','CANCELLED'))
+) STRICT;
+CREATE INDEX provider_calls_operation ON provider_calls(operation_id);
+CREATE INDEX provider_calls_attempt ON provider_calls(attempt_id);
+CREATE UNIQUE INDEX provider_calls_response ON provider_calls(response_id) WHERE response_id IS NOT NULL;
+CREATE TRIGGER provider_intent_immutable BEFORE UPDATE OF id,operation_id,attempt_id,intent_json,created_at ON provider_calls BEGIN
+ SELECT RAISE(ABORT,'immutable provider intent'); END;
 ` }];
 
 export function verifyMigrationHistory(db: DatabaseSync, requireExisting = false): number {

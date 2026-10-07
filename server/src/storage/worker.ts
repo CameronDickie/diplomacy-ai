@@ -1,3 +1,4 @@
+import { ProviderCallRepository } from './providerCalls.js';
 import { parentPort, workerData } from 'node:worker_threads';
 import { DatabaseSync, backup } from 'node:sqlite';
 import { chmodSync, closeSync, lstatSync, mkdirSync, openSync } from 'node:fs';
@@ -156,6 +157,13 @@ async function handle(request: StoreRequest): Promise<unknown> {
   await boot;
   const {operation,input} = request;
   switch (operation) {
+    case 'prepareProviderCall': return transaction(() => new ProviderCallRepository(db).prepare(input));
+    case 'dispatchProviderCall': return transaction(() => new ProviderCallRepository(db).dispatch(input));
+    case 'receiveProviderCall': return transaction(() => new ProviderCallRepository(db).receive(input));
+    case 'finishProviderCall': return transaction(() => new ProviderCallRepository(db).finish(input));
+    case 'providerCall': return new ProviderCallRepository(db).get(input.id);
+    case 'providerCallsForOperation': return new ProviderCallRepository(db).list(input.operationId);
+    case 'providerCallTotals': return new ProviderCallRepository(db).totals(input);
     case 'admitAttempt': return transaction(() => {
       validText(input.id,100); validText(input.requestId,100); validTime(input.now);
       for (const limit of [input.maxActive,input.maxPerAccount,input.dailyLimit]) if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) invalid('Invalid admission limit.');

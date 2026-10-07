@@ -1,3 +1,4 @@
+import type { ProviderCallIntent, ProviderCallRecord, ProviderUsage, ProviderOutcome, ProviderTotals } from '../providers/accounting.js';
 import type { PhaseAction, PhaseDecisions, PhaseFence, PhaseJob } from '../attempts/types.js';
 import type { BoardFixture } from '../fixtures/BoardFixture.js';
 import type { ChallengeDefinition, ChallengeScore } from '../challenge/TunisPilot.js';
@@ -38,6 +39,13 @@ export interface StoredReceipt {
   createdAt: number;
 }
 export interface StoreOperations {
+  prepareProviderCall: { input: { intent:ProviderCallIntent; now:number }; output: ProviderCallRecord };
+  dispatchProviderCall: { input: { id:string; now:number }; output: ProviderCallRecord };
+  receiveProviderCall: { input: { id:string; responseId:string|null; usage:ProviderUsage|null; now:number }; output: ProviderCallRecord };
+  finishProviderCall: { input: { id:string; outcome:ProviderOutcome; now:number }; output: ProviderCallRecord };
+  providerCall: { input: { id:string }; output: ProviderCallRecord|null };
+  providerCallsForOperation: { input: { operationId:string }; output: ProviderCallRecord[] };
+  providerCallTotals: { input: { operationId:string }; output: ProviderTotals };
   admitAttempt: { input: { id:string; playerId:string; requestId:string; challengeId:string; challengeVersion:number; now:number; maxActive:number; maxPerAccount:number; dailyLimit:number }; output: StoredAttempt };
   ownedAttempts: { input: { playerId:string }; output: StoredAttempt[] };
   latestSubmission: { input: { attemptId:string; playerId:string; phaseId:string }; output: {receipt:StoredReceipt;action:PhaseAction}|null };

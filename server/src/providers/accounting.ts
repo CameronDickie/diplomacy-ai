@@ -1,0 +1,44 @@
+import type { Power } from '@diplomacy/shared';
+import type { PhaseFence } from '../attempts/types.js';
+
+/** Private accounting metadata only. Never store prompts, credentials or output here. */
+export interface ProviderCallIntent {
+  id: string;
+  fence: PhaseFence;
+  power: Power;
+  provider: 'OPENAI';
+  model: 'gpt-6-luna';
+  role: 'ORDERS' | 'RETREATS' | 'BUILDS';
+  pricingVersion: string;
+  requestHash: string;
+  maxCostNanousd: number;
+}
+export interface ProviderUsage {
+  inputTokens: number;
+  cachedInputTokens: number;
+  cacheWriteTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  costNanousd: number;
+}
+export const providerOutcomes = ['VALID','INVALID_JSON','INVALID_ACTION','REFUSED','INCOMPLETE','PROVIDER_ERROR','TRANSPORT_ERROR','TIMEOUT','CANCELLED'] as const;
+export type ProviderOutcome = typeof providerOutcomes[number];
+export interface ProviderCallRecord extends ProviderCallIntent {
+  state: 'PREPARED' | 'DISPATCHED' | 'RECEIVED' | 'FINISHED';
+  createdAt: number;
+  dispatchedAt: number | null;
+  receivedAt: number | null;
+  finishedAt: number | null;
+  responseId: string | null;
+  usage: ProviderUsage | null;
+  outcome: ProviderOutcome | null;
+}
+export interface ProviderTotals {
+  calls: number;
+  knownCalls: number;
+  unresolvedCalls: number;
+  knownCostNanousd: number;
+  unresolvedLiabilityNanousd: number;
+  inputTokens: number;
+  outputTokens: number;
+}
