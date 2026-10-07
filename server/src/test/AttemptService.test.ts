@@ -17,10 +17,11 @@ import { PhaseRules } from '../attempts/PhaseRules.js';
 import type { PhaseDecisions, PhaseJob } from '../attempts/types.js';
 
 const now=1_800_000_000_000;
-async function setup(name='tunis-expedition') {
+async function setup(name='tunis-expedition',prepare:(raw:any)=>void=()=>{}) {
   const directory=mkdtempSync(resolve(tmpdir(),'diplomacy-phases-')), path=resolve(directory,'game.sqlite');
   let store=await Store.open(path);
   const raw=JSON.parse(readFileSync(new URL(`../../fixtures/development/${name}.v1.json`,import.meta.url),'utf8'));
+  prepare(raw);
   raw.objective ??= {humanPower:name==='retreat-position'?'GERMANY':'FRANCE',territory:'TUN',deadlineYear:1905,earlyAchievementYear:1902};
   const fixture=await importScenario(raw);
   const definition=challengeDefinition(fixture)!;
@@ -238,4 +239,44 @@ test('simultaneous validations respect worker capacity and shutdown cannot accep
     assert.equal((await f.store.call('attempt',{id:f.attempt.id}))!.execution,'ACCEPTING');
     assert.equal((await f.store.call('pendingPhaseJobs',{})).length,0);
   }finally{release.resolve();await service.close();await f.close();}
+});
+
+
+test('a Norway fleet retreat round-trips through committed storage and resumes to St Petersburg north coast',async()=>{
+  const f=await setup('tunis-expedition',raw=>{
+    raw.id='norway-fleet-retreat';raw.witnesses=[];
+    raw.objective={humanPower:'RUSSIA',territory:'TUN',deadlineYear:1905,earlyAchievementYear:1902};
+    raw.board.units=[['attacker','ENGLAND','NTH'],['supporter','ENGLAND','NWG'],['defender','RUSSIA','NOR']].map(([id,power,territory])=>
+      ({id,power,territory,type:'FLEET',coast:null,mustRetreat:false,retreatOptions:[],retreatCoasts:{},dislodgedBy:null}));
+  });
+  const decide:DecisionProvider['decide']=async({job,signal})=>{
+    const choices=await f.rules.defaults(job,signal);
+    choices.ENGLAND={phase:'ORDERS',orderIds:['NTH|MOVE|NOR','NWG|SUPPORT_MOVE|NTH|NOR']};
+    return choices;
+  };
+  const service=new AttemptService(f.store,{decide,recover:decide},f.rules);
+  try{
+    await service.submit(f.input);await service.wait(f.attempt.id);
+    const retreat=(await f.store.call('attempt',{id:f.attempt.id}))!;
+    assert.equal(retreat.board.phase,'RETREATS');assert.equal(retreat.execution,'ACCEPTING');
+    const defender=retreat.board.units.find(u=>u.id==='defender')!;
+    assert.ok(defender.mustRetreat);assert.deepEqual(defender.retreatCoasts.STP,['NORTH']);
+    assert.ok(defender.retreatOptions.includes('STP'));
+    await service.close();await f.reopen();
+    assert.deepEqual((await f.store.call('attempt',{id:f.attempt.id}))!.board,retreat.board);
+    const resumed=new AttemptService(f.store,offlineDecisions(f.rules),f.rules);
+    try{
+      const input={attemptId:f.attempt.id,playerId:f.player.id,revision:retreat.revision,phaseId:retreat.phaseId,requestId:'north-retreat'};
+      for(const coast of ['SOUTH',null] as const)
+        await assert.rejects(resumed.submit({...input,action:{phase:'RETREATS',retreats:{defender:{territory:'STP',coast}}}}),{code:'STORE_INVALID'});
+      const action={phase:'RETREATS' as const,retreats:{defender:{territory:'STP',coast:'NORTH' as const}}};
+      await resumed.submit({...input,action});await resumed.wait(f.attempt.id);
+      const after=(await f.store.call('attempt',{id:f.attempt.id}))!;
+      assert.equal(after.board.phase,'ORDERS');assert.equal(after.board.season,'FALL');
+      const fleet=after.board.units.find(u=>u.id==='defender')!;
+      assert.equal(fleet.territory,'STP');assert.equal(fleet.coast,'NORTH');assert.equal(fleet.mustRetreat,false);
+      const receipt=await resumed.submit({...input,action});assert.equal(receipt.state.status,'ACCEPTED');
+      assert.equal((await f.store.call('reports',{attemptId:f.attempt.id})).length,2);
+    }finally{await resumed.close();}
+  }finally{await service.close();await f.close();}
 });

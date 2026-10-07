@@ -387,8 +387,12 @@ func retreatOptions(state godip.Validator, source godip.Province) []retreatOptio
 			if _, err := move.Validate(state); err != nil {
 				continue
 			}
-			territory := fromGodipProvince(destination)
-			coast := fromGodipCoast(destination.Sub())
+			// Validate may resolve an unqualified split-coast target to its
+			// reachable coast. Export that canonical target, not the alias
+			// from the graph iteration, so a saved board round-trips exactly.
+			canonical := move.Targets()[1]
+			territory := fromGodipProvince(canonical)
+			coast := fromGodipCoast(canonical.Sub())
 			key := territory + "/" + coast
 			if !seen[key] {
 				seen[key] = true
