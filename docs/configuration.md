@@ -87,8 +87,16 @@ now use this storage; see [authentication](authentication.md).
 
 `OPENAI_API_KEY` and `GEMINI_API_KEY` are required only when their paid provider is
 enabled. Private/local provider identifiers are `STUB`, `OPENAI`, `GEMINI`,
-`ANTHROPIC`, `OPENROUTER`, `OLLAMA`; enabling an unimplemented adapter is rejected.
+`ANTHROPIC`, `OPENROUTER`, `OLLAMA`; enabling an unimplemented adapter
+(`ANTHROPIC`, `OPENROUTER`) is rejected.
 Showcase accepts only STUB/OPENAI and exactly `gpt-6-luna` for OpenAI.
+
+`OLLAMA` is a local provider: like `STUB` it stays in effective policy when the
+paid switch is off and needs no key. It requires `LLM_ALLOWED_MODELS_OLLAMA`
+(there is no built-in list); `LLM_DEFAULT_OLLAMA_MODEL` and
+`LLM_OLLAMA_<ROLE>_MODEL` default to the first allowed model. `OLLAMA_BASE_URL`
+(default `http://127.0.0.1:11434`) must be a plain HTTP(S) origin and is never
+taken from a request. See [local-ai.md](local-ai.md).
 
 Supported allowlist precedence is `LLM_ALLOWED_MODELS_<PROVIDER>`, then the legacy
 `<PROVIDER>_ALLOWED_MODELS`, then `LLM_ALLOWED_MODELS`, then profile defaults.

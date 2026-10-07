@@ -8,6 +8,7 @@ export interface LlmConfig {
   allowedProviders: LlmProviderId[];
   allowedModels: Record<LlmProviderId, string[]>;
   defaultModels: Partial<Record<LlmProviderId, Partial<Record<LlmModelRole, string>>>>;
+  ollamaBaseUrl: string;
   maxGameSpendUsd: number;
   totalBudgetUsd: number;
   maxRetries: number;

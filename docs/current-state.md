@@ -23,6 +23,7 @@ listed in [README.md](README.md).
 | Sponsored mode (mock only) | Pinned per-attempt mode, typed refusals, waiting notices, recovery; playable locally with `DIPLOMACY_LUNA_TRANSPORT=mock` | [attempts.md](attempts.md), [luna-context.md](luna-context.md) |
 | Provider accounting | Every provider call recorded before its output is interpreted; late bills reconcile | [provider-accounting.md](provider-accounting.md) |
 | Funding ledger | Explicit grants, atomic worst-case reservations, exactly-once settlement, typed exhaustion that pauses paid play | [funding.md](funding.md) |
+| Local AI for hosted rooms | Optional Ollama opponents for clone owners: server-configured endpoint, model allowlist, capability check, no key or paid switch; refused in showcase. Contract-tested against a stand-in server only, not against a real model | [local-ai.md](local-ai.md) |
 | Packaging | Non-root container with source and notices; CI on Linux and macOS | [deployment.md](deployment.md), [build-baseline.md](build-baseline.md) |
 
 ## Not built

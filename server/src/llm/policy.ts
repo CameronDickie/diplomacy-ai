@@ -25,6 +25,7 @@ export interface LlmRuntimePolicy {
   allowedProviders: Set<LlmProviderId>;
   allowedModels: Record<LlmProviderId, Set<string>>;
   defaultModels: Partial<Record<LlmProviderId, Partial<Record<LlmModelRole, string>>>>;
+  ollamaBaseUrl: string;
   maxGameSpendUsd: number;
   maxRetries: number;
   requestTimeoutMs: number;
@@ -108,6 +109,8 @@ export function estimateLlmCostUsd(request: {
   outputTokens: number | null;
 }): number | null {
   if (request.inputTokens === null && request.outputTokens === null) return null;
+  // Local inference is paid for in electricity, not per token.
+  if (request.provider === 'OLLAMA') return 0;
   const price = PRICING_PER_MILLION[request.provider]?.[request.model];
   if (!price) return null;
   const inputTokens = request.inputTokens ?? 0;

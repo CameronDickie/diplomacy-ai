@@ -3,6 +3,8 @@
 // This module is used directly by both deployment tooling and the Node server.
 // It intentionally has no build step, provider SDK, filesystem or network effects.
 const PROVIDERS = ['STUB', 'OPENAI', 'GEMINI', 'ANTHROPIC', 'OPENROUTER', 'OLLAMA'];
+// Local providers run on the owner's own hardware: no key, no bill, and no paid switch.
+const LOCAL_PROVIDERS = ['STUB', 'OLLAMA'];
 const ROLES = ['DIPLOMACY_INITIATIVE', 'DIPLOMACY_REPLY', 'ORDERS', 'RETREATS', 'BUILDS', 'MEMORY'];
 const POWERS = ['AUSTRIA', 'ENGLAND', 'FRANCE', 'GERMANY', 'ITALY', 'RUSSIA', 'TURKEY'];
 const DEFAULT_MODELS = {
@@ -26,13 +28,13 @@ const SUPPORTED_ENV_NAMES = [
   'DIPLOMACY_AUTH_CALLBACK_ORIGIN', 'DIPLOMACY_AUTH_RETURN_ORIGIN', 'DIPLOMACY_ADMIN_GITHUB_USER_IDS',
   'DIPLOMACY_GITHUB_CLIENT_ID', 'DIPLOMACY_GITHUB_CLIENT_SECRET',
   'DIPLOMACY_GOOGLE_CLIENT_ID', 'DIPLOMACY_GOOGLE_CLIENT_SECRET',
-  'OPENAI_API_KEY', 'GEMINI_API_KEY',
+  'OPENAI_API_KEY', 'GEMINI_API_KEY', 'OLLAMA_BASE_URL',
   'LLM_ALLOWED_PROVIDERS', 'LLM_ALLOWED_MODELS',
   'LLM_MAX_GAME_COST_USD', 'LLM_TOTAL_BUDGET_USD', 'LLM_MAX_RETRIES',
   'LLM_REQUEST_TIMEOUT_MS', 'LLM_MAX_OUTPUT_TOKENS', 'LLM_MAX_INPUT_TOKENS',
   ...PROVIDERS.flatMap(provider => [`LLM_ALLOWED_MODELS_${provider}`, `${provider}_ALLOWED_MODELS`]),
   ...ROLES.map(role => `LLM_${role}_MODEL`),
-  ...['OPENAI', 'GEMINI'].flatMap(provider => [
+  ...['OPENAI', 'GEMINI', 'OLLAMA'].flatMap(provider => [
     `LLM_DEFAULT_${provider}_MODEL`, ...ROLES.map(role => `LLM_${provider}_${role}_MODEL`),
   ]),
   'DISCORD_ENABLED', 'DISCORD_GUILD_ID', 'DISCORD_COORDINATOR_TOKEN',
@@ -118,14 +120,25 @@ function readLlmConfig(env = process.env) {
       }
     });
   }
+  // Ollama has no built-in model list: the owner names what they pulled, and the first one is the default.
+  if (configuredProviders.includes('OLLAMA')) {
+    defaultModels.OLLAMA = {};
+    for (const role of ROLES) {
+      const model = value(env, `LLM_OLLAMA_${role}_MODEL`, value(env, 'LLM_DEFAULT_OLLAMA_MODEL', allowedModels.OLLAMA[0]));
+      defaultModels.OLLAMA[role] = model;
+      if (!allowedModels.OLLAMA.includes(model)) fail(`LLM_OLLAMA_${role}_MODEL`, 'default must belong to the provider model allowlist');
+    }
+  }
+  // The endpoint is server configuration only. It is never taken from a player or a request.
+  const ollamaBaseUrl = origin(env, 'OLLAMA_BASE_URL', 'http://127.0.0.1:11434', false);
   const maxGameSpendUsd = number(env, 'LLM_MAX_GAME_COST_USD', 1, 0.000001, mode === 'showcase' ? 15 : 1000000);
   const totalBudgetUsd = number(env, 'LLM_TOTAL_BUDGET_USD', 0, 0, 1000000);
   if (paidEnabled && totalBudgetUsd <= 0) fail('LLM_TOTAL_BUDGET_USD', 'must be explicitly positive before paid AI is enabled');
   if (paidEnabled && maxGameSpendUsd > totalBudgetUsd) fail('LLM_MAX_GAME_COST_USD', 'must not exceed LLM_TOTAL_BUDGET_USD');
   return {
     paidEnabled, configuredProviders,
-    allowedProviders: paidEnabled ? configuredProviders : configuredProviders.filter(item => item === 'STUB'),
-    allowedModels, defaultModels, maxGameSpendUsd, totalBudgetUsd,
+    allowedProviders: paidEnabled ? configuredProviders : configuredProviders.filter(item => LOCAL_PROVIDERS.includes(item)),
+    allowedModels, defaultModels, ollamaBaseUrl, maxGameSpendUsd, totalBudgetUsd,
     maxRetries: number(env, 'LLM_MAX_RETRIES', 1, 0, 3, true),
     requestTimeoutMs: number(env, 'LLM_REQUEST_TIMEOUT_MS', 30000, 1000, 120000, true),
     maxOutputTokens: number(env, 'LLM_MAX_OUTPUT_TOKENS', 2048, 256, 16384, true),
@@ -174,7 +187,7 @@ function readRuntimeConfig(env = process.env, options = {}) {
   if (llm.paidEnabled) {
     for (const provider of llm.allowedProviders) {
       if (provider === 'OPENAI' || provider === 'GEMINI') requireValue(env, `${provider}_API_KEY`);
-      else if (provider !== 'STUB') fail('LLM_ALLOWED_PROVIDERS', 'selected provider adapter is not implemented');
+      else if (!LOCAL_PROVIDERS.includes(provider)) fail('LLM_ALLOWED_PROVIDERS', 'selected provider adapter is not implemented');
     }
   }
   const notifyMode = value(env, 'DIPLOMACY_NOTIFY_MODE', 'outbox');

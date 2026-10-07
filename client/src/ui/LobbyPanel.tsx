@@ -259,15 +259,19 @@ export function LobbyPanel({ game }: { game: GameSocket }) {
                     const provider = event.target.value as LlmProviderId;
                     if (provider === 'OPENAI' && !auth.operator) return;
                     if (provider === 'GEMINI' && !auth.operator) return;
+                    if (provider === 'OLLAMA' && !auth.operator) return;
                     setLlmProvider(provider);
+                    // An empty Ollama model means the server's configured default.
                     setLlmModel(provider === 'OPENAI'
                       ? 'gpt-5.4-mini'
-                      : provider === 'GEMINI' ? 'gemini-3.1-flash-lite' : 'auto-hold-v0');
+                      : provider === 'GEMINI' ? 'gemini-3.1-flash-lite'
+                        : provider === 'OLLAMA' ? '' : 'auto-hold-v0');
                   }}
                 >
                   <option value="STUB">Stub (auto-hold)</option>
                   <option value="OPENAI" disabled={!auth.operator}>OpenAI</option>
                   <option value="GEMINI" disabled={!auth.operator}>Gemini</option>
+                  <option value="OLLAMA" disabled={!auth.operator}>Ollama (local)</option>
                 </select>
               </label>
               <label>
