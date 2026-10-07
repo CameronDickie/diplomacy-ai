@@ -4,6 +4,7 @@ import { canonicalJson } from '../fixtures/BoardFixture.js';
 import { providerOutcomes, type ProviderCallIntent, type ProviderCallRecord, type ProviderUsage } from '../providers/accounting.js';
 import { StoreError, type StoreOperations } from './contracts.js';
 import { paidState } from './operator.js';
+import { parseAction } from '../attempts/actions.js';
 import { FundingRepository, type Refusal } from './funding.js';
 
 const invalid = (): never => { throw new StoreError('STORE_INVALID','Invalid provider accounting metadata.'); };
@@ -91,6 +92,27 @@ export class ProviderCallRepository {
     if(['VALID','INVALID_JSON','INVALID_ACTION','REFUSED','INCOMPLETE','PROVIDER_ERROR'].includes(input.outcome)&&old.receivedAt===null)conflict();
     this.db.prepare("UPDATE provider_calls SET state='FINISHED',outcome=?,finished_at=? WHERE id=?").run(input.outcome,input.now,input.id);
     return this.required(input.id);
+  }
+  /**
+   * Keeps one power's validated decision as soon as its billed answer has been checked, so a crash
+   * before the whole phase is decided does not buy that answer twice. Refused once the phase is
+   * closed: a late model result must not become a decision.
+   */
+  saveDecision(input:StoreOperations['saveProviderDecision']['input']):null {
+    integer(input.now);const call=this.required(input.callId),action=parseAction(input.action);
+    if(call.receivedAt===null||action.phase!==call.role)conflict();
+    const live=this.db.prepare(`SELECT 1 FROM phase_jobs j JOIN attempts a ON a.id=j.attempt_id JOIN players p ON p.id=a.player_id
+      WHERE j.id=? AND j.status IN ('DECIDING','RECOVERING') AND a.lifecycle='ACTIVE' AND p.banned_at IS NULL`).get(call.fence.operationId);
+    if(!live)conflict();
+    const old=this.db.prepare('SELECT action_json FROM provider_decisions WHERE call_id=?').get(input.callId);
+    if(old){if(String(old.action_json)!==canonicalJson(action))conflict();return null;}
+    this.db.prepare('INSERT INTO provider_decisions(call_id,operation_id,power,action_json,created_at) VALUES(?,?,?,?,?)').run(input.callId,call.fence.operationId,call.power,canonicalJson(action),input.now);
+    return null;
+  }
+  decisions(operationId:string):StoreOperations['providerDecisions']['output'] {
+    identifier(operationId);
+    return this.db.prepare('SELECT call_id,power,action_json FROM provider_decisions WHERE operation_id=? ORDER BY created_at,call_id LIMIT 100').all(operationId)
+      .map(r=>({callId:String(r.call_id),power:r.power as ProviderCallIntent['power'],action:parseAction(JSON.parse(String(r.action_json)))}));
   }
   list(operationId:string):ProviderCallRecord[] {
     identifier(operationId);

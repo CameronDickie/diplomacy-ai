@@ -152,6 +152,14 @@ CREATE TABLE attempt_spend (
  attempt_id TEXT PRIMARY KEY, settled_nanousd INTEGER NOT NULL DEFAULT 0 CHECK(settled_nanousd>=0),
  calls INTEGER NOT NULL DEFAULT 0 CHECK(calls>=0)
 ) STRICT;
+` }, { version: 8, sql: `
+CREATE TABLE provider_decisions (
+ call_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL REFERENCES phase_jobs(id) ON DELETE CASCADE,
+ power TEXT NOT NULL, action_json TEXT NOT NULL CHECK(json_valid(action_json)), created_at INTEGER NOT NULL
+) STRICT;
+CREATE INDEX provider_decisions_operation ON provider_decisions(operation_id);
+CREATE TRIGGER provider_decisions_immutable BEFORE UPDATE ON provider_decisions BEGIN
+ SELECT RAISE(ABORT,'immutable provider decision'); END;
 ` }];
 
 export function verifyMigrationHistory(db: DatabaseSync, requireExisting = false): number {

@@ -168,6 +168,8 @@ async function handle(request: StoreRequest): Promise<unknown> {
         ? 'Sponsored play is out of budget and has been paused.' : 'This attempt has reached its sponsored budget.');
       return prepared;
     }
+    case 'saveProviderDecision': return transaction(() => new ProviderCallRepository(db).saveDecision(input));
+    case 'providerDecisions': return new ProviderCallRepository(db).decisions(input.operationId);
     case 'fundingTotals': return new FundingRepository(db).totals();
     case 'attemptFunding': return new FundingRepository(db).attempt(input.attemptId);
     case 'grantFunding': return transaction(() => new FundingRepository(db).grant(input));

@@ -2,7 +2,7 @@ import type { ProviderCallIntent, ProviderCallRecord, ProviderUsage, ProviderOut
 import type { PhaseAction, PhaseDecisions, PhaseFence, PhaseJob } from '../attempts/types.js';
 import type { BoardFixture } from '../fixtures/BoardFixture.js';
 import type { ChallengeDefinition, ChallengeScore } from '../challenge/TunisPilot.js';
-import type { PublicPhaseReport, SubmissionState } from '@diplomacy/shared';
+import type { Power, PublicPhaseReport, SubmissionState } from '@diplomacy/shared';
 
 export interface StoredPlayer {
   id: string;
@@ -59,6 +59,8 @@ export interface OperatorAttemptRow {
 }
 export type OperatorAction = 'ATTEMPT_STOP' | 'PLAYER_BAN' | 'PLAYER_UNBAN' | 'SPECTATE';
 export interface StoreOperations {
+  saveProviderDecision: { input: { callId:string; action:PhaseAction; now:number }; output: null };
+  providerDecisions: { input: { operationId:string }; output: Array<{ callId:string; power:Power; action:PhaseAction }> };
   fundingTotals: { input: {}; output: FundingTotals };
   attemptFunding: { input: { attemptId:string }; output: { settledNanousd:number; heldNanousd:number } };
   grantFunding: { input: { amountNanousd:number; authorizationRef:string; grantedBy:string; now:number }; output: FundingTotals };

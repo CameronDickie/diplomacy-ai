@@ -67,3 +67,39 @@ For comparison, the legacy room-game prompts sent the full adjacency graph and
 conversation memory on every call. Real token counts, cache hits, latency and
 cost can only come from the authorized evaluation (DIC-68); these figures are
 byte measurements, not provider usage.
+
+## The decision provider
+
+`LunaDecisionProvider.ts` plugs these requests into the phase coordinator's
+`DecisionProvider` seam. For each opponent, in a fixed order and one at a time:
+
+1. A power with nothing to decide gets its forced action; no call.
+2. If a validated decision for this phase and power is already stored
+   (`provider_decisions`), it is reused and nothing is bought.
+3. Earlier calls are reconciled: a never-dispatched call is reused only if it
+   reserved exactly this request under the current fence, otherwise it is
+   released; a call left dispatched by a run that no longer exists is closed as
+   an unknown outcome and its reservation stays held.
+4. A new call is reserved through the ledger, sent through `recordedCall` with
+   the exact reserved bytes, and its usage is recorded before the answer is read.
+5. The answer is mapped to an action, checked by the rules engine, and stored
+   before the call is marked finished.
+
+`decide` and `recover` are the same procedure. One run makes at most one new
+call per power, matching the preset's zero automatic retries; an explicit
+recovery is a new reserved call, limited to three per power per phase. On budget
+exhaustion, a pause, a closed attempt, the call limit or an unusable answer the
+phase is left recoverable with the player's orders saved. Opponents are never
+replaced by holding units.
+
+`Transport.ts` holds the bounded HTTP transport and a deterministic mock that
+reads the numbered choices from the request and answers in the provider's
+envelope. Neither is constructed at startup: paid operation is still refused by
+configuration, and this provider is not yet selected for any attempt.
+
+Crash evidence (`LunaProvider.test.ts`, mock transport): a process killed after
+a reservation, after dispatch, after the usage receipt, after a decision is
+stored, after all decisions are saved and after commit each recovers to exactly
+one phase report, with every known bill in the ledger once, stored answers not
+bought again, and the accepted human command still idempotent and never
+reopened for editing.
