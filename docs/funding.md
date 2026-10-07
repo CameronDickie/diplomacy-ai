@@ -27,7 +27,10 @@ usable usage).
 1. **Reserve.** `prepareProviderCall` holds the intent's `maxCostNanousd` in the
    same transaction that checks the paid switch, the phase fence, that the
    attempt is active and the player is not banned, the per-attempt cap and the
-   pool. If it does not fit, no call record is written.
+   pool. If it does not fit, no call record is written. When it does not fit
+   only because other calls of the same phase are still unanswered and holding
+   their worst case, the refusal is `FUNDS_BUSY`: nothing is paused and the
+   caller retries after one of them settles (`docs/luna-preset.md`).
 2. **Dispatch.** Refused unless a live reservation exists for exactly that call.
    Recheck the total and attempt ceilings, so a policy narrowed after reservation
    cannot be bypassed by queued work. A refused call keeps its undispatched hold

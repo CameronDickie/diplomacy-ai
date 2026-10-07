@@ -146,8 +146,9 @@ test('the attempt cap stops one attempt without pausing the site; a new account 
   const f=await setup(t,450_000),a=await f.phase('a');
   await f.store.call('setFundingPolicy',{attemptCapNanousd:250_000,ceilingLimitNanousd:null,now:f.now()});
   await a.prepare('a1');await a.bill('a1',90_000);await a.prepare('a2');
-  // 90,000 settled + 100,000 held + another 100,000 would pass the 250,000 cap.
-  await assert.rejects(a.prepare('a3'),{code:'ATTEMPT_BUDGET_EXHAUSTED'});
+  // 90,000 settled + 100,000 held + another 100,000 would pass the 250,000 cap. a2 is still unanswered
+  // and will settle below its hold, so the answer is "wait for it", not "this attempt is spent".
+  await assert.rejects(a.prepare('a3'),{code:'FUNDS_BUSY'});
   assert.equal((await f.store.call('paidState',{})).stopped,false);
   assert.equal(await f.store.call('providerCall',{id:'a3'}),null);
   assert.equal((await a.prepare('a3-small',60_000)).state,'PREPARED');
@@ -179,6 +180,25 @@ test('a bill above its reservation is kept in full and pauses paid play',async t
   await assert.rejects(p.prepare('next'),{code:'STORE_CONFLICT'});
 });
 
+test('a hold refused behind an unanswered sibling waits; once that sibling is settled or given up on, the refusal is final',async t=>{
+  const f=await setup(t,1_000_000),a=await f.phase('a');
+  await f.store.call('setFundingPolicy',{attemptCapNanousd:150_000,ceilingLimitNanousd:null,now:f.now()});
+  await a.prepare('a1');
+  await assert.rejects(a.prepare('a2'),{code:'FUNDS_BUSY'});assert.equal(await f.store.call('providerCall',{id:'a2'}),null);
+  // Settled at its real cost, the sibling leaves room and the same request is admitted.
+  await a.bill('a1',40_000);assert.equal((await a.prepare('a2')).state,'PREPARED');
+  // An unknown bill stays held at its worst case but is no longer something worth waiting for.
+  await f.store.call('dispatchProviderCall',{id:'a2',now:f.now()});await f.store.call('finishProviderCall',{id:'a2',outcome:'TIMEOUT',now:f.now()});
+  await assert.rejects(a.prepare('a3'),{code:'ATTEMPT_BUDGET_EXHAUSTED'});
+  assert.equal((await f.store.call('paidState',{})).stopped,false);
+  // The same holds for the pool, and only the final refusal pauses paid play.
+  const g=await setup(t,150_000),b=await g.phase('b'),c=await g.phase('c');
+  await b.prepare('b1');
+  await assert.rejects(b.prepare('b2'),{code:'FUNDS_BUSY'});assert.equal((await g.store.call('paidState',{})).stopped,false);
+  // Another attempt's phase has nothing of its own in flight: for it the pool really is empty.
+  await assert.rejects(c.prepare('c1'),{code:'BUDGET_EXHAUSTED'});assert.equal((await g.store.call('paidState',{})).stopped,true);
+});
+
 test('concurrent reservations across separate connections never exceed the pool or the attempt cap',async t=>{
   const f=await setup(t,550_000),a=await f.phase('a'),b=await f.phase('b'),others=await Promise.all([Store.open(f.path),Store.open(f.path)]);
   t.after(()=>Promise.all(others.map(s=>s.close())));
@@ -194,7 +214,7 @@ test('concurrent reservations across separate connections never exceed the pool 
   }));
   const refused=results.filter(r=>r.status==='rejected').map(r=>(r as PromiseRejectedResult).reason.code as string);
   assert.equal(results.filter(r=>r.status==='fulfilled').length,5);
-  assert.ok(refused.every(code=>['BUDGET_EXHAUSTED','ATTEMPT_BUDGET_EXHAUSTED','STORE_CONFLICT'].includes(code)),refused.join());
+  assert.ok(refused.every(code=>['BUDGET_EXHAUSTED','ATTEMPT_BUDGET_EXHAUSTED','FUNDS_BUSY','STORE_CONFLICT'].includes(code)),refused.join());
   const totals=await f.totals();
   assert.deepEqual([totals.reservedNanousd,totals.availableNanousd],[500_000,50_000]);
   for(const id of ['a','b'])assert.ok((await f.store.call('attemptFunding',{attemptId:id})).heldNanousd<=400_000);

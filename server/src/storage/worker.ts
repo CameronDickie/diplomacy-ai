@@ -185,8 +185,8 @@ async function handle(request: StoreRequest): Promise<unknown> {
     case 'prepareProviderCall': {
       // The refusal is thrown only after COMMIT so the stop recorded on exhaustion is durable.
       const prepared = transaction(() => new ProviderCallRepository(db).prepare(input));
-      if ('refused' in prepared) throw new StoreError(prepared.refused, prepared.refused === 'BUDGET_EXHAUSTED'
-        ? 'Sponsored play is out of budget and has been paused.' : 'This attempt has reached its sponsored budget.');
+      if ('refused' in prepared) throw new StoreError(prepared.refused, prepared.refused === 'BUDGET_EXHAUSTED' ? 'Sponsored play is out of budget and has been paused.'
+        : prepared.refused === 'FUNDS_BUSY' ? 'Funds are held by calls of this phase that are still in flight.' : 'This attempt has reached its sponsored budget.');
       return prepared;
     }
     case 'registerEvaluationRun': return transaction(() => new EvaluationRepository(db).register(input));

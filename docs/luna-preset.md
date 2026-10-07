@@ -1,6 +1,6 @@
 # Sponsored Luna request contract
 
-`server/src/providers/LunaPreset.ts` owns `luna-challenge-v1`, using only
+`server/src/providers/LunaPreset.ts` owns `luna-challenge-v2`, using only
 `gpt-6-luna` at `https://api.openai.com/v1/responses`. It is separate from legacy
 private-room seat/model policy. No visitor field is spread into API settings.
 `buildLunaRequest` accepts only a server-built context string and returns immutable
@@ -76,3 +76,39 @@ and reuses validated saved decisions without buying them again.
 Live access, tactical quality, cost, latency and retry/fallback measurement remain
 DIC-68. Mock tests need no credentials: build, then run
 `node --test server/dist/test/LunaPreset.test.js`.
+
+## Bounded opponent concurrency
+
+The v2 contract pins at most six opponent decisions per phase. Each receives the
+same committed board and only its own legal catalog; accepted human orders and
+other powers' catalogs remain private. SQLite transactions admit each full-ceiling
+hold and dispatch claim independently, so overlapping calls cannot overbook pool
+or attempt limits. This changes scheduling, not model, request schema or prices.
+The existing 30-second phase deadline and per-power recovery cap remain in force.
+
+A first failure stops queued powers from starting. Calls already in flight are
+NOT cancelled: they are paid for either way, so they finish, settle at their
+real cost and their validated decisions are saved for the recovery to reuse.
+Cancelling them would turn each into a worst-case held liability and spend the
+sibling's recovery call for nothing. Only the outer signal (operator stop, ban,
+abandon, phase deadline) cancels in-flight work. All workers account for their
+outcomes before the provider returns. Unsent PREPARED holds are released for
+that worker's revision only: an old drain cannot touch a newer recovery's
+reservation. Dispatched unanswered calls remain held. Late known bills can
+settle after cancellation, but aborted/stale actions cannot commit.
+
+Each concurrent call holds a full worst case and settles for a fraction of it,
+so six holds can exceed a pool or attempt cap that comfortably pays for the
+phase. A hold that does not fit while another call of the same phase is still
+unanswered is refused as `FUNDS_BUSY`, which pauses nothing; the power waits for
+a sibling to settle and asks again. Width therefore degrades toward sequential
+as funds tighten. Only a refusal with nothing of that phase in flight is real
+exhaustion (`BUDGET_EXHAUSTED` pauses paid play; `ATTEMPT_BUDGET_EXHAUSTED`
+ends the attempt's sponsored spend).
+
+An attempt pinned to an older preset is refused before new provider calls; it
+is never silently reconfigured. Operator replay/closure remains available. The
+evaluation manifest pins v4 for the concurrency and request-local seeded mock
+policy; older manifests are refused before dispatch. New configuration samples
+use new run IDs in the SAME funded ledger, never a replacement grant. No live
+result for this new policy is claimed by the offline tests.

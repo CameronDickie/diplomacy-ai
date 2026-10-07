@@ -2,12 +2,13 @@ import { createHash } from 'node:crypto';
 
 /** Version the whole contract whenever settings, schema or prices change. */
 export const LUNA_PRESET = Object.freeze({
-  id: 'luna-challenge-v1', model: 'gpt-6-luna', pricingVersion: 'luna-standard-2026-10-07',
+  id: 'luna-challenge-v2', model: 'gpt-6-luna', pricingVersion: 'luna-standard-2026-10-07',
   endpoint: 'https://api.openai.com/v1/responses', serviceTier: 'default',
   reasoningEffort: 'low', maxInputTokens: 32_768, maxOutputTokens: 2_048,
   maxContextBytes: 24_000, maxRequestBytes: 32_768, maxResponseBytes: 256 * 1024,
   countEndpoint: 'https://api.openai.com/v1/responses/input_tokens', countTimeoutMs: 5_000,
   maxCountResponseBytes: 4_096, timeoutMs: 20_000, retries: 0,
+  maxConcurrentDecisions: 6,
   // Integer USD nanodollars per token; reasoning is already included in output.
   inputNanousd: 100, cachedInputNanousd: 10, cacheWriteNanousd: 125, outputNanousd: 500,
 } as const);

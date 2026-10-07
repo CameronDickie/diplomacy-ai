@@ -8,6 +8,7 @@ import { PhaseRules } from '../attempts/PhaseRules.js';
 import type { PhaseJob } from '../attempts/types.js';
 import { LUNA_PRESET, lunaReservationNanousd } from '../providers/LunaPreset.js';
 import { ChoiceError, buildChoices, forcedAction, orderChoices, parseChoices, retreatChoices, type LegalOption } from '../luna/Choices.js';
+import { mockLunaTransport } from '../luna/Transport.js';
 import { lunaPrompt, sharedContext } from '../luna/Context.js';
 
 const rules = new PhaseRules(), signal = () => new AbortController().signal;
@@ -178,4 +179,14 @@ test('scripted adjustment indices respect build delta rather than the number of 
   board.territoryOwners.PAR=null;
   const all=buildChoices(board,'FRANCE')!;assert.equal(all.defaultIndices.length,2);
   await rules.validate(board,'FRANCE',all.toAction(all.defaultIndices),signal());
+});
+
+
+test('seeded mock decisions depend on seed and request rather than parallel completion order',async()=>{
+  const j=await job('tunis-expedition'),requests=[];
+  for(const p of j.definition.opponentPowers)requests.push(lunaPrompt(j,p,await legalFor(j,p),null)!.request.body);
+  const a=mockLunaTransport({pick:'seeded',seed:42}),b=mockLunaTransport({pick:'seeded',seed:42}),signal=new AbortController().signal;
+  const text=(x:Awaited<ReturnType<typeof a>>)=>(x.body as {output:Array<{content:Array<{text:string}>}>}).output[0].content[0].text;
+  const forward=new Map<string,string>();for(const body of requests)forward.set(body,text(await a({body,signal})));
+  for(const body of requests.reverse())assert.equal(text(await b({body,signal})),forward.get(body));
 });

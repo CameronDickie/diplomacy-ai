@@ -20,7 +20,7 @@ const preflight=counted.preflight!;
 counted.preflight=async input=>{const result=await preflight(input);if(stage==='COUNTED'&&input.body.includes('You are GERMANY.'))die();return result;};
 const transport=['COUNTING','COUNTED'].includes(stage)?counted:async(request:Parameters<typeof mock>[0])=>{if(stage==='DISPATCHED'&&request.body.includes('You are GERMANY.'))die();return mock(request);};
 const provider=new LunaDecisionProvider(store,rules,transport,
-  {now,boundary:async(point,power)=>{if(power==='GERMANY'&&((stage==='RESERVED'&&point==='reserved')||(stage==='DECIDED'&&point==='decided')))die();}});
+  {now,maxConcurrentDecisions:1,boundary:async(point,power)=>{if(power==='GERMANY'&&((stage==='RESERVED'&&point==='reserved')||(stage==='DECIDED'&&point==='decided')))die();}});
 const service=new AttemptService(store,provider,rules,{now,boundary:async point=>{if((stage==='ALL_DECIDED'&&point==='decisions')||(stage==='COMMITTED'&&point==='committed'))die();}});
 const command=JSON.parse(input);
 await service.submit(command);await service.wait(command.attemptId);

@@ -12,7 +12,7 @@ import { forcedAction, parseChoices } from './Choices.js';
 import { lunaPrompt } from './Context.js';
 import type { LunaTransport } from './Transport.js';
 
-export type LunaFailure = 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED' | 'PAUSED_OR_CLOSED' | 'CALL_LIMIT' | 'PREFLIGHT' | 'PROVIDER';
+export type LunaFailure = 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED' | 'PAUSED_OR_CLOSED' | 'CALL_LIMIT' | 'PREFLIGHT' | 'PROVIDER' | 'PRESET_MISMATCH';
 /** Why a sponsored phase could not be decided. The phase is left recoverable; opponents are never swapped for holds. */
 export class LunaDecisionError extends Error {
   constructor(readonly code: LunaFailure, readonly power: Power) { super(`Sponsored decision unavailable (${code}).`); this.name = 'LunaDecisionError'; }
@@ -22,6 +22,8 @@ interface Options {
   /** Total provider calls one power may consume for one phase, across every recovery. */
   maxCallsPerPower?: number;
   timeoutMs?: number;
+  /** Test seam for narrower workers; production always uses the pinned server preset. */
+  maxConcurrentDecisions?: number;
   /** Test seam: awaited at named points for one power, to inject crashes and stops. */
   boundary?: (stage: 'reserved' | 'decided', power: Power, callId: string) => Promise<void>;
 }
@@ -35,34 +37,93 @@ interface Options {
  */
 export class LunaDecisionProvider implements DecisionProvider {
   private readonly now: () => number;
-  constructor(private store: Store, private rules: PhaseRules, private transport: LunaTransport, private options: Options = {}) { this.now = options.now ?? Date.now; }
+  constructor(private store: Store, private rules: PhaseRules, private transport: LunaTransport, private options: Options = {}) {
+    this.now = options.now ?? Date.now;
+    const width=options.maxConcurrentDecisions ?? LUNA_PRESET.maxConcurrentDecisions;
+    if(!Number.isSafeInteger(width)||width<1||width>LUNA_PRESET.maxConcurrentDecisions)throw new Error('Invalid opponent concurrency.');
+  }
   decide(context: DecisionContext): Promise<PhaseDecisions> { return this.run(context); }
   recover(context: DecisionContext): Promise<PhaseDecisions> { return this.run(context); }
 
   private async run({ job, signal }: DecisionContext): Promise<PhaseDecisions> {
+    signal.throwIfAborted();
+    const attempt=await this.store.call('attempt',{id:job.attemptId,playerId:job.playerId});
+    if(!attempt)throw new LunaDecisionError('PAUSED_OR_CLOSED',job.definition.opponentPowers[0]);
+    if(attempt.preset&&(attempt.preset.id!==LUNA_PRESET.id||attempt.preset.pricingVersion!==LUNA_PRESET.pricingVersion))
+      throw new LunaDecisionError('PRESET_MISMATCH',job.definition.opponentPowers[0]);
     const reports = await this.store.call('reports',{ attemptId: job.attemptId }), last = reports.at(-1) ?? null;
     const saved = new Map((await this.store.call('providerDecisions',{ operationId: job.operationId })).map(d => [d.power,d]));
     const calls = await this.store.call('providerCallsForOperation',{ operationId: job.operationId });
     // Every earlier answer is settled or held before anything new is reserved: that is the reconciliation.
     const decisions: PhaseDecisions = {};
-    // Sequential on purpose: each reservation sees the previous call's settled cost, and one failure stops spending.
-    for (const power of job.definition.opponentPowers) {
-      signal.throwIfAborted();
-      const legal = job.board.phase === 'ORDERS' ? await this.rules.legal(job.board,power,signal) : [];
-      const prompt = lunaPrompt(job,power,legal,last);
-      if (!prompt) { decisions[power] = forcedAction(job.board); continue; }
-      const kept = saved.get(power);
-      if (kept) {
-        // Paid for and validated before an interruption. Close its call record if the crash came first.
-        await this.store.call('finishProviderCall',{ id: kept.callId, outcome: 'VALID', now: this.now() }).catch(() => {});
-        decisions[power] = kept.action; continue;
+    // Reconcile everything left by an earlier run before any worker reserves: a hold from an older fence
+    // is released, and a call that was dispatched by a run that no longer exists is closed as unknown.
+    for (const call of calls) {
+      if (call.state === 'PREPARED' && call.fence.revision !== job.revision) await this.releaseUnsent(call.id);
+      else if (call.state === 'DISPATCHED') await this.store.call('finishProviderCall',{ id: call.id, outcome: 'TRANSPORT_ERROR', now: this.now() }).catch(() => {});
+    }
+    // `waiting` holds the tasks parked on a sibling: two parked tasks must never wait on each other.
+    const inFlight = new Set<Promise<unknown>>(), waiting = new Set<Promise<unknown>>();
+    let next = 0, failed = false, failure: unknown;
+    const worker = async () => {
+      // A failure stops new calls from starting. Calls already in flight are paid for either way, so they
+      // finish and their answers are saved for the recovery; only the outer signal cancels them.
+      while (!failed && !signal.aborted && next < job.definition.opponentPowers.length) {
+        const power = job.definition.opponentPowers[next++];
+        try {
+          const legal = job.board.phase === 'ORDERS' ? await this.rules.legal(job.board,power,signal) : [];
+          signal.throwIfAborted();
+          const prompt = lunaPrompt(job,power,legal,last);
+          if (!prompt) { decisions[power] = forcedAction(job.board); continue; }
+          const kept = saved.get(power);
+          if (kept) {
+            // Reuse the validated answer; a crash may have preceded finishing its call record.
+            await this.store.call('finishProviderCall',{ id: kept.callId, outcome: 'VALID', now: this.now() }).catch(() => {});
+            decisions[power] = kept.action; continue;
+          }
+          if (failed) break;
+          const slot: { task?: Promise<PhaseAction> } = {};
+          // Resolves once another power's call has finished, or false when nothing else is in flight.
+          const sibling = async (): Promise<boolean> => {
+            const others = [...inFlight].filter(p => p !== slot.task && !waiting.has(p));
+            if (!others.length || !slot.task) return false;
+            waiting.add(slot.task);
+            try { await Promise.race(others.map(p => p.then(() => {},() => {}))); } finally { waiting.delete(slot.task); }
+            return true;
+          };
+          slot.task = this.ask(job,power,prompt,calls.filter(c => c.power === power),signal,sibling,() => failed);
+          inFlight.add(slot.task);
+          try { decisions[power] = await slot.task; } finally { inFlight.delete(slot.task); }
+        } catch (error) {
+          if (!failed) { failed = true; failure = error; }
+        }
       }
-      decisions[power] = await this.ask(job,power,prompt,calls.filter(c => c.power === power),signal);
+    };
+    // Transactions serialize funding admission even while requests overlap. Every worker's accounted
+    // outcome is awaited; late provider receipts can still settle bills but cannot save stale actions.
+    await Promise.all(Array.from({ length: this.options.maxConcurrentDecisions ?? LUNA_PRESET.maxConcurrentDecisions },() => worker()));
+    if (failed || signal.aborted) {
+      const current = await this.store.call('providerCallsForOperation',{ operationId: job.operationId });
+      for (const call of current.filter(c => c.state === 'PREPARED' && c.fence.revision === job.revision))
+        await this.releaseUnsent(call.id);
+      if (failed) throw failure;
+      signal.throwIfAborted();
     }
     return decisions;
   }
 
-  private async ask(job: DecisionContext['job'], power: Power, prompt: NonNullable<ReturnType<typeof lunaPrompt>>, earlier: ProviderCallRecord[], signal: AbortSignal): Promise<PhaseAction> {
+  /** A newer recovery may already have released this old, never-dispatched hold. */
+  private async releaseUnsent(id: string): Promise<void> {
+    try { await this.store.call('releaseProviderCall',{id,now:this.now()}); }
+    catch(error){
+      if(!(error instanceof StoreError)||error.code!=='STORE_CONFLICT')throw error;
+      const record=await this.store.call('providerCall',{id});
+      if(!record||record.dispatchedAt!==null||record.outcome!=='CANCELLED')throw error;
+    }
+  }
+
+  private async ask(job: DecisionContext['job'], power: Power, prompt: NonNullable<ReturnType<typeof lunaPrompt>>, earlier: ProviderCallRecord[], signal: AbortSignal,
+      sibling: () => Promise<boolean> = async () => false, halted: () => boolean = () => false): Promise<PhaseAction> {
     const fail = (code: LunaFailure): never => { throw new LunaDecisionError(code,power); };
     let callId: string | undefined;
     for (const call of earlier.filter(c => c.state === 'PREPARED')) {
@@ -83,11 +144,21 @@ export class LunaDecisionProvider implements DecisionProvider {
       const intent: ProviderCallIntent = { id: `${job.operationId}:${power}:${earlier.length + 1}`,
         fence: { operationId: job.operationId, attemptId: job.attemptId, phaseId: job.phaseId, revision: job.revision }, power, provider: 'OPENAI', model: LUNA_PRESET.model,
         role: job.board.phase, pricingVersion: prompt.request.pricingVersion, requestHash: prompt.request.requestHash, maxCostNanousd: prompt.maxCostNanousd };
-      try { await this.store.call('prepareProviderCall',{ intent, now: this.now() }); }
-      catch (error) {
-        const code = error instanceof StoreError ? error.code : null;
-        // A conflict here means paid play is stopped, or the attempt, phase or player is no longer current.
-        fail(code === 'BUDGET_EXHAUSTED' || code === 'ATTEMPT_BUDGET_EXHAUSTED' ? code : code === 'STORE_CONFLICT' ? 'PAUSED_OR_CLOSED' : 'PROVIDER');
+      for (;;) {
+        try { await this.store.call('prepareProviderCall',{ intent, now: this.now() }); break; }
+        catch (error) {
+          const code = error instanceof StoreError ? error.code : null;
+          if (code === 'FUNDS_BUSY') {
+            // Sibling calls of this phase are holding their worst case. Wait for one to settle and ask again;
+            // the ledger reports real exhaustion (and pauses) only once nothing is in flight.
+            if (halted()) fail('PAUSED_OR_CLOSED');
+            if (!(await sibling())) fail('BUDGET_EXHAUSTED');
+            signal.throwIfAborted();
+            continue;
+          }
+          // A conflict here means paid play is stopped, or the attempt, phase or player is no longer current.
+          fail(code === 'BUDGET_EXHAUSTED' || code === 'ATTEMPT_BUDGET_EXHAUSTED' ? code : code === 'STORE_CONFLICT' ? 'PAUSED_OR_CLOSED' : 'PROVIDER');
+        }
       }
       callId = intent.id;
     }

@@ -63,13 +63,13 @@ test('a sponsored attempt is a distinct, pinned mode: its opponents are decided 
   assert.deepEqual([paid.mode,paid.challenge.mode,paid.challenge.opponentLabel,paid.notice],['SPONSORED','SPONSORED','GPT-6 Luna opponents · sponsored',null]);
   assert.deepEqual([free.mode,free.challenge.mode,free.challenge.opponentLabel],['PRACTICE','PRACTICE','Offline practice · hold-only opponents']);
   const stored=(await f.store.call('attempt',{id:paid.id}))!;
-  assert.deepEqual(stored.preset,{id:'luna-challenge-v1',pricingVersion:'luna-standard-2026-10-07'});assert.equal((await f.store.call('attempt',{id:free.id}))!.preset,null);
+  assert.deepEqual(stored.preset,{id:'luna-challenge-v2',pricingVersion:'luna-standard-2026-10-07'});assert.equal((await f.store.call('attempt',{id:free.id}))!.preset,null);
   // Practice first: the engine resolves it with holding opponents and nothing is bought.
   assert.equal((await f.turn(practice.cookie,free.id)).board.season,'FALL');
   assert.deepEqual([f.sent.length,f.count('provider_calls')],[0,0]);
   const afterPaid=await f.turn(sponsor.cookie,paid.id);
   assert.deepEqual([afterPaid.board.season,afterPaid.execution,afterPaid.mode],['FALL','ACCEPTING','SPONSORED']);
-  assert.deepEqual(f.sent,['AUSTRIA','ENGLAND','FRANCE','GERMANY','ITALY','RUSSIA']);
+  assert.deepEqual([...f.sent].sort(),['AUSTRIA','ENGLAND','FRANCE','GERMANY','ITALY','RUSSIA']);
   assert.equal(f.count('provider_calls',`attempt_id='${paid.id}' AND outcome='VALID'`),6);assert.equal(f.count('provider_calls',`attempt_id='${free.id}'`),0);
   const funding=await f.store.call('fundingTotals',{});assert.ok(funding.settledNanousd>0);assert.equal(funding.reservedNanousd+funding.unknownLiabilityNanousd,0);
   // A retried start returns the same attempt; the same ID in the other mode is refused rather than converting it.
@@ -131,9 +131,22 @@ test('a sponsored phase that cannot be paid for waits with a clear notice and re
   const capped=await f.turn(player.cookie,attempt.id);
   assert.deepEqual([capped.board.season,capped.execution,capped.notice,capped.mode],['SPRING','RECOVERING','ATTEMPT_BUDGET','SPONSORED']);
   assert.equal((await f.store.call('paidState',{})).stopped,false);
-  const bought=f.sent.length;assert.ok(bought>=1&&bought<6);
+  const bought=f.sent.length;assert.ok(bought>=0&&bought<6);
+  const calls=await f.store.call('providerCallsForAttempt',{attemptId:attempt.id});
+  assert.ok(calls.length>0);
+  // The durable dispatch claim precedes transport invocation. Cancellation in that gap
+  // still retains an unknown liability; the mock's sent counter cannot release it.
+  const claimed=calls.filter(c=>c.dispatchedAt!==null);
+  assert.ok(claimed.length>=bought&&claimed.length<=6);
+  assert.ok(calls.every(c=>c.state==='FINISHED'));
+  assert.equal((await f.store.call('attemptFunding',{attemptId:attempt.id})).heldNanousd,
+    claimed.filter(c=>c.usage===null).reduce((sum,c)=>sum+c.maxCostNanousd,0));
+  const saved=await f.store.call('providerDecisions',{operationId:calls[0].fence.operationId});
+  const counts=new Map(saved.map(d=>[d.power,f.sent.filter(p=>p===d.power).length]));
   assert.equal((await (await f.request(`/attempts/${attempt.id}/reports`,player.cookie)).json()).reports.length,0);
-  // Raising the cap is an owner policy change; then the player's recover continues with only the missing powers.
+  // Raising the cap and replenishing the mock pool are owner actions; unknown
+  // dispatched liabilities remain held while recovery buys only missing answers.
+  await f.store.call('grantFunding',{amountNanousd:1_000_000_000,authorizationRef:'owner-resume-0002',grantedBy:'test',now:f.now()});
   await f.store.call('setFundingPolicy',{attemptCapNanousd:1_000_000_000,ceilingLimitNanousd:null,now:f.now()});
   assert.equal((await (await f.request(`/attempts/${attempt.id}`,player.cookie)).json() as ChallengeAttemptView).notice,'SPONSORED_RETRY');
   await f.request('/operator/paid',owner.cookie,{stopped:true});
@@ -146,7 +159,8 @@ test('a sponsored phase that cannot be paid for waits with a clear notice and re
   const done=await (await f.request(`/attempts/${attempt.id}`,player.cookie)).json() as ChallengeAttemptView;
   assert.ok(['RECOVERING','DECIDING','RESOLVING','ACCEPTING'].includes(resumed.execution));
   assert.deepEqual([done.board.season,done.execution,done.notice],['FALL','ACCEPTING',null]);
-  assert.deepEqual([...f.sent].sort(),['AUSTRIA','ENGLAND','FRANCE','GERMANY','ITALY','RUSSIA']);
+  assert.deepEqual([...new Set(f.sent)].sort(),['AUSTRIA','ENGLAND','FRANCE','GERMANY','ITALY','RUSSIA']);
+  for(const [power,n] of counts)assert.equal(f.sent.filter(p=>p===power).length,n,'saved decisions are never bought again');
   // The player's saved orders were never reopened while it waited.
   assert.equal((await f.request(`/attempts/${attempt.id}/orders`,player.cookie,{revision:0,phaseId:attempt.phaseId,requestId:'change-my-mind',action:{phase:'ORDERS',orderIds:[]}})).status,409);
 });

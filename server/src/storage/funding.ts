@@ -7,7 +7,8 @@ const invalid = (): never => { throw new StoreError('STORE_INVALID','Invalid fun
 const time = (n: number) => { if (!Number.isSafeInteger(n) || n < 0) invalid(); };
 /** Policy ceiling for any one attempt; the configured operating cap must sit at or below it. */
 export const ATTEMPT_CAP_LIMIT_NANOUSD = 15_000_000_000;
-export type Refusal = { refused: 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED' };
+/** FUNDS_BUSY: the hold does not fit only because sibling calls of the same phase are still holding their worst case. */
+export type Refusal = { refused: 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED' | 'FUNDS_BUSY' };
 
 /**
  * The single cumulative ledger. Methods run inside the worker's BEGIN IMMEDIATE transaction.
@@ -64,10 +65,15 @@ export class FundingRepository {
    */
   reserve(intent: ProviderCallIntent, now: number): Refusal | null {
     const amount = intent.maxCostNanousd, pool = this.pool(), own = this.attempt(intent.fence.attemptId);
+    // Concurrent decisions of one phase each hold a full worst case and then settle for a fraction of it.
+    // While any of them is still unanswered, "does not fit" means "wait", not "the money is gone".
+    const siblingsInFlight = () => Boolean(this.db.prepare(`SELECT 1 FROM reservations r JOIN provider_calls c ON c.id=r.call_id
+      WHERE r.state='HELD' AND c.operation_id=? AND c.outcome IS NULL AND c.received_at IS NULL LIMIT 1`).get(intent.fence.operationId));
     // The attempt cap is checked first: one costly attempt must not be reported as an empty pool.
-    if (own.settledNanousd + own.heldNanousd + amount > Number(pool.attempt_cap_nanousd)) return { refused:'ATTEMPT_BUDGET_EXHAUSTED' };
+    if (own.settledNanousd + own.heldNanousd + amount > Number(pool.attempt_cap_nanousd)) return { refused: siblingsInFlight() ? 'FUNDS_BUSY' : 'ATTEMPT_BUDGET_EXHAUSTED' };
     const totals = this.totals();
     if (amount > totals.availableNanousd) {
+      if (siblingsInFlight()) return { refused:'FUNDS_BUSY' };
       stopPaid(this.db,'BUDGET_EXHAUSTED',now);
       return { refused:'BUDGET_EXHAUSTED' };
     }

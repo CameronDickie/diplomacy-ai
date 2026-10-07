@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { LUNA_PRESET, buildLunaRequest } from '../providers/LunaPreset.js';
 
 export interface LunaResponse { status: number; body: unknown }
@@ -97,10 +98,12 @@ export interface MockOptions {
  * ledger is exercised honestly.
  */
 export function mockLunaTransport(options: MockOptions = {}): LunaTransport {
-  let serial = 0, state = (options.seed ?? 1) >>> 0;
-  const random = () => { state = (Math.imul(state,1664525) + 1013904223) >>> 0; return state / 2 ** 32; };
+  let serial = 0;
   return async ({ body, signal }) => {
     signal.throwIfAborted();
+    // Request-local randomness makes seeded choices independent of worker completion order.
+    let state=createHash('sha256').update(String((options.seed??1)>>>0)).update(body).digest().readUInt32BE(0);
+    const random=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return state/2**32;};
     const text = String(JSON.parse(body).input[0].content[0].text), own = text.slice(text.lastIndexOf('\nYou are '));
     const groups: number[][] = [];
     for (const line of own.split('\n')) {

@@ -33,7 +33,7 @@ test('a mock run needs no key, plays whole attempts, reconciles to the ledger an
   const first=await evaluate(a.base(mockLunaTransport({pick:'seeded',seed:5}))),second=await evaluate(b.base(mockLunaTransport({pick:'seeded',seed:5})));
   assert.equal(stable(first),stable(second));
   assert.deepEqual(first.manifest,{runId:'run-a',transport:'mock',scenario:'tunis-expedition',scenarioVersion:1,script:'early-capture',seed:5,presetId:LUNA_PRESET.id,pricingVersion:LUNA_PRESET.pricingVersion,
-    contextVersion:'luna-context-v1',model:'gpt-6-luna',attemptsRequested:2,maxRecoveries:2,fixtureHash:first.manifest.fixtureHash,presetHash:first.manifest.presetHash,harnessVersion:'luna-evaluation-v3',timingPolicy:'wall-submission-commit-v1'});
+    contextVersion:'luna-context-v1',model:'gpt-6-luna',attemptsRequested:2,maxRecoveries:2,fixtureHash:first.manifest.fixtureHash,presetHash:first.manifest.presetHash,harnessVersion:'luna-evaluation-v4',timingPolicy:'wall-submission-commit-v1'});
   assert.equal(first.attempts.length,2);
   for(const attempt of first.attempts){
     // Each attempt ran to a scored end, not just one phase.
@@ -84,8 +84,9 @@ test('re-running a run ID reads finished attempts back and recovers an interrupt
 
 test('failures, unanswered calls and an empty pool are reported as such and counted against the targets',async t=>{
   const f=await setup(t);const mock=mockLunaTransport();let n=0;
-  // Every fifth answer is unusable and every eleventh never arrives.
-  const flaky:LunaTransport=async request=>{n++;if(n%11===0)throw new Error('socket closed');const response=await mock(request);
+  // Every fifth answer is unusable and every eleventh never arrives; then the provider goes away for good.
+  // The outage is what stops the attempt: with concurrent powers, which one draws a bad answer is not ordered.
+  const flaky:LunaTransport=async request=>{n++;if(n%11===0||n>24)throw new Error('socket closed');const response=await mock(request);
     if(n%5===0)(response.body as {output:Array<{content:Array<{text:string}>}>}).output[0].content[0].text='not json';return response;};
   const report=await evaluate(f.base(flaky,{attempts:1,script:'deadline-hold'}));
   const [attempt]=report.attempts;
@@ -187,13 +188,13 @@ test('evaluation configuration and completed timing are immutable and backup pre
 test('restart cannot reset the per-phase recovery cap or change a stalled result into success',async t=>{
   const f=await setup(t),child=spawn(process.execPath,[fileURLToPath(new URL('./fixtures/crashEvaluation.js',import.meta.url)),f.path,'MAX_RECOVERIES'],{stdio:'ignore',env:{PATH:process.env.PATH}});
   const [code,signal]=await once(child,'exit');assert.equal(code,null);assert.equal(signal,'SIGKILL');
-  const calls=await f.store.call('providerCallsForAttempt',{attemptId:'eval-crash-run-1'});assert.equal(calls.length,2);
+  const calls=await f.store.call('providerCallsForAttempt',{attemptId:'eval-crash-run-1'});assert.ok(calls.length>0&&calls.length<=12);
   assert.equal((await f.store.call('evaluationPhases',{attemptId:'eval-crash-run-1'}))[0].recoveries,2);
   await f.reopen();let sent=0;const mock=mockLunaTransport();
   const transport:LunaTransport=async request=>{sent++;return mock(request);};
   const options={store:f.store,transport,transportKind:'mock' as const,runId:'crash-run',scenario:'tunis-expedition',script:'early-capture',attempts:1,seed:5};
   const report=await evaluate(options),again=await evaluate(options);
-  assert.equal(sent,0);assert.equal(report.attempts[0].recoveries,2);assert.equal(report.attempts[0].stalled,true);assert.equal(report.attempts[0].lifecycle,'STOPPED');
+  assert.equal(sent,0);assert.equal((await f.store.call('providerCallsForAttempt',{attemptId:'eval-crash-run-1'})).length,calls.length);assert.equal(report.attempts[0].recoveries,2);assert.equal(report.attempts[0].stalled,true);assert.equal(report.attempts[0].lifecycle,'STOPPED');
   assert.deepEqual(again.attempts,report.attempts);assert.deepEqual(again.summary,report.summary);assert.equal(report.ledger.attributedNanousd,0);
 });
 
@@ -246,11 +247,13 @@ test('interrupted reports retain observed latency misses and uncertain billed li
 });
 
 
-test('the legal-adjustments policy refuses to adopt an original v2 run before dispatch',async t=>{
+test('the concurrent policy refuses to adopt v2 or v3 runs before dispatch',async t=>{
   const source=await setup(t),first=await evaluate(source.base(mockLunaTransport(),{attempts:1}));
   const {attemptsRequested,...manifest}=first.manifest;
-  const old=await setup(t);await old.store.call('registerEvaluationRun',{manifest:{...manifest,harnessVersion:'luna-evaluation-v2'},now:1});
-  let dispatched=0;const mock=mockLunaTransport(),transport:LunaTransport=async request=>{dispatched++;return mock(request);};
-  await assert.rejects(evaluate(old.base(transport)),{code:'STORE_CONFLICT'});
-  assert.equal(dispatched,0);assert.equal((await old.store.call('fundingTotals',{})).settledNanousd,0);
+  for(const harnessVersion of ['luna-evaluation-v2','luna-evaluation-v3']){
+    const old=await setup(t);await old.store.call('registerEvaluationRun',{manifest:{...manifest,harnessVersion},now:1});
+    let dispatched=0;const mock=mockLunaTransport(),transport:LunaTransport=async request=>{dispatched++;return mock(request);};
+    await assert.rejects(evaluate(old.base(transport)),{code:'STORE_CONFLICT'});
+    assert.equal(dispatched,0);assert.equal((await old.store.call('fundingTotals',{})).settledNanousd,0);
+  }
 });

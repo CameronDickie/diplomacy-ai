@@ -148,3 +148,17 @@ its synthetic token counts cannot verify real cost or latency. Failed counts
 are unsent cancellations, so they remain visible in call outcomes; they do not
 silently become successful decisions. Real calibration is underway; its partial
 sample is not a release approval.
+
+## Concurrent policy calibration
+
+Harness v4 uses preset `luna-challenge-v2` with at most six independent opponent
+decisions in flight. It preserves the v3 scripted adjustment fix and pins
+request-local seeded mock choices, so response order cannot scramble a mock
+run. Existing v2/v3 manifests and older funded presets are refused before new
+dispatch, rather than silently adopting these settings. Preserve their reports;
+a new policy sample uses a new run ID with the SAME persistent funded ledger.
+
+Offline overlap, concurrent admission, tight-budget waiting, failed-sibling, late-bill and
+parallel SIGKILL tests verify the scheduling/accounting contract. They do not
+establish the new policy's live latency or quality. The original sequential
+no-go remains until measured calibration supports a different decision.

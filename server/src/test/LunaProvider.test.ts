@@ -40,8 +40,8 @@ async function setup(t:test.TestContext,granted=1_000_000_000,fixtureName='tunis
     return async request=>{const power=powerOf(request.body);sent.push({power,body:request.body});return await script(power,request,sent.filter(s=>s.power===power).length)??mock(request);};
   };
   const services:AttemptService[]=[];
-  const service=(transport:LunaTransport,options:ConstructorParameters<typeof LunaDecisionProvider>[3]={})=>{
-    const s=new AttemptService(store,new LunaDecisionProvider(store,rules,transport,{now:()=>now,...options}),rules,{now:()=>now});services.push(s);return s;
+  const service=(transport:LunaTransport,options:ConstructorParameters<typeof LunaDecisionProvider>[3]={},serial=true)=>{
+    const s=new AttemptService(store,new LunaDecisionProvider(store,rules,transport,{now:()=>now,...(serial?{maxConcurrentDecisions:1}:{}),...options}),rules,{now:()=>now});services.push(s);return s;
   };
   const sql=<T>(work:(db:DatabaseSync)=>T)=>{const db=new DatabaseSync(path,{readOnly:true});try{return work(db);}finally{db.close();}};
   const ledger=async()=>{const x=await store.call('fundingTotals',{});return {settled:x.settledNanousd,reserved:x.reservedNanousd,unknown:x.unknownLiabilityNanousd};};
@@ -363,7 +363,7 @@ test('no funds means no count; stopping during count prevents subsequent generat
   await service.submit(f.command);await service.wait(f.attempt.id);
   assert.deepEqual(seen,[LUNA_PRESET.countEndpoint]);assert.equal((await f.current())!.execution,'RECOVERING');
   assert.equal((await f.ledger()).settled,0);assert.equal((await f.ledger()).unknown,0);
-  assert.deepEqual(f.calls(),['AUSTRIA:1 PREPARED -']);
+  assert.deepEqual(f.calls(),['AUSTRIA:1 FINISHED CANCELLED']);assert.equal((await f.ledger()).reserved,0);
 });
 
 
@@ -385,4 +385,161 @@ test('a fetch that aborts synchronously cannot leave an unhandled rejected count
   const http=httpLunaTransport('test-key-not-real',(()=>{controller.abort();return Promise.reject(new Error('private transport failure'));}) as typeof fetch);
   await assert.rejects(http.preflight!({body,signal:controller.signal}),/preflight unavailable/);
   await new Promise(done=>setImmediate(done));
+});
+
+
+const until=async(check:()=>Promise<boolean>)=>{const end=performance.now()+3_000;while(!await check()){if(performance.now()>end)throw new Error('Expected durable state was not reached');await new Promise(done=>setImmediate(done));}};
+
+test('the production preset overlaps six independently reserved calls and commits one complete phase',{timeout:8_000},async t=>{
+  const f=await setup(t);let active=0,peak=0,entered=0,ready!:()=>void,release!:()=>void;
+  const started=new Promise<void>(done=>{ready=done;}),gate=new Promise<void>(done=>{release=done;}),mock=mockLunaTransport();
+  const transport=f.scripted(async(_power,request)=>{
+    active++;peak=Math.max(peak,active);if(++entered===6)ready();
+    await Promise.race([gate,new Promise<never>((_,reject)=>request.signal.addEventListener('abort',()=>reject(new Error('cancelled')),{once:true}))]);
+    active--;return mock(request);
+  });
+  const service=f.service(transport,{},false);await service.submit(f.command);await started;
+  const held=await f.ledger();assert.equal(peak,LUNA_PRESET.maxConcurrentDecisions);assert.equal(active,6);
+  assert.equal(held.reserved,6*lunaReservationNanousd(LUNA_PRESET.maxInputTokens));assert.equal(held.settled,0);
+  release();await service.wait(f.attempt.id);assert.equal((await f.current())!.board.season,'FALL');
+  assert.equal((await f.reports()).length,1);assert.equal((await f.store.call('providerDecisions',{operationId:f.operation()})).length,6);
+  assert.deepEqual(await f.ledger(),{settled:f.billed(),reserved:0,unknown:0});
+});
+
+test('a failed power starts no queued powers, and an in-flight sibling finishes, settles and is reused by the recovery',async t=>{
+  const f=await setup(t),mock=mockLunaTransport();let england!:()=>void,release!:()=>void;
+  const both=new Promise<void>(done=>{england=done;}),failedFirst=new Promise<void>(done=>{release=done;});
+  const transport=f.scripted(async(power,request)=>{
+    // Austria fails every call it is allowed; England is still in flight when the phase is given up on.
+    if(power==='AUSTRIA'){await both;setTimeout(release,150);return completed('not json','resp_parallel_bad');}
+    if(power==='ENGLAND'){england();await failedFirst;return mock(request);}
+    throw new Error('Queued power must not start');
+  });
+  const service=f.service(transport,{maxConcurrentDecisions:2});await service.submit(f.command);await service.wait(f.attempt.id);
+  assert.deepEqual([...new Set(f.sent.map(x=>x.power))].sort(),['AUSTRIA','ENGLAND']);assert.equal((await f.current())!.execution,'RECOVERING');
+  const calls=await f.store.call('providerCallsForAttempt',{attemptId:f.attempt.id}),old=calls.find(c=>c.power==='ENGLAND')!;
+  // The sibling was not cancelled: its bill is known, nothing is left as unknown liability and its answer is kept.
+  assert.equal(old.outcome,'VALID');assert.ok(old.usage);
+  assert.deepEqual(await f.ledger(),{settled:f.billed(),reserved:0,unknown:0});
+  assert.equal((await f.store.call('providerDecisions',{operationId:f.operation()})).some(d=>d.callId===old.id),true);
+  const before=f.sent.length,recovered=f.service(f.scripted(),{},false);await recovered.recover(f.attempt.id);await recovered.wait(f.attempt.id);
+  assert.equal((await f.reports()).length,1);
+  // England's paid answer is reused; the recovery buys nothing for it a second time.
+  assert.equal(f.sent.slice(before).some(x=>x.power==='ENGLAND'),false);
+  assert.deepEqual(await f.ledger(),{settled:f.billed(),reserved:0,unknown:0});
+});
+
+test('a budget narrower than the worker pool makes concurrent powers wait for a sibling to settle instead of pausing paid play',async t=>{
+  for(const limited of ['pool','attempt'] as const){
+    // Four worst cases cover a whole phase run one at a time; six workers must not turn that into an outage.
+    const reserve=lunaReservationNanousd(LUNA_PRESET.maxInputTokens),f=await setup(t,limited==='pool'?4*reserve:1_000_000_000);
+    if(limited==='attempt')await f.store.call('setFundingPolicy',{attemptCapNanousd:4*reserve,ceilingLimitNanousd:null,now:f.now()});
+    let open=0,widest=0;
+    const mock=mockLunaTransport({pick:'seeded',seed:7});
+    const transport:LunaTransport=async request=>{open++;widest=Math.max(widest,open);try{await new Promise(r=>setTimeout(r,20));return await mock(request);}finally{open--;}};
+    const service=f.service(transport,{maxConcurrentDecisions:6},false);await service.submit(f.command);await service.wait(f.attempt.id);
+    assert.equal((await f.reports()).length,1,limited);assert.notEqual((await f.current())!.execution,'RECOVERING',limited);
+    assert.ok(widest>1&&widest<=4,`${limited}: ${widest} calls overlapped`);
+    assert.equal((await f.store.call('paidState',{})).stopped,false,limited);
+    const calls=await f.store.call('providerCallsForAttempt',{attemptId:f.attempt.id});
+    assert.ok(calls.length>4&&calls.every(c=>c.outcome==='VALID'),limited);
+    assert.deepEqual(await f.ledger(),{settled:f.billed(),reserved:0,unknown:0},limited);
+  }
+});
+test('real exhaustion with nothing in flight still refuses and pauses paid play',async t=>{
+  const reserve=lunaReservationNanousd(LUNA_PRESET.maxInputTokens),f=await setup(t,reserve-1);
+  const service=f.service(f.scripted(),{maxConcurrentDecisions:6},false);await service.submit(f.command);await service.wait(f.attempt.id);
+  assert.equal(f.sent.length,0);assert.equal((await f.store.call('paidState',{})).stopped,true);
+  assert.deepEqual(await f.ledger(),{settled:0,reserved:0,unknown:0});
+});
+test('concurrent pool and per-attempt admission cannot overbook and failed preflight workers release all unsent holds',async t=>{
+  for(const limited of ['pool','attempt'] as const){
+    const reserve=lunaReservationNanousd(LUNA_PRESET.maxInputTokens),f=await setup(t,limited==='pool'?2*reserve:1_000_000_000);
+    if(limited==='attempt')await f.store.call('setFundingPolicy',{attemptCapNanousd:2*reserve,ceilingLimitNanousd:null,now:f.now()});
+    let counted=0,sent=0;
+    const transport:LunaTransport=async()=>{sent++;throw new Error('No generation authorized');};
+    transport.preflight=async({signal})=>{counted++;return new Promise((_,reject)=>{if(signal.aborted)reject(new Error());else signal.addEventListener('abort',()=>reject(new Error()),{once:true});});};
+    const service=f.service(transport,{},false);await service.submit(f.command);await service.wait(f.attempt.id);
+    assert.equal(counted,2,limited);assert.equal(sent,0,limited);assert.equal((await f.current())!.execution,'RECOVERING',limited);
+    const calls=await f.store.call('providerCallsForAttempt',{attemptId:f.attempt.id});assert.equal(calls.length,2,limited);
+    assert.ok(calls.every(c=>c.dispatchedAt===null&&c.outcome==='CANCELLED'),limited);
+    assert.deepEqual(await f.ledger(),{settled:0,reserved:0,unknown:0},limited);
+    assert.equal((await f.reports()).length,0,limited);assert.ok((await f.store.call('fundingTotals',{})).availableNanousd>=0,limited);
+  }
+});
+
+test('stop, ban and abandon during six concurrent counts prevent every generation and release only unsent holds',{timeout:12_000},async t=>{
+  for(const action of ['stop','ban','abandon'] as const){
+    const f=await setup(t);let entered=0,ready!:()=>void,release!:()=>void,sent=0;
+    const started=new Promise<void>(done=>{ready=done;}),gate=new Promise<void>(done=>{release=done;});
+    const transport:LunaTransport=async()=>{sent++;throw new Error('Should not send');};
+    transport.preflight=async({signal})=>{
+      if(++entered===6)ready();
+      await Promise.race([gate,new Promise<never>((_,reject)=>signal.addEventListener('abort',()=>reject(new Error()),{once:true}))]);
+      return {inputTokens:100,send:transport};
+    };
+    const service=f.service(transport,{},false);await service.submit(f.command);await started;
+    if(action==='stop')await f.store.call('setPaidStopped',{stopped:true,operatorId:'owner',now:f.now()});
+    else if(action==='ban')await service.banPlayer(f.player.id);
+    else await service.terminate(f.attempt.id,f.player.id,'ABANDONED');
+    release();await service.wait(f.attempt.id);
+    // The coordinator may finish its cancellation before the provider drain; wait for that durable drain too.
+    await until(async()=>(await f.ledger()).reserved===0);
+    assert.equal(sent,0,action);assert.equal((await f.reports()).length,0,action);
+    assert.deepEqual(await f.ledger(),{settled:0,reserved:0,unknown:0},action);
+    assert.ok((await f.store.call('providerCallsForAttempt',{attemptId:f.attempt.id})).every(c=>c.dispatchedAt===null&&c.outcome==='CANCELLED'),action);
+  }
+});
+
+test('a sponsored attempt pinned to an older preset cannot silently adopt concurrent settings',async t=>{
+  const f=await setup(t),old=await f.store.call('createAttempt',{id:'old-preset',playerId:f.player.id,challengeId:'tunis-expedition',challengeVersion:1,reconnectTokenHash:hashToken('old'),now:f.now(),
+    sponsored:{preset:{id:'luna-challenge-v1',pricingVersion:LUNA_PRESET.pricingVersion},minimumAvailableNanousd:lunaReservationNanousd(LUNA_PRESET.maxInputTokens)}});
+  const service=f.service(f.scripted(),{},false);await service.submit({...f.command,attemptId:old.id,phaseId:old.phaseId});await service.wait(old.id);
+  assert.equal(f.sent.length,0);assert.equal((await f.store.call('attempt',{id:old.id}))!.execution,'RECOVERING');
+  assert.deepEqual(await f.ledger(),{settled:0,reserved:0,unknown:0});
+  for(const bad of [0,7,1.5])assert.throws(()=>new LunaDecisionProvider(f.store,f.rules,f.scripted(),{maxConcurrentDecisions:bad}),/concurrency/);
+});
+
+test('parallel SIGKILL retains all holds, saved answers and exactly one recovered phase',async t=>{
+  for(const stage of ['RESERVED','DISPATCHED','DECIDED']){
+    const f=await setup(t),child=spawn(process.execPath,[fileURLToPath(new URL('./fixtures/crashParallelLuna.js',import.meta.url)),f.path,stage,JSON.stringify(f.command)],{stdio:'ignore',env:{PATH:process.env.PATH}});
+    const [code,signal]=await once(child,'exit');assert.equal(code,null,stage);assert.equal(signal,'SIGKILL',stage);
+    const before=await f.store.call('providerCallsForAttempt',{attemptId:f.attempt.id});assert.equal(before.length,6,stage);
+    const saved=await f.store.call('providerDecisions',{operationId:f.operation()});assert.equal(saved.length,stage==='DECIDED'?1:0,stage);
+    await f.reopen();const service=f.service(f.scripted(),{},false);await service.recover(f.attempt.id);await service.wait(f.attempt.id);
+    assert.equal((await f.current())!.board.season,'FALL',stage);assert.equal((await f.reports()).length,1,stage);
+    assert.equal(f.sent.length,6-saved.length,stage);
+    for(const decision of saved)assert.equal(f.sent.some(x=>x.power===decision.power),false,stage);
+    const ledger=await f.ledger();assert.equal(ledger.settled,f.billed(),stage);assert.equal(ledger.reserved,0,stage);
+    assert.equal(ledger.unknown,(stage==='RESERVED'?0:6-saved.length)*lunaReservationNanousd(LUNA_PRESET.maxInputTokens),stage);
+    const sent=f.sent.length;await service.recover(f.attempt.id);await service.wait(f.attempt.id);assert.equal(f.sent.length,sent,stage);
+    assert.equal((await service.submit(f.command)).state.status,'ACCEPTED',stage);
+  }
+});
+
+
+test('a stale worker drain cannot release a newer recovery revision reservation',async t=>{
+  const f=await setup(t),accepted=await f.store.call('beginPhase',{id:f.attempt.id,playerId:f.player.id,expectedRevision:0,phaseId:f.attempt.phaseId,requestId:'race',operationId:'parallel-race',action:f.command.action,now:f.now()});
+  let oldReady!:()=>void,newReady!:()=>void,releaseOld!:()=>void,releaseNew!:()=>void;
+  const oldStarted=new Promise<void>(done=>{oldReady=done;}),newStarted=new Promise<void>(done=>{newReady=done;});
+  const oldGate=new Promise<void>(done=>{releaseOld=done;}),newGate=new Promise<void>(done=>{releaseNew=done;});
+  const first:LunaTransport=async()=>{throw new Error('Old generation must never be sent');};
+  first.preflight=async()=>{oldReady();await oldGate;return {inputTokens:100,send:first};};
+  const second=f.scripted();second.preflight=async input=>{if(powerOf(input.body)==='AUSTRIA'){newReady();await newGate;}return {inputTokens:100,send:second};};
+  const oldSignal=new AbortController(),newSignal=new AbortController();
+  const oldProvider=new LunaDecisionProvider(f.store,f.rules,first,{now:f.now,maxConcurrentDecisions:1});
+  const newProvider=new LunaDecisionProvider(f.store,f.rules,second,{now:f.now,maxConcurrentDecisions:1});
+  const oldRun=oldProvider.decide({job:accepted.job,signal:oldSignal.signal});void oldRun.catch(()=>{});
+  let newRun:ReturnType<LunaDecisionProvider['recover']>|undefined;
+  try {
+    await oldStarted;const job=await f.store.call('recoverPhase',{fence:accepted.job,countRecovery:true,now:f.now()});
+    assert.notEqual(job.revision,accepted.job.revision);
+    newRun=newProvider.recover({job,signal:newSignal.signal});void newRun.catch(()=>{});await newStarted;
+    const current=(await f.store.call('providerCallsForOperation',{operationId:job.operationId})).find(c=>c.state==='PREPARED'&&c.fence.revision===job.revision)!;
+    assert.ok(current);oldSignal.abort();releaseOld();await assert.rejects(oldRun);
+    assert.equal((await f.store.call('providerCall',{id:current.id}))!.state,'PREPARED','old cleanup cannot touch the new fence');
+    releaseNew();assert.equal(Object.keys(await newRun).length,6);assert.equal((await f.ledger()).reserved,0);
+  } finally {
+    releaseOld();releaseNew();oldSignal.abort();newSignal.abort();await Promise.allSettled([oldRun,...(newRun?[newRun]:[])]);
+  }
 });

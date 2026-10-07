@@ -79,7 +79,7 @@ export async function evaluate(options: EvaluationOptions): Promise<EvaluationRe
   const manifest=await store.call('registerEvaluationRun',{manifest:{runId,transport:options.transportKind,scenario:definition.id,scenarioVersion:definition.version,
     fixtureHash:createHash('sha256').update(canonicalJson(fixture)).digest('hex'),script:options.script,seed:options.seed??null,
     presetId:LUNA_PRESET.id,pricingVersion:LUNA_PRESET.pricingVersion,presetHash:createHash('sha256').update(canonicalJson(LUNA_PRESET)).digest('hex'),
-    contextVersion:CONTEXT_VERSION,model:LUNA_PRESET.model,harnessVersion:'luna-evaluation-v3',timingPolicy:'wall-submission-commit-v1',maxRecoveries},now:now()});
+    contextVersion:CONTEXT_VERSION,model:LUNA_PRESET.model,harnessVersion:'luna-evaluation-v4',timingPolicy:'wall-submission-commit-v1',maxRecoveries},now:now()});
   const content = { definition, board: fixture.board };
   await store.call('registerChallenge',{ ...content, hash: createHash('sha256').update(canonicalJson(content)).digest('hex'), now: now() });
   const player = await store.call('identity',{ provider: 'github', subject: `evaluation-${runId}`, displayName: 'Evaluation harness', now: now() });

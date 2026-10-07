@@ -151,7 +151,7 @@ export interface StoreOperations {
 }
 export type StoreOperation = keyof StoreOperations;
 export type StoreRequest = { [K in StoreOperation]: { id: number; operation: K; input: StoreOperations[K]['input'] } }[StoreOperation];
-export type StoreErrorCode = 'STORE_UNAVAILABLE' | 'STORE_BUSY' | 'STORE_CONFLICT' | 'STORE_FORBIDDEN' | 'STORE_INVALID' | 'STORE_SCHEMA' | 'CAPACITY_FULL' | 'ACTIVE_ATTEMPT_EXISTS' | 'DAILY_LIMIT' | 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED' | 'SPONSORED_UNAVAILABLE';
+export type StoreErrorCode = 'STORE_UNAVAILABLE' | 'STORE_BUSY' | 'STORE_CONFLICT' | 'STORE_FORBIDDEN' | 'STORE_INVALID' | 'STORE_SCHEMA' | 'CAPACITY_FULL' | 'ACTIVE_ATTEMPT_EXISTS' | 'DAILY_LIMIT' | 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED' | 'FUNDS_BUSY' | 'SPONSORED_UNAVAILABLE';
 export class StoreError extends Error {
   constructor(readonly code: StoreErrorCode, message: string) { super(message); this.name = 'StoreError'; }
 }
