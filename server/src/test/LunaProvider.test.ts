@@ -118,6 +118,23 @@ test('a billed but unusable answer is kept on the books, stops the phase, and on
   assert.equal((await f.ledger()).settled,f.billed());
 });
 
+test('a token-count outage buys nothing and uses none of the call limit: the phase completes once the count endpoint is back',async t=>{
+  const f=await setup(t),mock=mockLunaTransport();let outage=true,counts=0,models=0;
+  const transport=(async()=>{throw new Error('dispatch requires preflight');}) as LunaTransport;
+  transport.preflight=async()=>{counts++;if(outage)throw new Error('count endpoint unavailable');return {inputTokens:600,send:async request=>{models++;return mock(request);}};};
+  const service=f.service(transport);
+  await service.submit(f.command);await service.wait(f.attempt.id);
+  // More failed preflights than the per-power call limit of three.
+  for(let i=0;i<4;i++){await service.recover(f.attempt.id);await service.wait(f.attempt.id);}
+  assert.deepEqual([counts,models,(await f.current())!.execution],[5,0,'RECOVERING']);
+  assert.deepEqual(await f.ledger(),{settled:0,reserved:0,unknown:0});
+  assert.ok(f.calls().every(c=>c.endsWith('FINISHED CANCELLED')));
+  outage=false;await service.recover(f.attempt.id);await service.wait(f.attempt.id);
+  assert.deepEqual([(await f.current())!.board.season,(await f.current())!.execution,models],['FALL','ACCEPTING',6]);
+  assert.equal(f.calls().filter(c=>c.endsWith('FINISHED VALID')).length,6);
+  assert.equal((await f.ledger()).settled,f.billed());
+});
+
 test('the per-power call limit ends retries: the phase stays recoverable and nothing more is dispatched',async t=>{
   const f=await setup(t),service=f.service(f.scripted(power=>power==='AUSTRIA'?Promise.resolve(completed('{}','resp_'+Math.random().toString(36).slice(2))):null),{maxCallsPerPower:2});
   await service.submit(f.command);await service.wait(f.attempt.id);

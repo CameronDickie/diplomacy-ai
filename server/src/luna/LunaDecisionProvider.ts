@@ -76,7 +76,9 @@ export class LunaDecisionProvider implements DecisionProvider {
     for (const call of earlier.filter(c => c.state === 'DISPATCHED'))
       await this.store.call('finishProviderCall',{ id: call.id, outcome: 'TRANSPORT_ERROR', now: this.now() }).catch(() => {});
     if (!callId) {
-      const used = earlier.filter(c => c.state !== 'PREPARED').length;
+      // Only a call that actually left the process uses up the limit. A hold released before dispatch
+      // (stale fence, failed token-count preflight) bought nothing and must not strand the phase.
+      const used = earlier.filter(c => c.dispatchedAt !== null).length;
       if (used >= (this.options.maxCallsPerPower ?? 3)) fail('CALL_LIMIT');
       const intent: ProviderCallIntent = { id: `${job.operationId}:${power}:${earlier.length + 1}`,
         fence: { operationId: job.operationId, attemptId: job.attemptId, phaseId: job.phaseId, revision: job.revision }, power, provider: 'OPENAI', model: LUNA_PRESET.model,
