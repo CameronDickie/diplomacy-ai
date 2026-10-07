@@ -1,5 +1,5 @@
 import { useEffect,useMemo,useState } from 'react';
-import { TERRITORIES, type ChallengeAction,type ChallengeAttemptView,type PublicPhaseReport,type Unit } from '@diplomacy/shared';
+import { TERRITORIES, type ChallengeAction,type ChallengeAttemptView,type ChallengeCard,type ChallengeLimits,type PublicPhaseReport,type Unit } from '@diplomacy/shared';
 import { useChallenge } from '../hooks/useChallenge.js';
 import { MapGraph } from './MapGraph.js';
 import { territoryName } from '../lib/game.js';
@@ -41,9 +41,8 @@ export function ChallengeApp(){
       <aside className="challenge-brief">
         <span className="challenge-badge">Development pilot · {replay?(replay.reference?'Reference replay':'Your replay'):'Offline practice'}</span>
         <h2>Your mission</h2><p>{card?.objectiveText}</p>
-        <p>Own the supply center after a settled Fall turn. Moving there in Spring is not enough.</p>
+        <p>Own the supply center after a settled Fall turn, no later than Fall {card?.deadlineYear}. Moving there in Spring is not enough.</p>
         <div className="challenge-achievement"><strong>Early capture</strong><span>Complete by Fall {card?.earlyAchievementYear}.</span></div>
-        <p className="muted">AI-generated test scenario. The public daily catalog is still being prepared.</p>
         <p>{card?.opponentLabel}. No paid model is used in this practice mode.</p>
         {!a||a.lifecycle!=='ACTIVE'?<button className="primary" disabled={!game.auth.authenticated||game.busy||!card} onClick={()=>card&&void game.start(card)}>Start practice</button>:<>
           <div className="challenge-phase">{a.board.year} {a.board.season} · {a.board.phase}</div>
@@ -52,9 +51,10 @@ export function ChallengeApp(){
           {clock>=a.idleWarnAt&&<div className="challenge-alert">Your attempt expires after inactivity. <button onClick={()=>void game.activity(true)}>I’m still here</button></div>}
           {confirmAbandon?<div><p>End this attempt? Its saved result will remain available.</p><button onClick={()=>void game.abandon()} disabled={game.busy}>End attempt</button><button onClick={()=>setConfirmAbandon(false)}>Keep playing</button></div>:<button className="subtle" onClick={()=>setConfirmAbandon(true)}>Abandon attempt</button>}
         </>}
-        {!game.auth.authenticated&&<p>Sign in with Google or GitHub to save your attempt. The reference replay is public.</p>}
+        {!game.auth.authenticated&&<p>Sign in with Google or GitHub to save your attempt. The reference replay needs no account.</p>}
         {a&&a.lifecycle!=='ACTIVE'&&<Outcome attempt={a}/>}
-        <button onClick={()=>game.demo&&setReplay({reports:game.demo.reports,index:0,after:false,reference:true})} disabled={!game.demo}>Watch reference replay</button>
+        <button onClick={()=>game.demo&&setReplay({reports:game.demo.reports,index:0,after:false,reference:true})} disabled={!game.demo||replay?.reference}>Watch reference replay</button>
+        {card&&<Guide card={card} limits={game.limits} open={(!a||a.lifecycle!=='ACTIVE')&&!replay&&window.matchMedia('(min-width:651px)').matches}/>}
         {game.history.length>0&&<section><h2>Your attempts</h2>{game.history.map(item=><button className="attempt-history" key={item.id} onClick={()=>void game.resume(item.id)} disabled={game.busy}>{item.challenge.title}<small>{item.lifecycle} · {item.board.year} {item.board.season}</small></button>)}</section>}
       </aside>
       <section className="challenge-board" aria-label="Challenge board">
@@ -63,13 +63,15 @@ export function ChallengeApp(){
           validTargets={selectedUnit?options.filter(o=>o.unitTerritory===selectedUnit.territory&&o.order.type==='MOVE').map(o=>o.order.targetTerritory!):[]}
           pendingOrders={report?.phase==='ORDERS'?report.resolvedOrders:replay?[]:chosenOrders}
           onSelectTerritory={territory=>{if(!replay&&own.some(u=>u.territory===territory)){setSelected(territory);activity();}}} onClearSelection={()=>setSelected(null)}/>
-        {replay&&report&&<div className="challenge-replay" aria-label="Replay controls"><strong>{report.year} {report.season} · {replay.after?'Result':'Before orders'}</strong>
+        {replay&&report&&<div className="challenge-replay" aria-label="Replay controls"><strong>{replay.reference?'Reference replay':'Your attempt'} · {report.year} {report.season} {report.phase.toLowerCase()} · {replay.after?'Result':'Before'}</strong>
           <button disabled={replay.index===0&&!replay.after} onClick={()=>setReplay(r=>r&&({...r,...(r.after?{after:false}:{index:r.index-1,after:true})}))}>Previous</button>
           <button disabled={replay.index===replay.reports.length-1&&replay.after} onClick={()=>setReplay(r=>r&&({...r,...(!r.after?{after:true}:{index:r.index+1,after:false})}))}>Next</button>
-          <button onClick={()=>setReplay(null)}>Return to board</button></div>}
+          <button onClick={()=>setReplay(null)}>{a?.lifecycle==='ACTIVE'?'Return to your attempt':'Return to board'}</button></div>}
       </section>
       <aside className="challenge-orders"><h2>{replay?'Replay':`${card?.humanPower??''} orders`}</h2>
-        {replay?<p>Recorded orders and resolved positions. A legal order can still fail when another power contests it.</p>:!a?<p>Start a practice attempt to enter orders. Select a unit on the map or use its menu here.</p>:<>
+        {replay?<><p>{replay.reference?'A recorded example run of this scenario, the same for every visitor. It is not your game and uses no AI model.':'Saved phases from your own attempt. Only you can see them.'}</p>
+          <p>Recorded orders and resolved positions. A legal order can still fail when another power contests it.</p>
+          {a?.lifecycle==='ACTIVE'&&<p role="status">Your attempt is untouched while you watch: its board and any orders you have chosen are waiting where you left them.</p>}</>:!a?<p>Start a practice attempt to enter orders. Select a unit on the map or use its menu here.</p>:<>
           {a.lifecycle==='ACTIVE'&&<>
           <p>Choose from rules-engine legal actions. Legal means allowed, not guaranteed to succeed.</p>
           {a.acceptedAction&&a.execution!=='ACCEPTING'&&<div><p>Your submission is locked while this phase resolves.</p>{a.acceptedAction.phase==='ORDERS'&&<ul>{a.acceptedAction.orderIds.map(id=><li key={id}>{id.split('|').join(' · ')}</li>)}</ul>}</div>}
@@ -98,4 +100,27 @@ function Outcome({attempt}:{attempt:ChallengeAttemptView}){
   return <section className="challenge-outcome" aria-label="Attempt result"><h2>{score?.outcome==='SUCCESS'?'Objective complete':attempt.lifecycle==='EXPIRED'?'Attempt expired':attempt.lifecycle==='ABANDONED'?'Attempt abandoned':score?.outcome==='FAILURE'?'Challenge finished':'Attempt stopped'}</h2>
     {score?.completedYear&&<p>Fall {score.completedYear}</p>}{score?.achievementIds.includes('EARLY_CAPTURE')&&<strong>Achievement: Early capture</strong>}
     <p>This was offline practice. Your phase reports are saved below.</p></section>;
+}
+function Guide({card,limits,open}:{card:ChallengeCard;limits:ChallengeLimits|null;open:boolean}){
+  const power=card.humanPower[0]+card.humanPower.slice(1).toLowerCase(),n=(count:number,noun:string)=>`${count} ${noun}${count===1?'':'s'}`;
+  // The parent re-renders every second; keep the reader's own toggle until play starts or ends.
+  const [shown,setShown]=useState(open);
+  useEffect(()=>setShown(open),[open]);
+  return <details className="challenge-guide" open={shown} onToggle={e=>setShown(e.currentTarget.open)}><summary>How this challenge works</summary>
+    <h3>Goal and ending</h3>
+    <p>You play {power}. You succeed the moment {power} owns the target supply center once a Fall turn has fully settled. If Fall {card.deadlineYear} settles without it, the challenge ends unsuccessfully.</p>
+    <p>Supply centers change hands only after Fall. “Settled” means any retreats from that Fall have been resolved first, so a unit forced out of the center does not count.</p>
+    <p>Finish by Fall {card.earlyAchievementYear} to also earn the Early capture achievement.</p>
+    <h3>Legal is not successful</h3>
+    <p>The order menus list only moves the rules engine allows. Whether an order succeeds depends on what every other power does in the same turn: a legal move can still bounce or be cut.</p>
+    <h3>Opponents</h3>
+    <p>Practice opponents hold every turn and use no AI model. Opponents played by GPT-6 Luna, paid for by the site owner, are not available yet.</p>
+    <p>When sponsored play is offered it will run on a fixed budget. If that budget runs out or play is paused, you will be told and no new sponsored attempts will start; the replay and your saved results stay available. Luna opponents are never silently swapped for practice opponents.</p>
+    {limits&&<><h3>Limits</h3>
+    <p>{n(limits.maxActivePerAccount,'active attempt')} per account and {n(limits.dailyStartLimit,'start')} per account per UTC day; an abandoned start still counts. The site runs at most {n(limits.maxActiveAttempts,'attempt')} at once. There is no queue: if it is full, try again later.</p>
+    <p>You are warned after {limits.idleWarnMinutes} minutes without an action and the attempt expires at {limits.idleExpireMinutes}. Only your own actions count; leaving the page open does not. Expired and finished attempts stay readable.</p></>}
+    <h3>Privacy</h3>
+    <p>Signing in stores your Google or GitHub account identifier and display name, and accounts are never linked by email. Your attempts are visible only to you. The site operator can view attempt boards, settled reports and capacity to run the service.</p>
+    <p className="muted">Development pilot: an AI-generated test scenario. A public daily schedule has not been announced.</p>
+  </details>;
 }

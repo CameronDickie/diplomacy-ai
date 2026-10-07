@@ -17,7 +17,12 @@ reservations.
 ## Owned practice flow
 
 Public `GET /api/challenges` and `/api/challenges/demo` expose the fixed Tunis
-pilot and an offline reference replay. Authenticated players start with
+pilot and an offline reference replay. The catalog also publishes the enforced
+start/idle limits and `sponsoredPlay: "UNAVAILABLE"`, which the visitor guide
+renders instead of hard-coded numbers. The replay is tagged `kind: "REFERENCE"`,
+passes through `publicReplay` (explicit fields, stable `reference-N` IDs and a
+fixed timestamp) and is identical across restarts; neither route touches the
+store, sessions or a provider. Authenticated players start with
 `POST /api/attempts`, supplying only the catalog ID/version and a request ID.
 The server rejects model, board, budget and other payload overrides. A single
 transaction checks ban, three-global/one-account active limits, three accepted

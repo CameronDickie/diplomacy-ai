@@ -1500,3 +1500,9 @@ fieldset.order-builder { min-width: 0; margin: 0; border: 0; padding: 0; }
 .challenge-board { display:flex; flex-direction:column; }
 .challenge-board > .map-frame { flex:1; min-height:0; height:auto; }
 .challenge-replay { position:static; flex:none; margin:8px; }
+.challenge-guide { border-top:1px solid #34433c; border-bottom:1px solid #34433c; padding:12px 0; }
+.challenge-guide summary { cursor:pointer; font-size:13px; font-weight:600; color:#e6d7ae; }
+.challenge-guide h3 { font-size:12px; font-weight:600; letter-spacing:.04em; margin:14px 0 4px; color:#cbb98a; }
+.challenge-guide p { font-size:13px; color:#c9cfc8; }
+.challenge-guide p + p { margin-top:8px; }
+.challenge-shell summary:focus-visible { outline:2px solid #f1d38a; outline-offset:3px; }

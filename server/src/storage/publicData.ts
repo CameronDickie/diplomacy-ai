@@ -1,13 +1,13 @@
-import type { PublicBoardSnapshot, PublicPhaseReport, Unit, ResolvedOrder } from '@diplomacy/shared';
+import type { ChallengeCard, ChallengeReplay, PublicBoardSnapshot, PublicPhaseReport, Unit, ResolvedOrder } from '@diplomacy/shared';
 import type { ChallengeDefinition } from '../challenge/TunisPilot.js';
 import { fixtureSchema as s } from '../fixtures/BoardFixture.js';
 import { ALL_POWERS, TERRITORY_MAP } from '@diplomacy/shared';
 
 const unit = (u: Unit): Unit => ({ id:u.id, type:u.type, power:u.power, territory:u.territory, coast:u.coast,
-  mustRetreat:u.mustRetreat, retreatOptions:[...u.retreatOptions], retreatCoasts:Object.fromEntries(Object.entries(u.retreatCoasts).map(([id,coasts])=>[id,[...coasts!]])), dislodgedBy:u.dislodgedBy });
+  mustRetreat:u.mustRetreat, retreatOptions:[...u.retreatOptions], retreatCoasts:Object.fromEntries(Object.entries(u.retreatCoasts).filter(([id])=>id in TERRITORY_MAP).map(([id,coasts])=>[id,[...coasts!]])), dislodgedBy:u.dislodgedBy });
 export const publicBoard = (board: PublicBoardSnapshot): PublicBoardSnapshot => ({
   units:board.units.map(unit).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0),
-  territoryOwners:Object.fromEntries(Object.entries(board.territoryOwners)),
+  territoryOwners:Object.fromEntries(Object.entries(board.territoryOwners).filter(([id,owner])=>id in TERRITORY_MAP&&(owner===null||ALL_POWERS.includes(owner)))),
 });
 const order = (o: ResolvedOrder): ResolvedOrder => ({ id:o.id, power:o.power, unitTerritory:o.unitTerritory,unitCoast:o.unitCoast,type:o.type,
   targetTerritory:o.targetTerritory,targetCoast:o.targetCoast,supportedUnit:o.supportedUnit,supportedDestination:o.supportedDestination,
@@ -21,6 +21,14 @@ export function publicReport(input: PublicPhaseReport): PublicPhaseReport {
   if(input.phase==='RETREATS') return {...base,phase:'RETREATS',ownershipChanges,retreats:input.retreats.map(r=>({power:r.power,unitId:r.unitId,unitType:r.unitType,fromTerritory:r.fromTerritory,toTerritory:r.toTerritory,toCoast:r.toCoast,outcome:r.outcome}))};
   if(input.phase!=='ORDERS') throw new Error('Invalid report phase');
   return {...base,phase:'ORDERS',ownershipChanges,resolvedOrders:input.resolvedOrders.map(order),standoffTerritories:[...input.standoffTerritories],dislodgedUnits:input.dislodgedUnits.map(unit),destroyedUnits:input.destroyedUnits.map(unit)};
+}
+
+const card = (c: ChallengeCard): ChallengeCard => ({ id:c.id, version:c.version, title:c.title, objectiveText:c.objectiveText, humanPower:c.humanPower,
+  deadlineYear:c.deadlineYear, earlyAchievementYear:c.earlyAchievementYear, label:c.label, mode:c.mode, opponentLabel:c.opponentLabel,
+  board:{...publicBoard(c.board),year:c.board.year,season:c.board.season,phase:c.board.phase} });
+/** Packages the reference run: room-scoped IDs and wall-clock stamps are replaced so every start serves identical content. */
+export function publicReplay(challenge: ChallengeCard, reports: readonly PublicPhaseReport[]): ChallengeReplay {
+  return { kind:'REFERENCE', challenge:card(challenge), reports:reports.map((r,i)=>({...publicReport(r),id:`reference-${i+1}`,sequence:i+1,resolvedAt:'1970-01-01T00:00:00.000Z'}) as PublicPhaseReport) };
 }
 
 export function parseChallenge(value: unknown): ChallengeDefinition {

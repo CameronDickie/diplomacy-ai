@@ -24,4 +24,8 @@ export interface ChallengeAttemptView {
   lastActivityAt:number; idleWarnAt:number; expiresAt:number;
 }
 export interface ChallengeLegalCatalog { attemptId:string; phaseId:string; revision:number; options:Array<{id:string;unitTerritory:string;order:Order;description:string}> }
-export interface ChallengeReplay { challenge:ChallengeCard; reports:PublicPhaseReport[] }
+/** Server-enforced limits, published so visitor copy never drifts from what admission actually applies. */
+export interface ChallengeLimits { maxActiveAttempts:number; maxActivePerAccount:number; dailyStartLimit:number; idleWarnMinutes:number; idleExpireMinutes:number }
+export interface ChallengeCatalog { challenges:ChallengeCard[]; limits:ChallengeLimits; sponsoredPlay:'UNAVAILABLE' }
+/** `REFERENCE` is the packaged public run; a player's own phase history is never served under this type. */
+export interface ChallengeReplay { kind:'REFERENCE'; challenge:ChallengeCard; reports:PublicPhaseReport[] }

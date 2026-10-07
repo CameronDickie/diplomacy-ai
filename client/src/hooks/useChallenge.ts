@@ -1,5 +1,5 @@
 import { useEffect,useRef,useState } from 'react';
-import type { ChallengeAction,ChallengeAttemptView,ChallengeCard,ChallengeLegalCatalog,ChallengeReplay,PublicPhaseReport,SubmissionState } from '@diplomacy/shared';
+import type { ChallengeAction,ChallengeAttemptView,ChallengeCard,ChallengeCatalog,ChallengeLegalCatalog,ChallengeReplay,PublicPhaseReport,SubmissionState } from '@diplomacy/shared';
 import { useAuth } from './useAuth.js';
 const base=import.meta.env.VITE_SERVER_URL||'';
 export async function challengeRequest<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
@@ -12,7 +12,7 @@ export async function challengeRequest<T>(path:string,body?:unknown,signal?:Abor
 export function useChallenge(){
   const auth=useAuth(),identity=auth.user?.id??null;
   const identityRef=useRef(identity);identityRef.current=identity;
-  const [cards,setCards]=useState<ChallengeCard[]>([]),[demo,setDemo]=useState<ChallengeReplay|null>(null);
+  const [catalog,setCatalog]=useState<ChallengeCatalog|null>(null),[demo,setDemo]=useState<ChallengeReplay|null>(null);
   const [attempt,setAttempt]=useState<ChallengeAttemptView|null>(null),[history,setHistory]=useState<ChallengeAttemptView[]>([]);
   const [legal,setLegal]=useState<ChallengeLegalCatalog|null>(null),[reports,setReports]=useState<PublicPhaseReport[]>([]);
   const [error,setError]=useState(''),[busy,setBusy]=useState(false),[loaded,setLoaded]=useState(false);
@@ -21,8 +21,8 @@ export function useChallenge(){
   const lastActivity=useRef(0),mutation=useRef(false);
   useEffect(()=>{
     const controller=new AbortController();
-    Promise.all([challengeRequest<{challenges:ChallengeCard[]}>('/challenges',undefined,controller.signal),challengeRequest<ChallengeReplay>('/challenges/demo',undefined,controller.signal)])
-      .then(([catalog,replay])=>{setCards(catalog.challenges);setDemo(replay);setLoaded(true);}).catch(e=>{if(!controller.signal.aborted)setError(e.message);});
+    Promise.all([challengeRequest<ChallengeCatalog>('/challenges',undefined,controller.signal),challengeRequest<ChallengeReplay>('/challenges/demo',undefined,controller.signal)])
+      .then(([published,replay])=>{setCatalog(published);setDemo(replay);setLoaded(true);}).catch(e=>{if(!controller.signal.aborted)setError(e.message);});
     return()=>controller.abort();
   },[]);
   useEffect(()=>{
@@ -70,7 +70,7 @@ export function useChallenge(){
     const list=await challengeRequest<{attempts:ChallengeAttemptView[]}>('/attempts');
     if(identityRef.current===owner)setHistory(list.attempts);
   }
-  return {auth,cards,demo,attempt,history,legal,reports,error,busy,loaded,clearError:()=>setError(''),
+  return {auth,cards:catalog?.challenges??[],limits:catalog?.limits??null,sponsoredPlay:catalog?.sponsoredPlay??null,demo,attempt,history,legal,reports,error,busy,loaded,clearError:()=>setError(''),
     start:(card:ChallengeCard)=>mutate(async owner=>{
       startId.current??=crypto.randomUUID();
       const result=await challengeRequest<ChallengeAttemptView>('/attempts',{requestId:startId.current,challengeId:card.id,challengeVersion:card.version});

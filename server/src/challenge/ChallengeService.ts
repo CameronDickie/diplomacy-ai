@@ -2,11 +2,11 @@ import express, { type Request, type Response } from 'express';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { RuntimeConfig } from '../../../config/runtime.cjs';
-import type { ChallengeCard, ChallengeAttemptView, ChallengeReplay } from '@diplomacy/shared';
+import type { ChallengeCard, ChallengeAttemptView, ChallengeCatalog, ChallengeReplay } from '@diplomacy/shared';
 import { AuthService, type Principal } from '../auth.js';
 import { Store } from '../storage/Store.js';
 import { StoreError, type StoredAttempt } from '../storage/contracts.js';
-import { publicBoard } from '../storage/publicData.js';
+import { publicBoard, publicReplay } from '../storage/publicData.js';
 import { canonicalJson, FixtureError, fixtureSchema as schema } from '../fixtures/BoardFixture.js';
 import { importScenario, challengeDefinition, playWitness } from '../fixtures/ScenarioFixture.js';
 import type { ChallengeDefinition } from './TunisPilot.js';
@@ -32,7 +32,7 @@ export class ChallengeService {
     const content={definition,board:fixture.board};
     await store.call('registerChallenge',{...content,hash:createHash('sha256').update(canonicalJson(content)).digest('hex'),now:now()});
     const card=service.card(definition,fixture.board);service.cards=[card];
-    const played=await playWitness(fixture,'early-capture',true);service.demo={challenge:card,reports:played.reports!};
+    const played=await playWitness(fixture,'early-capture',true);service.demo=publicReplay(card,played.reports!);
     await service.sweep();
     await service.attempts.recover();
     service.sweepTimer=setInterval(()=>{void service.sweep().catch(()=>{});},10_000);service.sweepTimer.unref();
@@ -78,7 +78,10 @@ export class ChallengeService {
         res.status(status).json({code,message:error instanceof StoreError?error.message:'Challenge play is temporarily unavailable. Retry shortly.'});
       });
     };
-    router.get('/challenges',run(async(_req,res)=>{res.json({challenges:this.cards});}));
+    // Public GETs read only startup-packaged content: no store, session or provider work.
+    const catalog:ChallengeCatalog={challenges:this.cards,sponsoredPlay:'UNAVAILABLE',limits:{maxActiveAttempts:this.config.maxActiveAttempts,maxActivePerAccount:this.config.maxActivePerAccount,
+      dailyStartLimit:this.config.dailyStartLimit,idleWarnMinutes:this.config.idleWarnMinutes,idleExpireMinutes:this.config.idleExpireMinutes}};
+    router.get('/challenges',run(async(_req,res)=>{res.json(catalog);}));
     router.get('/challenges/demo',run(async(_req,res)=>{res.json(this.demo);}));
     router.get('/attempts',auth.requirePlayer(),run(async(_req,res)=>{
       await this.sweep();const items=await this.store.call('ownedAttempts',{playerId:player(res)});
