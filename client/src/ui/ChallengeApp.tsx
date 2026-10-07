@@ -9,7 +9,7 @@ export function ChallengeApp(){
   const game=useChallenge(),a=game.attempt,card=a?.challenge??game.cards[0];
   const [selected,setSelected]=useState<string|null>(null),[choices,setChoices]=useState<Record<string,string>>({});
   const [retreats,setRetreats]=useState<Record<string,string>>({}),[builds,setBuilds]=useState<Record<string,string>>({}),[disbands,setDisbands]=useState<string[]>([]);
-  const [replay,setReplay]=useState<{reports:PublicPhaseReport[];index:number;after:boolean;reference:boolean}|null>(null),[confirmAbandon,setConfirmAbandon]=useState(false),[confirmDelete,setConfirmDelete]=useState(false);
+  const [replay,setReplay]=useState<{reports:PublicPhaseReport[];index:number;after:boolean;reference:boolean;exhibition?:string}|null>(null),[confirmAbandon,setConfirmAbandon]=useState(false),[confirmDelete,setConfirmDelete]=useState(false);
   const [clock,setClock]=useState(Date.now()),[operatorView,setOperatorView]=useState(false);
   useEffect(()=>{const timer=setInterval(()=>setClock(Date.now()),1000);return()=>clearInterval(timer);},[]);
   useEffect(()=>{setChoices({});setRetreats({});setBuilds({});setDisbands([]);setSelected(null);setReplay(null);setConfirmAbandon(false);},[a?.id,a?.phaseId,game.auth.user?.id]);
@@ -41,7 +41,7 @@ export function ChallengeApp(){
     {!game.loaded&&!game.error&&<p>Loading the challenge…</p>}
     {operatorView&&game.auth.operator?<OperatorPanel/>:<div className="challenge-layout">
       <aside className="challenge-brief">
-        <span className="challenge-badge">Development pilot · {replay?(replay.reference?'Reference replay':'Your replay'):a?.mode==='SPONSORED'?(game.sponsoredMock?'Mock Luna opponents':'Sponsored · GPT-6 Luna opponents'):a?.mode==='BOT'?'Practice bot':'Offline practice'}</span>
+        <span className="challenge-badge">Development pilot · {replay?(replay.exhibition?'Bot exhibition game':replay.reference?'Reference replay':'Your replay'):a?.mode==='SPONSORED'?(game.sponsoredMock?'Mock Luna opponents':'Sponsored · GPT-6 Luna opponents'):a?.mode==='BOT'?'Practice bot':'Offline practice'}</span>
         <h2>Your mission</h2>{card&&<p>As {title(card.humanPower)}, own {territoryName(card.targetTerritory)} after Fall {card.deadlineYear} or sooner.</p>}
         <p>Own the supply center after a settled Fall turn, no later than Fall {card?.deadlineYear}. Moving there in Spring is not enough.</p>
         {card&&board&&<Progress card={card} board={board} live={a?.lifecycle==='ACTIVE'}/>}
@@ -70,6 +70,9 @@ export function ChallengeApp(){
         {card&&<Guide card={card} limits={game.limits} open={(!a||a.lifecycle!=='ACTIVE')&&!replay&&window.matchMedia('(min-width:651px)').matches}/>}
         {game.history.length>0&&<section><h2>Your attempts</h2>{game.history.map(item=><button className="attempt-history" key={item.id} onClick={()=>void game.resume(item.id)} disabled={game.busy}>{item.challenge.title}<small>{item.lifecycle} · {item.board.year} {item.board.season}</small></button>)}
           {game.older&&<button className="subtle" onClick={()=>void game.loadOlder()} disabled={game.busy}>Show older attempts</button>}</section>}
+        {game.exhibitions.length>0&&<section><h2>Bot exhibition games</h2><p className="muted">All seven powers played by the practice bot. Watch one to see a longer game unfold.</p>
+          {game.exhibitions.map(e=><button className="attempt-history" key={e.id} disabled={e.phases===0} onClick={()=>void game.loadExhibition(e.id).then(r=>{if(r.reports.length)setReplay({reports:r.reports,index:0,after:false,reference:true,exhibition:e.title});}).catch(()=>{})}>
+            {e.title}<small>{e.state==='RUNNING'?'In progress':e.state==='PAUSED'?'Paused':e.state==='STALLED'?'Drawn':e.state==='COMPLETED'?'Finished':e.state==='CANCELLED'?'Cancelled':'Stopped'} · {e.phases} phases · {e.year} {e.season}</small></button>)}</section>}
         {game.auth.authenticated&&<section className="challenge-account"><h2>Your account</h2>
           {confirmDelete?<><p>Delete your account? This signs you out and permanently removes your sign-in identity, any attempt in progress and all saved attempts. Today’s used starts still count if you sign in again.</p>
             <button onClick={()=>void game.deleteAccount()} disabled={game.busy}>Delete account and data</button><button onClick={()=>setConfirmDelete(false)}>Keep my account</button></>
@@ -81,13 +84,13 @@ export function ChallengeApp(){
           validTargets={selectedUnit?options.filter(o=>o.unitTerritory===selectedUnit.territory&&o.order.type==='MOVE').map(o=>o.order.targetTerritory!):[]}
           pendingOrders={report?.phase==='ORDERS'?report.resolvedOrders:replay?[]:chosenOrders}
           onSelectTerritory={territory=>{if(!replay&&own.some(u=>u.territory===territory)){setSelected(territory);activity();}}} onClearSelection={()=>setSelected(null)}/>
-        {replay&&report&&<div className="challenge-replay" aria-label="Replay controls"><strong>{replay.reference?'Reference replay':'Your attempt'} · {report.year} {report.season} {report.phase.toLowerCase()} · {replay.after?'Result':'Before'}</strong>
+        {replay&&report&&<div className="challenge-replay" aria-label="Replay controls"><strong>{replay.exhibition?`Exhibition · ${replay.exhibition}`:replay.reference?'Reference replay':'Your attempt'} · {report.year} {report.season} {report.phase.toLowerCase()} · {replay.after?'Result':'Before'}</strong>
           <button disabled={replay.index===0&&!replay.after} onClick={()=>setReplay(r=>r&&({...r,...(r.after?{after:false}:{index:r.index-1,after:true})}))}>Previous</button>
           <button disabled={replay.index===replay.reports.length-1&&replay.after} onClick={()=>setReplay(r=>r&&({...r,...(!r.after?{after:true}:{index:r.index+1,after:false})}))}>Next</button>
           <button onClick={()=>setReplay(null)}>{a?.lifecycle==='ACTIVE'?'Return to your attempt':'Return to board'}</button></div>}
       </section>
       <aside className="challenge-orders"><h2>{replay?'Replay':`${card?.humanPower??''} orders`}</h2>
-        {replay?<><p>{replay.reference?'A recorded example run of this scenario, the same for every visitor. It is not your game and uses no AI model.':'Saved phases from your own attempt. Only you can see them.'}</p>
+        {replay?<><p>{replay.exhibition?'A game played entirely by the free practice bot, one bot for each of the seven powers. Nobody is playing it and it uses no AI model.':replay.reference?'A recorded example run of this scenario, the same for every visitor. It is not your game and uses no AI model.':'Saved phases from your own attempt. Only you can see them.'}</p>
           <p>Recorded orders and resolved positions. A legal order can still fail when another power contests it.</p>
           {a?.lifecycle==='ACTIVE'&&<p role="status">Your attempt is untouched while you watch: its board and any orders you have chosen are waiting where you left them.</p>}</>:!a?<p>Start a practice attempt to enter orders. Select a unit on the map or use its menu here.</p>:<>
           {a.lifecycle==='ACTIVE'&&<>

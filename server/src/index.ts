@@ -12,6 +12,7 @@ import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shar
 import { AuthService } from './auth.js';
 import { ChallengeService } from './challenge/ChallengeService.js';
 import { OperatorService } from './operator/OperatorService.js';
+import { ExhibitionService } from './exhibition/ExhibitionService.js';
 import { installSocketPolicy } from './auth/socketPolicy.js';
 import { GameManager } from './GameManager.js';
 import { attachHandlers } from './handlers/connectionHandler.js';
@@ -49,6 +50,8 @@ try { challenges = await ChallengeService.open(store,config); }
 catch { console.error('Challenge startup failed. Check stored definitions and rules engine availability.'); await store.close(); process.exit(1); }
 const operator = new OperatorService(store, config, challenges.attempts);
 operator.notifier.start();
+const exhibitions = new ExhibitionService(store, config);
+exhibitions.runner.start();
 
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   allowRequest: (request, done) => {
@@ -76,6 +79,7 @@ app.get('/healthz', async (_request, response) => {
 
 app.use('/api', auth.httpBoundary);
 app.use('/api/auth', auth.router());
+app.use('/api', exhibitions.router(auth));
 app.use('/api/operator', operator.router(auth));
 app.use('/api', challenges.router(auth));
 // Never let unknown API URLs fall through to the SPA's index page.
@@ -123,6 +127,7 @@ async function shutdown(): Promise<void> {
   const socketsClosed = new Promise<void>(resolve => io.close(() => resolve()));
   for (const room of gameManager.getRooms()) room.dispose();
   try {
+    await exhibitions.close();
     await operator.close();
     await challenges.close();
     await Promise.all([shutdownGodip(), integrations?.bots.stop(), socketsClosed, store.close()]);

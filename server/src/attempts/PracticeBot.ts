@@ -96,6 +96,11 @@ function adjustments(board: BoardFixture, power: Power, random: () => number): P
   }));
 }
 
+/** One power's bot decision for a position. `seed` parts make the tie-breaks reproducible. */
+export async function botAction(rules: PhaseRules, board: BoardFixture, power: Power, signal: AbortSignal, ...seed: string[]): Promise<PhaseAction> {
+  const random = seeded(...seed,power);
+  return board.phase === 'ORDERS' ? orders(board,power,await rules.legal(board,power,signal),random) : board.phase === 'RETREATS' ? retreats(board,power) : adjustments(board,power,random);
+}
 /**
  * A free practice opponent: seeded, deterministic and legal by construction. It seeks supply
  * centers, avoids sending two units to one place, adds supports that match a friend's order,
@@ -108,9 +113,7 @@ export function practiceBot(rules: PhaseRules): DecisionProvider {
     for (const power of job.definition.opponentPowers) {
       signal.throwIfAborted();
       // Seeded from the attempt and the phase's starting position, so a recovery repeats the same choice.
-      const random = seeded(job.attemptId,job.phaseId,power);
-      decisions[power] = job.board.phase === 'ORDERS' ? orders(job.board,power,await rules.legal(job.board,power,signal),random)
-        : job.board.phase === 'RETREATS' ? retreats(job.board,power) : adjustments(job.board,power,random);
+      decisions[power] = await botAction(rules,job.board,power,signal,job.attemptId,job.phaseId);
     }
     return decisions;
   };

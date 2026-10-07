@@ -19,6 +19,7 @@ listed in [README.md](README.md).
 | Retention | Results 30 days, diagnostics 7 days, session and counter pruning; account deletion | [storage.md](storage.md) |
 | Operator | Overview, spectator view, paid stop switch, attempt stop, account ban, audit trail, notification outbox | [operator.md](operator.md) |
 | Practice bot | Free deterministic opponents as their own pinned mode (`BOT`); legal by construction, reproducible per attempt | [attempts.md](attempts.md) |
+| Bot exhibition games | Background bot-only games with pause/resume/cancel, draw and limit rules; public viewing | [operator.md](operator.md) |
 | Sponsored mode (mock only) | Pinned per-attempt mode, typed refusals, waiting notices, recovery; playable locally with `DIPLOMACY_LUNA_TRANSPORT=mock` | [attempts.md](attempts.md), [luna-context.md](luna-context.md) |
 | Provider accounting | Every provider call recorded before its output is interpreted; late bills reconcile | [provider-accounting.md](provider-accounting.md) |
 | Funding ledger | Explicit grants, atomic worst-case reservations, exactly-once settlement, typed exhaustion that pauses paid play | [funding.md](funding.md) |

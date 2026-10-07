@@ -1,5 +1,5 @@
 import { useEffect,useRef,useState } from 'react';
-import type { ChallengeAction,ChallengeAttemptView,ChallengeCard,ChallengeMode,ChallengeCatalog,ChallengeHistoryPage,ChallengeLegalCatalog,ChallengeReplay,PublicPhaseReport,SubmissionState } from '@diplomacy/shared';
+import type { ExhibitionReplay,ExhibitionSummary,ChallengeAction,ChallengeAttemptView,ChallengeCard,ChallengeMode,ChallengeCatalog,ChallengeHistoryPage,ChallengeLegalCatalog,ChallengeReplay,PublicPhaseReport,SubmissionState } from '@diplomacy/shared';
 import { useAuth } from './useAuth.js';
 const base=import.meta.env.VITE_SERVER_URL||'';
 export async function challengeRequest<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
@@ -15,6 +15,7 @@ export function useChallenge(){
   const [catalog,setCatalog]=useState<ChallengeCatalog|null>(null),[demo,setDemo]=useState<ChallengeReplay|null>(null);
   const [attempt,setAttempt]=useState<ChallengeAttemptView|null>(null),[history,setHistory]=useState<ChallengeAttemptView[]>([]);
   const [legal,setLegal]=useState<ChallengeLegalCatalog|null>(null),[reports,setReports]=useState<PublicPhaseReport[]>([]);
+  const [exhibitions,setExhibitions]=useState<ExhibitionSummary[]>([]);
   const [older,setOlder]=useState<string|null>(null),[creditRequested,setCreditRequested]=useState(false);
   const [error,setError]=useState(''),[busy,setBusy]=useState(false),[loaded,setLoaded]=useState(false);
   const current=useRef(attempt);current.current=attempt;
@@ -25,6 +26,11 @@ export function useChallenge(){
     Promise.all([challengeRequest<ChallengeCatalog>('/challenges',undefined,controller.signal),challengeRequest<ChallengeReplay>('/challenges/demo',undefined,controller.signal)])
       .then(([published,replay])=>{setCatalog(published);setDemo(replay);setLoaded(true);}).catch(e=>{if(!controller.signal.aborted)setError(e.message);});
     return()=>controller.abort();
+  },[]);
+  // Bot exhibition games are public and optional: failing to list them never blocks the page.
+  useEffect(()=>{
+    const load=()=>{void challengeRequest<{exhibitions:ExhibitionSummary[]}>('/exhibitions').then(r=>setExhibitions(r.exhibitions)).catch(()=>{});};
+    load();const timer=setInterval(load,15_000);return()=>clearInterval(timer);
   },[]);
   // When the featured challenge rotates at midnight UTC, load the new card and its replay without a page reload.
   useEffect(()=>{
@@ -79,7 +85,7 @@ export function useChallenge(){
     const list=await challengeRequest<ChallengeHistoryPage>('/attempts');
     if(identityRef.current===owner){setHistory(list.attempts);setOlder(list.next);}
   }
-  return {auth,older,cards:catalog?.challenges??[],limits:catalog?.limits??null,rotation:catalog?.rotation??null,sponsoredPlay:catalog?.sponsoredPlay??null,sponsoredMock:catalog?.sponsoredMock??false,capacity:catalog?.capacity??null,creditRequested,demo,attempt,history,legal,reports,error,busy,loaded,clearError:()=>setError(''),
+  return {auth,older,exhibitions,loadExhibition:(id:string)=>challengeRequest<ExhibitionReplay>(`/exhibitions/${id}`),cards:catalog?.challenges??[],limits:catalog?.limits??null,rotation:catalog?.rotation??null,sponsoredPlay:catalog?.sponsoredPlay??null,sponsoredMock:catalog?.sponsoredMock??false,capacity:catalog?.capacity??null,creditRequested,demo,attempt,history,legal,reports,error,busy,loaded,clearError:()=>setError(''),
     start:(card:ChallengeCard,mode:ChallengeMode='PRACTICE')=>mutate(async owner=>{
       startId.current??=crypto.randomUUID();
       // The start ID is tied to the chosen mode, so switching mode after an uncertain response is a new request.

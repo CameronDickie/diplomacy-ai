@@ -15,3 +15,4 @@ export { gamePhaseId } from './phase.js';
 export * from './types/auth.js';
 export * from './types/challenge.js';
 export * from './types/operator.js';
+export * from './types/exhibition.js';

@@ -74,3 +74,33 @@ per-pause deduplication are in place for when it is.
 (`NOT_OFFERED`, `PAUSED`, `OPEN`). The client turns these into a next action:
 try again later when full, watch the replay, or ask the owner to resume
 sponsored play when paused.
+
+## Bot exhibition games
+
+A background runner (`server/src/exhibition/`) plays whole games in which all
+seven powers are the free practice bot. They make no provider call, never touch
+the funding ledger and are separate from player attempts, so they use no player
+capacity and cost nothing.
+
+| Route | Who | Effect |
+| -- | -- | -- |
+| `GET /api/exhibitions`, `GET /api/exhibitions/:id` | anyone | list the ten most recent games; one game's summary and public phase reports |
+| `POST /api/operator/exhibitions {"challengeId","challengeVersion","maxPhases"?}` | operator | start a game from a registered scenario's opening position (default 40 phases, at most 200) |
+| `POST /api/operator/exhibitions/:id/pause` / `resume` / `cancel` | operator | as named; repeating an action that already took effect is harmless |
+
+At most two games may be unfinished at once (paused games count). The runner
+advances each running game a couple of phases per tick from a timer and never
+inside a request. A game ends when the rules engine reports it over
+(`GAME_OVER`), at its phase limit (`PHASE_LIMIT`), after 16 consecutive phases
+with no change of ownership or unit count (`NO_PROGRESS`, shown as a draw), when
+the same position occurs three times (`REPEATED_POSITION`, a draw), on operator
+cancel, or after three consecutive rules-engine failures.
+
+The position and phase count live in SQLite and each commit names the phase
+number it expects, so after a restart the game continues from where it stopped
+and neither a restart nor a second runner can commit a phase twice. The bot's
+choices are seeded from the game ID and phase number, so a game is reproducible.
+Finished games are removed with other results after the retention window.
+
+Games played by Luna are deliberately not offered here: that would be a new way
+to spend and needs an owner decision.

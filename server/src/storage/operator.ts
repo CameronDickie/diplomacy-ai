@@ -76,7 +76,7 @@ export class OperatorRepository {
     return paidState(this.db);
   }
   record(input: StoreOperations['recordOperatorAction']['input']): null {
-    if (!['ATTEMPT_STOP','PLAYER_BAN','PLAYER_UNBAN','SPECTATE'].includes(input.action)) invalid();
+    if (!['ATTEMPT_STOP','PLAYER_BAN','PLAYER_UNBAN','SPECTATE','EXHIBITION_START','EXHIBITION_PAUSE','EXHIBITION_RESUME','EXHIBITION_CANCEL'].includes(input.action)) invalid();
     id(input.target); time(input.now);
     // Refreshing an open spectator view is one viewing, not a new audit line every few seconds.
     if (input.action === 'SPECTATE' && this.db.prepare("SELECT 1 FROM operator_audit WHERE operator_id=? AND action='SPECTATE' AND target=? AND at>?").get(input.operatorId,input.target,input.now-600_000)) return null;

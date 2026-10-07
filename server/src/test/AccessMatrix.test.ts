@@ -12,6 +12,7 @@ import { AuthService } from '../auth.js';
 import { ChallengeService } from '../challenge/ChallengeService.js';
 import { OperatorService } from '../operator/OperatorService.js';
 import { localDelivery } from '../operator/Notifier.js';
+import { ExhibitionService } from '../exhibition/ExhibitionService.js';
 import type { ChallengeAttemptView } from '@diplomacy/shared';
 
 /**
@@ -38,6 +39,12 @@ const MATRIX: Record<string,{access:Access;valid?:unknown;probe?:{body?:unknown;
   'GET /operator/attempts/:id': {access:'operator',probe:{status:200}},
   'POST /operator/paid': {access:'operator',valid:{stopped:true},probe:{body:{stopped:'yes'},status:400}},
   'POST /operator/attempts/:id/stop': {access:'operator',valid:{},probe:{body:{unexpected:1},status:400}},
+  'GET /exhibitions': {access:'public'},
+  'GET /exhibitions/:id': {access:'public'},
+  'POST /operator/exhibitions': {access:'operator',valid:{challengeId:'tunis-expedition',challengeVersion:1},probe:{body:{challengeId:'tunis-expedition'},status:400}},
+  'POST /operator/exhibitions/:id/pause': {access:'operator',valid:{},probe:{body:{unexpected:1},status:400}},
+  'POST /operator/exhibitions/:id/resume': {access:'operator',valid:{},probe:{body:{unexpected:1},status:400}},
+  'POST /operator/exhibitions/:id/cancel': {access:'operator',valid:{},probe:{body:{unexpected:1},status:400}},
   'POST /operator/players/:id/ban': {access:'operator',valid:{banned:true},probe:{body:{banned:'yes'},status:400}},
 };
 type Layer = {route?:{path:string;methods:Record<string,boolean>}};
@@ -49,17 +56,18 @@ test('every API route is classified and enforces its access class for each kind 
   const path=join(dir,'game.sqlite');let store=await Store.open(path);
   const env={DIPLOMACY_PROFILE:'showcase',DIPLOMACY_AUTH_SESSION_SECRET:'test-secret-'.repeat(4),DIPLOMACY_ADMIN_GITHUB_USER_IDS:'4242'};
   const config=readRuntimeConfig(env);
-  let auth!:AuthService,service!:ChallengeService,operator!:OperatorService,server!:Server,port=0;
+  let auth!:AuthService,service!:ChallengeService,operator!:OperatorService,exhibitions!:ExhibitionService,server!:Server,port=0;
   async function boot(){
     auth=new AuthService(store,config,env,undefined,()=>now);service=await ChallengeService.open(store,config,()=>now);
     operator=new OperatorService(store,config,service.attempts,()=>now,localDelivery);
-    const challengeRouter=service.router(auth),operatorRouter=operator.router(auth);
-    const app=express();app.use(express.json());app.use('/api',auth.httpBoundary);app.use('/api/operator',operatorRouter);app.use('/api',challengeRouter);
+    exhibitions=new ExhibitionService(store,config,()=>now);
+    const challengeRouter=service.router(auth),operatorRouter=operator.router(auth),exhibitionRouter=exhibitions.router(auth);
+    const app=express();app.use(express.json());app.use('/api',auth.httpBoundary);app.use('/api',exhibitionRouter);app.use('/api/operator',operatorRouter);app.use('/api',challengeRouter);
     server=createServer(app);server.listen(0,'127.0.0.1');await once(server,'listening');
     const address=server.address();assert.ok(address&&typeof address==='object');port=address.port;
-    return [...routes(challengeRouter),...routes(operatorRouter,'/operator')];
+    return [...routes(challengeRouter),...routes(operatorRouter,'/operator'),...routes(exhibitionRouter)];
   }
-  async function halt(){await new Promise<void>(done=>server.close(()=>done()));await operator.close();await service.close();}
+  async function halt(){await new Promise<void>(done=>server.close(()=>done()));await exhibitions.close();await operator.close();await service.close();}
   t.after(async()=>{await halt();await store.close();await rm(dir,{recursive:true,force:true});});
   // A new endpoint must be added to MATRIX, or this fails before anything else runs.
   assert.deepEqual((await boot()).sort(),Object.keys(MATRIX).sort());
@@ -70,17 +78,20 @@ test('every API route is classified and enforces its access class for each kind 
     await store.call('createSession',{tokenHash,playerId:player.id,now,expiresAt:now+ttl});return {player,cookie,tokenHash};
   }
   const call=(key:string,cookie:string,body:unknown,ids:{attempt:string;player:string})=>{
-    const [method,route]=key.split(' '),target=route.replace('/players/:id',`/players/${ids.player}`).replace(':id',ids.attempt);
+    const [method,route]=key.split(' '),target=route.replace('/players/:id',`/players/${ids.player}`).replace('/exhibitions/:id','/exhibitions/matrix-game').replace(':id',ids.attempt);
     return fetch(`http://127.0.0.1:${port}/api${target}`,{method,headers:{Cookie:cookie,Origin:config.returnOrigin,'Content-Type':'application/json'},...(method==='POST'?{body:JSON.stringify(body??{})}:{})});
   };
   const owner=await user('owner'),other=await user('other'),admin=await user('4242'),lookalike=await user('4242','google');
   const revokedAdmin=await user('4242'),expired=await user('expiring','github',1000),banned=await user('banned');
   const attempt=await (await call('POST /attempts',owner.cookie,MATRIX['POST /attempts'].valid,{attempt:'',player:''})).json() as ChallengeAttemptView;
+  // A paused bot game exists so its public and operator routes have a real target.
+  await store.call('createExhibition',{id:'matrix-game',challengeId:'tunis-expedition',challengeVersion:1,maxPhases:5,createdBy:'test',maxRunning:2,now});
+  await store.call('setExhibitionState',{id:'matrix-game',action:'PAUSE',now});
   await store.call('revokeSession',{tokenHash:revokedAdmin.tokenHash,now});
   await service.attempts.banPlayer(banned.player.id);
   now+=2000;
   const ids={attempt:attempt.id,player:other.player.id};
-  const snapshot=async()=>JSON.stringify([await store.call('attempt',{id:attempt.id}),await store.call('paidState',{}),await store.call('activeAttempts',{}),
+  const snapshot=async()=>JSON.stringify([await store.call('attempt',{id:attempt.id}),await store.call('paidState',{}),await store.call('activeAttempts',{}),await store.call('exhibitions',{limit:10}),
     await Promise.all([owner,other,admin].map(async u=>(await store.call('session',{tokenHash:u.tokenHash,now}))?.player))]);
 
   async function sweep(label:string){

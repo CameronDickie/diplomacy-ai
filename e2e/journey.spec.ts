@@ -124,6 +124,17 @@ test('the operator sees attempts and budget, can pause and resume paid play, and
   await panel.getByRole('button', { name: 'Confirm resume' }).click();
   await expect(panel.getByRole('button', { name: 'Stop new paid calls' })).toBeVisible();
   await expect(panel).toContainText('PAID_STOP');
+  // A bot exhibition game: started here, played in the background, watchable by anyone.
+  await panel.getByRole('button', { name: 'Start one on today’s scenario' }).click();
+  await expect(panel.locator('.operator-list').filter({ hasText: 'phases' }).first()).toContainText(/RUNNING|COMPLETED|STALLED/);
+  const watcher = await browser.newContext(), watching = await watcher.newPage();
+  await watching.goto(`${state().origin}/challenge`);
+  const entry = watching.locator('.challenge-brief').getByRole('button', { name: /phases/ }).first();
+  await expect(entry).toBeEnabled({ timeout: 30_000 });
+  await entry.click();
+  await expect(watching.getByLabel('Replay controls')).toContainText('Exhibition');
+  await expect(watching.locator('.challenge-orders')).toContainText('played entirely by the free practice bot');
+  await watcher.close();
   await page.setViewportSize({ width: 375, height: 812 });
   await noSidewaysScroll(page);
   const player = await browser.newContext();

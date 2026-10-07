@@ -1,5 +1,5 @@
 import { useEffect,useMemo,useRef,useState } from 'react';
-import { TERRITORIES,type OperatorAttemptDetail,type OperatorAttemptRow,type OperatorOverview } from '@diplomacy/shared';
+import { TERRITORIES,type ChallengeCatalog,type ExhibitionSummary,type OperatorAttemptDetail,type OperatorAttemptRow,type OperatorOverview } from '@diplomacy/shared';
 import { challengeRequest } from '../hooks/useChallenge.js';
 import { MapGraph } from './MapGraph.js';
 
@@ -12,8 +12,9 @@ export function OperatorPanel(){
   const [overview,setOverview]=useState<OperatorOverview|null>(null),[detail,setDetail]=useState<OperatorAttemptDetail|null>(null);
   const [step,setStep]=useState<number|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[confirm,setConfirm]=useState<string|null>(null);
   const [clock,setClock]=useState(Date.now());const watching=useRef<string|null>(null);
+  const [exhibitions,setExhibitions]=useState<ExhibitionSummary[]>([]);
   async function load(){
-    try{setOverview(await challengeRequest<OperatorOverview>('/operator/overview'));setClock(Date.now());}
+    try{setOverview(await challengeRequest<OperatorOverview>('/operator/overview'));setExhibitions((await challengeRequest<{exhibitions:ExhibitionSummary[]}>('/exhibitions')).exhibitions);setClock(Date.now());}
     catch(e){setError((e as Error).message);}
   }
   useEffect(()=>{void load();const timer=setInterval(()=>void load(),5000);return()=>clearInterval(timer);},[]);
@@ -69,6 +70,13 @@ export function OperatorPanel(){
         {detail.reports.map((r,i)=><button key={r.id} disabled={step===i} onClick={()=>setStep(i)}>{r.year} {r.season} {r.phase}</button>)}
         <button onClick={()=>{watching.current=null;setDetail(null);}}>Close</button></div>
       <div className="operator-map"><MapGraph gameState={mapState} selectedTerritory={null} selectedUnit={null} validTargets={[]} pendingOrders={report?.phase==='ORDERS'?report.resolvedOrders:[]} onSelectTerritory={()=>{}} onClearSelection={()=>{}}/></div></div>}
+    <h2>Bot exhibition games</h2>
+    <p>Background games with every power played by the practice bot. They cost nothing and do not use player capacity; at most two can be unfinished at once.</p>
+    <div className="operator-steps"><button disabled={busy} onClick={()=>{setBusy(true);setError('');void challengeRequest<ChallengeCatalog>('/challenges').then(c=>challengeRequest('/operator/exhibitions',{challengeId:c.challenges[0].id,challengeVersion:c.challenges[0].version})).then(load).catch(e=>setError((e as Error).message)).finally(()=>setBusy(false));}}>Start one on today’s scenario</button></div>
+    {exhibitions.length>0&&<ul className="operator-list">{exhibitions.map(e=><li key={e.id}><strong>{e.title}</strong> · {e.state}{e.reason?` (${e.reason})`:''} · {e.phases}/{e.maxPhases} phases · {e.year} {e.season}{' '}
+      {e.state==='RUNNING'&&<button disabled={busy} onClick={()=>void act(`xp:${e.id}`,`/operator/exhibitions/${e.id}/pause`,{})}>{confirm===`xp:${e.id}`?'Confirm pause':'Pause'}</button>}
+      {e.state==='PAUSED'&&<button disabled={busy} onClick={()=>void act(`xr:${e.id}`,`/operator/exhibitions/${e.id}/resume`,{})}>{confirm===`xr:${e.id}`?'Confirm resume':'Resume'}</button>}
+      {(e.state==='RUNNING'||e.state==='PAUSED')&&<button disabled={busy} onClick={()=>void act(`xc:${e.id}`,`/operator/exhibitions/${e.id}/cancel`,{})}>{confirm===`xc:${e.id}`?'Confirm cancel':'Cancel'}</button>}</li>)}</ul>}
     <h2>Recent notifications</h2>
     {o.outbox.recent.length===0?<p>None recorded.</p>:<ul className="operator-list">{o.outbox.recent.map(m=><li key={m.id}><strong>{m.kind==='ATTEMPT_STARTED'?'Attempt started':'Credit request'}</strong> · {m.state}{m.channel?` via ${m.channel}`:''} · {m.attempts} tries{m.lastError?` · last error ${m.lastError}`:''} · {new Date(m.createdAt).toISOString()}</li>)}</ul>}
     <h2>Recent operator actions</h2>

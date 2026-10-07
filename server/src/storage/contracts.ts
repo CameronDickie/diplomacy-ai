@@ -64,8 +64,20 @@ export interface OperatorAttemptRow {
   challengeId: string; challengeVersion: number; mode: AttemptMode; lifecycle: AttemptLifecycle; execution: AttemptExecution;
   year: number; season: BoardFixture['season']; phase: BoardFixture['phase']; createdAt: number; updatedAt: number; lastActivityAt: number;
 }
-export type OperatorAction = 'ATTEMPT_STOP' | 'PLAYER_BAN' | 'PLAYER_UNBAN' | 'SPECTATE';
+export type OperatorAction = 'ATTEMPT_STOP' | 'PLAYER_BAN' | 'PLAYER_UNBAN' | 'SPECTATE' | 'EXHIBITION_START' | 'EXHIBITION_PAUSE' | 'EXHIBITION_RESUME' | 'EXHIBITION_CANCEL';
+export type ExhibitionState = 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'STALLED' | 'CANCELLED' | 'FAILED';
+/** A bot-only game advanced in the background. It has no owner, no private state and no cost. */
+export interface StoredExhibition {
+  id: string; challengeId: string; challengeVersion: number; state: ExhibitionState; reason: string | null;
+  board: BoardFixture; phases: number; maxPhases: number; quietPhases: number; createdAt: number; updatedAt: number;
+}
 export interface StoreOperations {
+  createExhibition: { input: { id:string; challengeId:string; challengeVersion:number; maxPhases:number; createdBy:string; maxRunning:number; now:number }; output: StoredExhibition };
+  exhibition: { input: { id:string }; output: StoredExhibition | null };
+  exhibitions: { input: { state?:ExhibitionState; limit:number }; output: StoredExhibition[] };
+  exhibitionReports: { input: { id:string }; output: PublicPhaseReport[] };
+  setExhibitionState: { input: { id:string; action:'PAUSE'|'RESUME'|'CANCEL'|'FAIL'; now:number }; output: StoredExhibition };
+  advanceExhibition: { input: { id:string; expectedPhases:number; board:BoardFixture; report:PublicPhaseReport; finished:boolean; quietLimit:number; now:number }; output: StoredExhibition };
   saveProviderDecision: { input: { callId:string; action:PhaseAction; now:number }; output: null };
   providerDecisions: { input: { operationId:string }; output: Array<{ callId:string; power:Power; action:PhaseAction }> };
   fundingTotals: { input: {}; output: FundingTotals };

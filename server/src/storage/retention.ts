@@ -40,6 +40,8 @@ export class RetentionRepository {
     this.db.prepare('DELETE FROM account_starts WHERE utc_day<?').run(utcDay(input.now));
     this.db.prepare('DELETE FROM deleted_identities WHERE utc_day<?').run(utcDay(input.now));
     this.db.prepare("DELETE FROM outbox WHERE state IN ('SENT','FAILED') AND created_at<=?").run(input.diagnosticBefore);
+    // Finished exhibition games age out with other results; an unfinished one is kept.
+    this.db.prepare("DELETE FROM exhibitions WHERE state NOT IN ('RUNNING','PAUSED') AND updated_at<=?").run(input.resultBefore);
     this.db.prepare('DELETE FROM operator_audit WHERE at<=?').run(input.resultBefore);
     // Detailed receipts go only once their cost is in the ledger (settled) or provably nil (released).
     // A held reservation and its call are never pruned, however old.

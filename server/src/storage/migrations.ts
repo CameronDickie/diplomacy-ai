@@ -171,6 +171,23 @@ CREATE TRIGGER attempts_mode_immutable BEFORE UPDATE OF mode,opponents,preset_id
 ALTER TABLE attempts ADD COLUMN practice_bot INTEGER NOT NULL DEFAULT 0 CHECK(practice_bot IN (0,1) AND (practice_bot=0 OR opponents='HOLD'));
 CREATE TRIGGER attempts_bot_immutable BEFORE UPDATE OF practice_bot ON attempts BEGIN
  SELECT RAISE(ABORT,'immutable attempt mode'); END;
+` }, { version: 11, sql: `
+CREATE TABLE exhibitions (
+ id TEXT PRIMARY KEY, challenge_id TEXT NOT NULL, challenge_version INTEGER NOT NULL,
+ state TEXT NOT NULL CHECK(state IN ('RUNNING','PAUSED','COMPLETED','STALLED','CANCELLED','FAILED')),
+ reason TEXT, board_json TEXT NOT NULL CHECK(json_valid(board_json)),
+ phases INTEGER NOT NULL DEFAULT 0 CHECK(phases>=0), max_phases INTEGER NOT NULL CHECK(max_phases BETWEEN 1 AND 200),
+ quiet_phases INTEGER NOT NULL DEFAULT 0 CHECK(quiet_phases>=0),
+ recent_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(recent_json)),
+ created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, created_by TEXT NOT NULL,
+ FOREIGN KEY(challenge_id,challenge_version) REFERENCES challenges(id,version)
+) STRICT;
+CREATE INDEX exhibitions_state ON exhibitions(state,created_at);
+CREATE TABLE exhibition_reports (
+ exhibition_id TEXT NOT NULL REFERENCES exhibitions(id) ON DELETE CASCADE,
+ sequence INTEGER NOT NULL CHECK(sequence>0), report_json TEXT NOT NULL CHECK(json_valid(report_json)),
+ PRIMARY KEY(exhibition_id,sequence)
+) STRICT;
 ` }];
 
 export function verifyMigrationHistory(db: DatabaseSync, requireExisting = false): number {

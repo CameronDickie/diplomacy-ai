@@ -65,6 +65,9 @@ Rules that shape the code:
 | `server/src/storage/operator.ts`, `outbox.ts` | operator views, paid switch, audit, notifications |
 | `server/src/storage/publicData.ts` | public projections and challenge parsing |
 | `server/src/operator/` | operator routes and the notification sender |
+| `server/src/exhibition/` | background runner and routes for bot-only exhibition games |
+| `server/src/attempts/PracticeBot.ts` | the free deterministic practice opponent |
+| `server/src/luna/`, `server/src/evaluation/` | Luna choices, context, decision provider, transports; the evaluation harness |
 | `server/src/limits/RateLimiter.ts` | rate buckets and client address policy |
 | `server/src/providers/` | provider accounting and the Luna request contract |
 | `server/src/fixtures/` | board and scenario import/export, witnesses, CLI |

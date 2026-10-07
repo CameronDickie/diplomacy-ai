@@ -14,6 +14,7 @@ import { RetentionRepository } from './retention.js';
 import { OperatorRepository, paidState, stopPaid } from './operator.js';
 import { OutboxRepository } from './outbox.js';
 import { FundingRepository } from './funding.js';
+import { ExhibitionRepository } from './exhibitions.js';
 import type { StoreOperations } from './contracts.js';
 import { parseChallenge, publicBoard, publicReport } from './publicData.js';
 import { StoreError, type StoreRequest, type StoredAttempt, type StoredPlayer, type StoredReceipt, type StoredChallenge } from './contracts.js';
@@ -189,6 +190,12 @@ async function handle(request: StoreRequest): Promise<unknown> {
     }
     case 'saveProviderDecision': return transaction(() => new ProviderCallRepository(db).saveDecision(input));
     case 'providerDecisions': return new ProviderCallRepository(db).decisions(input.operationId);
+    case 'createExhibition': return transaction(() => new ExhibitionRepository(db).create(input));
+    case 'exhibition': return new ExhibitionRepository(db).get(input.id);
+    case 'exhibitions': return new ExhibitionRepository(db).list(input);
+    case 'exhibitionReports': return new ExhibitionRepository(db).reports(input.id);
+    case 'setExhibitionState': return transaction(() => new ExhibitionRepository(db).setState(input));
+    case 'advanceExhibition': return transaction(() => new ExhibitionRepository(db).advance(input));
     case 'fundingTotals': return new FundingRepository(db).totals();
     case 'attemptFunding': return new FundingRepository(db).attempt(input.attemptId);
     case 'grantFunding': return transaction(() => new FundingRepository(db).grant(input));
