@@ -6,9 +6,13 @@ a scripted human, and reports legality, latency, tokens and cost against the
 launch targets. Its durable manifest, phase timings and recovery counters survive
 restarts, so resuming a run reuses committed answers and preserves its evidence.
 
-**No live evaluation has been run.** Everything recorded so far uses the mock
-transport, which exercises the plumbing and the accounting and says nothing
-about the real model's quality, speed or price.
+**Live calibration began October 7, 2026.** The first attempt was interrupted
+after eight committed phases and 46 dispatches by a saved retreat import defect
+(fixed in PR35). The incomplete sample missed the phase latency target. It does
+not establish full-attempt cost, objective success or release readiness. Its
+private ledger retains actual bills and uncertain liabilities; resume the same
+run instead of initializing a replacement allowance. Mock results below remain
+stand-in evidence only.
 
 ## Mock run (no key, no network)
 
@@ -54,10 +58,20 @@ attempt at worst case; ledger reconciled. These are stand-in numbers.
 - **Notes**: mock disclaimer, small-sample warning, missing timing evidence and
   why a run stopped early. Latency is inconclusive if any committed phase lacks
   a valid duration; missing evidence never becomes a zero-duration sample.
+  Local rules/submission errors produce an `INTERRUPTED` report with a generic
+  note, not the raw error. The CLI writes the report and exits 1. The saved
+  active attempt remains resumable and no later attempt starts. Financial
+  reconciliation failure exits 2; configuration and unreadable-store errors
+  still fail rather than fabricating a report.
 
 A failed or unanswered call is counted, billed or held as the ledger has it, and
-retried only through the provider's bounded recovery. An attempt that cannot
-finish is closed and reported as stalled; its costs stay on the ledger.
+retried only through the provider's bounded recovery. An attempt that exhausts
+its recovery/phase limits is closed and reported as
+stalled; its costs stay on the ledger. A local evaluation error preserves active
+state for repair and resume. Any non-completed attempt makes full-attempt mean
+cost unavailable; passing latency/quality checks are inconclusive, while
+observed misses remain visible. Per-attempt settled and held totals are always
+reported independently of whether the game completed.
 
 ## Resuming and retaining evidence
 
@@ -126,4 +140,5 @@ hold before counting; a valid count within the ceiling precedes the durable
 model dispatch claim. Mock transport does not call the counter or provider and
 its synthetic token counts cannot verify real cost or latency. Failed counts
 are unsent cancellations, so they remain visible in call outcomes; they do not
-silently become successful decisions. No live run has yet been recorded.
+silently become successful decisions. Real calibration is underway; its partial
+sample is not a release approval.

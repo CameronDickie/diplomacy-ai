@@ -35,7 +35,7 @@ export function format(report: EvaluationReport): string {
   const s = report.summary, lines = [
     `Run ${report.manifest.runId} · ${report.manifest.transport.toUpperCase()} transport · ${report.manifest.scenario} v${report.manifest.scenarioVersion} · script ${report.manifest.script}`,
     `Preset ${report.manifest.presetId} (${report.manifest.model}, prices ${report.manifest.pricingVersion}) · context ${report.manifest.contextVersion}`,
-    `Attempts ${s.attempts}: ${s.successes} succeeded, ${s.failures} failed, ${s.stalled} stalled · ${s.phases} phases · ${s.calls} calls, ${s.validCalls} valid`,
+    `Status ${report.status} · Attempts ${s.attempts}: ${s.successes} succeeded, ${s.failures} failed, ${s.stalled} stalled · ${s.phases} phases · ${s.calls} calls, ${s.validCalls} valid`,
     `Timing evidence: ${s.timedPhases}/${s.phases} committed phases timed · ${s.timingIssues} issue(s)`,
     `Tokens ${s.inputTokens} in (${s.cachedInputTokens} cached) / ${s.outputTokens} out`,
     `Cost: settled USD ${(s.settledNanousd / 1e9).toFixed(6)} · still held USD ${(s.heldNanousd / 1e9).toFixed(6)} · worst-case reserved USD ${(s.reservedEstimateNanousd / 1e9).toFixed(6)}`,
@@ -62,6 +62,7 @@ async function main() {
     console.log(`\n${format(report)}`);
     if (values.out) await writeFile(values.out,`${JSON.stringify(report,null,2)}\n`,{ flag: 'wx', mode: 0o600 });
     if (!report.ledger.reconciles) process.exitCode = 2;
+    else if (report.status === 'INTERRUPTED') process.exitCode = 1;
   } finally { await store.close(); await shutdownGodip(); }
 }
 if (process.argv[1] && resolve(process.argv[1]) === resolve(new URL(import.meta.url).pathname)) {

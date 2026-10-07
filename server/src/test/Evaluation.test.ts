@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { PhaseRules } from '../attempts/PhaseRules.js';
 import { LUNA_PRESET } from '../providers/LunaPreset.js';
 
 async function setup(t:test.TestContext,granted=1_000_000_000){
@@ -93,7 +94,9 @@ test('failures, unanswered calls and an empty pool are reported as such and coun
   // Unusable answers were still billed; unanswered ones are still held at their worst case.
   assert.ok(attempt.heldNanousd>0);assert.equal(report.summary.heldNanousd,attempt.heldNanousd);
   assert.ok(report.summary.retryOrFailureRate!>TARGETS.retryOrFailureRate);
-  assert.deepEqual(report.targets.map(x=>x.met),[true,true,false]);
+  assert.equal(attempt.lifecycle,'STOPPED');
+  assert.equal(report.summary.meanAttemptCostNanousd,null,'a truncated attempt cannot pass the full-game cost target');
+  assert.deepEqual(report.targets.map(x=>x.met),[null,null,false]);
   assert.match(format(report),/MISS {2}Calls that were not a valid decision/);
   assert.equal(report.ledger.reconciles,true);
   const totals=await f.store.call('fundingTotals',{});
@@ -192,4 +195,52 @@ test('restart cannot reset the per-phase recovery cap or change a stalled result
   const report=await evaluate(options),again=await evaluate(options);
   assert.equal(sent,0);assert.equal(report.attempts[0].recoveries,2);assert.equal(report.attempts[0].stalled,true);assert.equal(report.attempts[0].lifecycle,'STOPPED');
   assert.deepEqual(again.attempts,report.attempts);assert.deepEqual(again.summary,report.summary);assert.equal(report.ledger.attributedNanousd,0);
+});
+
+
+test('local interruption returns private-safe partial evidence and resumes the same paid attempt',async t=>{
+  const f=await setup(t),original=PhaseRules.prototype.legal;let fail=false,sent=0;
+  t.after(()=>{PhaseRules.prototype.legal=original;});
+  PhaseRules.prototype.legal=async function(...args){
+    if(fail)throw new Error('secret-key private-player-chat raw-provider-content');
+    return original.apply(this,args);
+  };
+  const mock=mockLunaTransport(),transport:LunaTransport=async request=>{sent++;return mock(request);};
+  const report=await evaluate(f.base(transport,{boundary:async(stage:string)=>{if(stage==='committed')fail=true;}}));
+  assert.equal(report.status,'INTERRUPTED');assert.equal(report.attempts.length,1);
+  const first=report.attempts[0];assert.equal(first.lifecycle,'ACTIVE');assert.equal(first.interrupted,true);
+  assert.equal(first.phases,1);assert.equal(first.calls,sent);assert.ok(first.settledNanousd>0);
+  assert.equal(report.ledger.reconciles,true);assert.equal(report.summary.meanAttemptCostNanousd,null);
+  assert.deepEqual(report.targets.map(t=>t.met),[null,null,null]);
+  assert.doesNotMatch(JSON.stringify(report),/secret-key|private-player-chat|raw-provider-content/);
+  assert.match(format(report),/Status INTERRUPTED/);
+  assert.equal(await f.store.call('attempt',{id:'eval-run-a-2'}),null);
+  const phases=first.phaseTimings,calls=await f.store.call('providerCallsForAttempt',{attemptId:first.id});
+  fail=false;await f.reopen();
+  const resumed=await evaluate({...f.base(transport,{attempts:1}),store:f.store});
+  assert.equal(resumed.status,'FINISHED');assert.equal(resumed.attempts[0].lifecycle,'COMPLETED');
+  assert.equal(resumed.attempts[0].interrupted,false);assert.deepEqual(resumed.attempts[0].phaseTimings[0],phases[0]);
+  const after=await f.store.call('providerCallsForAttempt',{attemptId:first.id});
+  for(const call of calls)assert.deepEqual(after.find(c=>c.id===call.id),call);
+  assert.equal(resumed.ledger.attributedNanousd,resumed.summary.settledNanousd-first.settledNanousd);
+  const before=sent,again=await evaluate({...f.base(transport,{attempts:1}),store:f.store});
+  assert.equal(sent,before);assert.deepEqual(again.summary,resumed.summary);assert.equal(again.ledger.attributedNanousd,0);
+});
+
+
+test('interrupted reports retain observed latency misses and uncertain billed liabilities',async t=>{
+  const f=await setup(t),original=PhaseRules.prototype.legal;let committed=false,sent=0,tick=0;
+  t.after(()=>{PhaseRules.prototype.legal=original;});
+  PhaseRules.prototype.legal=async function(...args){if(committed)throw new Error('local rules failure');return original.apply(this,args);};
+  const mock=mockLunaTransport(),transport:LunaTransport=async request=>{
+    if(++sent===1)throw new Error('unanswered generation');return mock(request);
+  };
+  const report=await evaluate(f.base(transport,{attempts:1,clock:()=>(tick+=40_000),boundary:async(stage:string)=>{if(stage==='committed')committed=true;}}));
+  assert.equal(report.status,'INTERRUPTED');assert.equal(report.attempts[0].lifecycle,'ACTIVE');
+  assert.ok(report.summary.heldNanousd>0);assert.equal(report.attempts[0].callOutcomes.TRANSPORT_ERROR,1);
+  assert.deepEqual(report.targets.map(t=>t.met),[null,false,false]);
+  const totals=await f.store.call('fundingTotals',{});
+  assert.equal(totals.settledNanousd,report.summary.settledNanousd);
+  assert.equal(totals.unknownLiabilityNanousd+totals.reservedNanousd,report.summary.heldNanousd);
+  assert.equal(report.ledger.reconciles,true);
 });

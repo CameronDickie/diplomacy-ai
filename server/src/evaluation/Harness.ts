@@ -36,13 +36,14 @@ export interface EvaluationOptions {
   boundary?: (stage:'intent'|'committed',attemptId:string)=>Promise<void>;
 }
 export interface AttemptResult {
-  id: string; outcome: string; lifecycle: string; completedYear: number | null; achievements: readonly string[]; phases: number; stalled: boolean;
+  id: string; outcome: string; lifecycle: string; completedYear: number | null; achievements: readonly string[]; phases: number; stalled: boolean; interrupted: boolean;
   phaseMs: number[]; phaseTimings: EvaluationPhase[]; timingIssues: string[]; recoveries: number; calls: number; callOutcomes: Record<string, number>;
   inputTokens: number; cachedInputTokens: number; outputTokens: number;
   /** Known bills, worst-case holds still outstanding, and the sum of worst-case reservations made. */
   settledNanousd: number; heldNanousd: number; reservedEstimateNanousd: number;
 }
 export interface EvaluationReport {
+  status: 'FINISHED' | 'INTERRUPTED';
   manifest: EvaluationManifest & {attemptsRequested:number};
   attempts: AttemptResult[];
   summary: {
@@ -98,7 +99,7 @@ export async function evaluate(options: EvaluationOptions): Promise<EvaluationRe
   const service = new AttemptService(store,new LunaDecisionProvider(store,rules,options.transport,{ now }),rules,{ now, maxRunning: 1,measurementClock:()=>Math.round(clock()),
     boundary:async(stage,job)=>{if(stage==='intent'||stage==='committed')await options.boundary?.(stage,job.attemptId);} });
   const results: AttemptResult[] = [], notes: string[] = [];
-  let preexisting = 0;
+  let preexisting = 0, interrupted = false;
   try {
     for (let n = 1; n <= options.attempts; n++) {
       const id = `eval-${runId}-${n}`;
@@ -113,22 +114,30 @@ export async function evaluate(options: EvaluationOptions): Promise<EvaluationRe
         if((error as {code?:string}).code==='STORE_CONFLICT')throw error;
         notes.push(`Stopped before attempt ${n}: ${(error as { code?: string }).code ?? 'start refused'}. Sponsored play is paused or unfunded.`);break;
       }
-      for (let guard = 0; attempt!.lifecycle === 'ACTIVE' && guard < 120; guard++) {
-        const before: StoredAttempt = attempt!;
-        if (before.execution === 'ACCEPTING') {
-          const action = await humanAction(rules,before,definition.humanPower,fixture,options.script);
-          await service.submit({ attemptId: id, playerId: player.id, revision: before.revision, phaseId: before.phaseId, requestId: `eval-${before.revision}`, action });
-        } else {
-          // Interrupted earlier, or an opponent decision failed: an explicit, counted recovery.
-          const phase=(await store.call('evaluationPhases',{attemptId:id})).find(p=>p.phaseId===before.phaseId);
-          if(!phase||phase.recoveries>=maxRecoveries){stalled=true;break;}
-          await service.recover(id);
+      try {
+        for (let guard = 0; attempt!.lifecycle === 'ACTIVE' && guard < 120; guard++) {
+          const before: StoredAttempt = attempt!;
+          if (before.execution === 'ACCEPTING') {
+            const action = await humanAction(rules,before,definition.humanPower,fixture,options.script);
+            await service.submit({ attemptId: id, playerId: player.id, revision: before.revision, phaseId: before.phaseId, requestId: `eval-${before.revision}`, action });
+          } else {
+            // Interrupted earlier, or an opponent decision failed: an explicit, counted recovery.
+            const phase=(await store.call('evaluationPhases',{attemptId:id})).find(p=>p.phaseId===before.phaseId);
+            if(!phase||phase.recoveries>=maxRecoveries){stalled=true;break;}
+            await service.recover(id);
+          }
+          await service.wait(id);
+          attempt = (await store.call('attempt',{ id }))!;
+          // Timing and recovery counts are already committed with the phase, even if this process dies here.
         }
-        await service.wait(id);
+      } catch {
+        // Never echo local/provider errors: they may contain credentials or private request content.
+        interrupted = true;
+        notes.push(`Local evaluation interrupted at attempt ${n}; its saved state remains resumable. No later attempt was started.`);
+        await service.close();
         attempt = (await store.call('attempt',{ id }))!;
-        // Timing and recovery counts are already committed with the phase, even if this process dies here.
       }
-      if (attempt!.lifecycle === 'ACTIVE') {
+      if (!interrupted && attempt!.lifecycle === 'ACTIVE') {
         // Close it so the run leaves no live attempt behind; its costs stay on the ledger.
         stalled = true;
         attempt = await service.terminate(id,player.id,'STOPPED');
@@ -142,25 +151,29 @@ export async function evaluate(options: EvaluationOptions): Promise<EvaluationRe
       const recoveries=phaseTimings.reduce((sum,p)=>sum+p.recoveries,0);
       const calls = await callsFor(store,id), funding = await store.call('attemptFunding',{ attemptId: id }), score = attempt!.score;
       const result: AttemptResult = { id, outcome: score?.outcome ?? 'INCOMPLETE', lifecycle: attempt!.lifecycle, completedYear: score?.completedYear ?? null, achievements: score?.achievementIds ?? [],
-        phases: reports.length, stalled, phaseMs, phaseTimings, timingIssues, recoveries, calls: calls.length,
+        phases: reports.length, stalled, interrupted, phaseMs, phaseTimings, timingIssues, recoveries, calls: calls.length,
         callOutcomes: calls.reduce<Record<string,number>>((all,c) => { const key = c.outcome ?? `UNFINISHED_${c.state}`; all[key] = (all[key] ?? 0) + 1; return all; },{}),
         inputTokens: calls.reduce((s,c) => s + (c.usage?.inputTokens ?? 0),0), cachedInputTokens: calls.reduce((s,c) => s + (c.usage?.cachedInputTokens ?? 0),0),
         outputTokens: calls.reduce((s,c) => s + (c.usage?.outputTokens ?? 0),0),
         settledNanousd: funding.settledNanousd, heldNanousd: funding.heldNanousd, reservedEstimateNanousd: calls.reduce((s,c) => s + c.maxCostNanousd,0) };
       results.push(result);
       log(`${id}: ${result.outcome}${result.stalled ? ' (stalled)' : ''} · ${result.phases} phases · ${result.calls} calls · ${usd(result.settledNanousd)} settled, ${usd(result.heldNanousd)} held`);
+      if (interrupted) break;
       if (stalled && (await store.call('paidState',{})).stopped) { notes.push(`Stopped after attempt ${n}: sponsored play is paused.`); break; }
     }
   } finally { await service.close(); }
   const settledAfter = (await store.call('fundingTotals',{})).settledNanousd, phases = results.flatMap(r => r.phaseMs), calls = results.reduce((s,r) => s + r.calls,0);
   const valid = results.reduce((s,r) => s + (r.callOutcomes.VALID ?? 0),0), sum = (pick: (r: AttemptResult) => number) => results.reduce((s,r) => s + pick(r),0);
-  const mean = results.length ? Math.round(sum(r => r.settledNanousd + r.heldNanousd) / results.length) : null;
+  const incomplete = results.some(r => r.lifecycle !== 'COMPLETED');
+  const mean = results.length && !incomplete ? Math.round(sum(r => r.settledNanousd + r.heldNanousd) / results.length) : null;
   const retryRate = calls ? (calls - valid) / calls : null, p95 = percentile(phases,0.95);
   const attributed = sum(r => r.settledNanousd) - preexisting, timingIssues=sum(r=>r.timingIssues.length);
+  if(incomplete)notes.push('An attempt did not complete: full-attempt cost is unavailable and passing latency/quality targets remain inconclusive. Observed misses are retained.');
   if(timingIssues)notes.push('Latency evidence is incomplete or the clock regressed; the latency target cannot be declared met.');
   if (options.transportKind === 'mock') notes.push('Mock transport: token counts, latency and cost come from a local stand-in and say nothing about the real model. Only the plumbing, legality handling and accounting are exercised.');
   if (results.length < 30) notes.push(`Sample of ${results.length} attempt${results.length === 1 ? '' : 's'}: too small for rates or percentiles to be more than indicative.`);
   return {
+    status: interrupted ? 'INTERRUPTED' : 'FINISHED',
     manifest: {...manifest,attemptsRequested:options.attempts},
     attempts: results,
     summary: { attempts: results.length, successes: results.filter(r => r.outcome === 'SUCCESS').length, failures: results.filter(r => r.outcome === 'FAILURE').length, stalled: results.filter(r => r.stalled).length,
@@ -171,8 +184,8 @@ export async function evaluate(options: EvaluationOptions): Promise<EvaluationRe
     // Cost counts held liability as spent: an unanswered call may still be billed.
     targets: [
       { name: 'Mean attempt cost (settled + held)', target: `< ${usd(TARGETS.meanAttemptCostNanousd)}`, measured: usd(mean), met: mean === null ? null : mean < TARGETS.meanAttemptCostNanousd },
-      { name: 'Phase latency p95', target: `< ${TARGETS.phaseP95Ms} ms`, measured: p95 === null ? 'n/a' : `${p95} ms`, met: p95 === null || timingIssues ? null : p95 < TARGETS.phaseP95Ms },
-      { name: 'Calls that were not a valid decision', target: `< ${TARGETS.retryOrFailureRate * 100}%`, measured: retryRate === null ? 'n/a' : `${(retryRate * 100).toFixed(1)}%`, met: retryRate === null ? null : retryRate < TARGETS.retryOrFailureRate },
+      { name: 'Phase latency p95', target: `< ${TARGETS.phaseP95Ms} ms`, measured: p95 === null ? 'n/a' : `${p95} ms`, met: p95 === null || timingIssues ? null : p95 >= TARGETS.phaseP95Ms ? false : incomplete ? null : true },
+      { name: 'Calls that were not a valid decision', target: `< ${TARGETS.retryOrFailureRate * 100}%`, measured: retryRate === null ? 'n/a' : `${(retryRate * 100).toFixed(1)}%`, met: retryRate === null ? null : retryRate >= TARGETS.retryOrFailureRate ? false : incomplete ? null : true },
     ],
     ledger: { settledBeforeNanousd: settledBefore, settledAfterNanousd: settledAfter, attributedNanousd: attributed, reconciles: settledAfter - settledBefore === attributed },
     notes,
