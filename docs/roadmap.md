@@ -1,5 +1,7 @@
 # MVP Roadmap
 
+> **Historical.** Written before the scenario flow existed; kept for context. It does not describe current behaviour and its setup steps should not be followed. See [README.md](README.md) for current documentation.
+
 Detailed playtest-derived feature workstreams and acceptance criteria are kept
 in [playtest-feature-notebook.md](./playtest-feature-notebook.md).
 The next post-Discord playtest iteration is specified in

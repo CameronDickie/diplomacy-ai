@@ -1,54 +1,55 @@
 # Diplomacy
 
+A browser game of short, scored Diplomacy scenarios: you command one power and
+try to take a named supply center before a deadline, on the standard map, with
+the [Godip](https://github.com/zond/godip) rules engine adjudicating every
+order.
+
 This project's original code is licensed under GPL-3.0-only. See
-[LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md).
-The interactive client links to the [credits and licenses page](client/public/legal.html)
-and the [source repository](https://github.com/CameronDickie/diplomacy-ai).
+[LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md). The client
+links to the [credits and licenses page](client/public/legal.html) and the
+[source repository](https://github.com/CameronDickie/diplomacy-ai).
 
-A browser-based implementation of standard Diplomacy for private games, with a
-server architecture designed to support human and LLM-controlled powers.
+## What works today
 
-## Current MVP
+- **Public page, no account:** the current scenario's goal, rules and limits,
+  and a recorded reference replay you can step through.
+- **Signed-in play (GitHub or Google):** start, resume and finish your own
+  attempt. Orders are chosen from menus of moves the rules engine allows; the
+  server keeps the board, scores settled Fall turns and saves every phase, so an
+  attempt survives a browser reload or a server restart.
+- **A rotating development catalog:** six generated scenarios, one featured per
+  UTC day. An attempt keeps the scenario it started with.
+- **Limits:** three attempts at once site-wide, one per account, three starts per
+  account per UTC day, expiry after 30 idle minutes, and per-route rate limits.
+- **Your data:** finished attempts are removed after 30 days; you can delete
+  your account and its attempts at any time.
+- **Operator view** for the site owner: capacity, attempts, spend totals, a
+  read-only board viewer, stop/ban controls and a notification outbox.
+- **A separate free local lobby** (the original multi-seat room game with offline
+  bots) for development on your own machine.
 
-- Create a game, choose or randomize a power, share its code, and fill empty
-  powers with independently configured LLM seats.
-- Resume a human seat after a browser or network reconnect.
-- Render and click the actual province geometry instead of an adjacency diagram.
-- Pan the map and zoom with buttons or the mouse wheel.
-- Select a unit and click an adjacent province to prepare a move order.
-- Enter holds, moves, supports, convoys, retreats, builds, and disbands.
-- Preserve split-coast movement, retreat, and build choices.
-- Adjudicate movement and convoy rules with the pinned Godip engine.
-- Import, validate, play and export [portable JSON development scenarios](docs/board-fixtures.md) offline.
-- Exchange private messages with humans or LLM powers.
-- Run structured OpenAI-backed diplomacy and phase decisions with validation,
-  retry, and deterministic fallback.
-- Run the built client and Socket.IO server from one Node process.
+## What does not work yet
 
-Deadlines, persistence, complete engine-generated legal action menus,
-additional model providers, remote deployment, and production voice validation
-remain active work.
+This is a development pilot, not the finished product.
 
-## Requirements
+- **Opponents hold every turn.** Play against AI opponents (the server-owned
+  `gpt-6-luna` preset) is not connected. Its accounting and request contract are
+  merged, but budget reservation and the adapter are still in progress, and the
+  server refuses to start with paid AI enabled.
+- **The scenarios are test content.** They were generated to exercise rotation
+  and scoring and are easy against holding opponents. No public daily schedule
+  has been approved, and the UI does not call this a daily game.
+- **Nothing is deployed or published** by this repository's automation.
+  Deployment, funding, and making the repository public are owner decisions.
 
-- Node.js 22.16 or newer (built-in SQLite backup support)
-- npm
-- Go 1.23 or newer
+Scope, status and release gates live in Linear; see
+[docs/public-showcase-tracking.md](docs/public-showcase-tracking.md).
 
-On macOS with Homebrew installed:
+## Run it locally
 
-```bash
-brew install go
-node --version
-npm --version
-go version
-```
-
-If Node.js/npm are missing, install them with `brew install node`. The normal
-Homebrew installation puts these commands on your shell's PATH; no `GOPATH`
-configuration is needed for this Go module.
-
-## Development
+Requirements: Node.js 22.16 or newer, npm, and Go 1.23 or newer. On macOS,
+`brew install node go` provides them.
 
 ```bash
 npm ci
@@ -56,75 +57,56 @@ npm run check
 npm run dev
 ```
 
-Open `http://localhost:5173`. Vite proxies Socket.IO to port `3001`.
+`npm run check` builds the Go engine and the three TypeScript workspaces, then
+runs the server and Go tests. It needs no `.env`, provider key, Discord or
+network service beyond fetching dependencies, and never calls a paid provider.
 
-`npm ci` restores the committed dependency lockfile. `npm run check` builds the
-Go executable and all three TypeScript workspaces, then runs the server and Go
-tests. Run it from the repository root. The first run downloads npm packages and
-the pinned Godip Go module; no provider keys, `.env`, Discord, or deployment are
-needed. The tests use local stubs/mocks and do not call paid providers.
+`npm run dev` serves the client at `http://localhost:5173` with the API on port
+`3001`.
 
-GitHub Actions runs the same commands for pull requests and pushes to `master`,
-`main`, or a `codex/` branch, covering Node 22 / Go 1.23 on Linux and Node 26 /
-Go 1.27 on macOS.
-See [the build baseline](docs/build-baseline.md) for recorded local results and
-verification limits.
+| URL | What you get |
+| -- | -- |
+| `http://localhost:5173/` | the free local lobby with offline bots |
+| `http://localhost:5173/challenge` | the scenario page and reference replay |
 
-LLM seats use the local stub controller unless the host selects a paid provider
-such as `OPENAI` or `GEMINI`. Paid seats require the corresponding server
-secret (`OPENAI_API_KEY` or `GEMINI_API_KEY`) and must pass the server-side
-provider/model allowlist. Model identifiers entered per seat are treated as
-requests; the server resolves them through role-specific defaults and spend
-guards before making provider calls.
+Signing in locally needs your own OAuth application credentials; see
+[docs/authentication.md](docs/authentication.md). Without them the scenario
+page still shows the goal and the replay. With no `.env` the server uses the
+`local` profile. If you keep a `.env`, leave `DISCORD_ENABLED=false` unless you
+are working on the optional Discord integration; every setting is listed in
+[.env.example](.env.example) and [docs/configuration.md](docs/configuration.md).
 
-## Discord
-
-Discord can provide private text and explicit-turn voice diplomacy while the
-browser remains authoritative for the board, orders, and game setup. The local
-integration uses one coordinator bot plus one separate bot identity for each
-power.
-
-Discord is optional. Without `DISCORD_GUILD_ID` and
-`DISCORD_COORDINATOR_TOKEN`, the server starts normally with the integration
-disabled. See [docs/discord-local-setup.md](docs/discord-local-setup.md) for
-application creation, permissions, linking, and voice setup.
-
-The client adjacency hints are generated from Godip's graph:
+Useful commands after a build:
 
 ```bash
-npm run generate:board
+npm run fixture -- validate server/fixtures/development/tunis-expedition.v1.json
+npm run fixture -- play server/fixtures/development/tunis-expedition.v1.json early-capture /tmp/tunis-after.json
+npm run storage -- backup /absolute/source.sqlite /absolute/new-backup.sqlite
 ```
 
-## Production
+Never copy a live SQLite file by hand; use the backup command.
+
+## Layout
+
+- `client/` — React and Vite interface and the SVG board.
+- `shared/` — types shared by client and server, and board metadata.
+- `server/` — API, authentication, attempt coordination, SQLite storage,
+  scenario fixtures and tests.
+- `engine/` — a small Go executable that wraps the Godip rules engine.
+- `config/` — the single validated runtime configuration contract.
+- `docs/` — start at [docs/README.md](docs/README.md).
+
+## Production build
 
 ```bash
 npm run build
 npm start
 ```
 
-The server listens on `PORT` (default `3001`) and serves `client/dist`.
-`GET /healthz` is available for deployment health checks.
-
-Environment variables are documented in [.env.example](.env.example).
-Lightsail deployment is documented in [docs/deployment.md](docs/deployment.md).
-
-Optional local secrets belong in the repository-root `.env`, which Git and the
-Docker build context ignore. Copy your own file over SSH when needed, for example:
-
-```bash
-(umask 077 && scp 'user@desktop:~/path/to/diplomacy/.env' .env) && chmod 600 .env
-```
-
-This replaces an existing `.env`; keep a copy first if it contains local settings
-you need. The build/test command does not load `.env`. Starting the server does,
-so configured Discord bots may connect when you run `npm run dev` or `npm start`.
-
-## Architecture
-
-- `client/`: React/Vite interface and state-driven SVG board.
-- `shared/`: transport contracts, game types, and board metadata.
-- `server/`: rooms, authorization, sessions, controllers, and Socket.IO.
-- `engine/`: isolated Go executable wrapping the Godip rules engine.
+The server listens on `PORT` (default `3001`), serves `client/dist`, and answers
+`GET /healthz`. Container packaging and the Lightsail runbook are in
+[docs/deployment.md](docs/deployment.md); day-to-day operation is in
+[docs/operations.md](docs/operations.md).
 
 ## License and redistribution
 
@@ -148,17 +130,3 @@ this game project. The JSON-over-stdio process boundary does not itself settle
 whether components form a combined work, so this repository uses one
 GPL-compatible license for its original code rather than relying on that
 boundary for a license exception.
-
-See [docs/architecture.md](docs/architecture.md) and
-[docs/roadmap.md](docs/roadmap.md).
-The first authored scenario pilot and its offline scoring rules are described
-in [docs/first-challenge.md](docs/first-challenge.md).
-
-For the latest development checkpoint, remaining work, and setup on another
-computer, see [docs/current-state.md](docs/current-state.md).
-
-The prioritized repair checklist and verified progress are in
-[docs/code-review-backlog.md](docs/code-review-backlog.md). Core browser game
-correctness and recovery take priority over optional voice and Discord work.
-
-Runtime modes, all supported environment settings, and safe production rendering are documented in [docs/configuration.md](docs/configuration.md). Paid AI and Discord require explicit enablement; credentials alone never enable either.

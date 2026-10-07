@@ -1,5 +1,7 @@
 # Local Discord Setup
 
+> **Optional and deferred.** Discord and voice are unavailable in the showcase profile and are not part of the scenario game. Leave `DISCORD_ENABLED=false` unless you are working on this integration in the private profile.
+
 The Discord integration targets one local server, one Discord guild, and one
 active Diplomacy game. The browser remains the interface for the map, orders,
 hosting, Discord linking, and voice controls. This is an optional private/local

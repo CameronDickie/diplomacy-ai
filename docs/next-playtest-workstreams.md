@@ -1,5 +1,7 @@
 # Next Playtest Workstreams
 
+> **Historical.** Written before the scenario flow existed; kept for context. It does not describe current behaviour and its setup steps should not be followed. See [README.md](README.md) for current documentation.
+
 This plan converts the June 2026 playtest feedback into independent workstreams.
 The implementation order protects rules correctness first, then establishes the
 server contracts needed by the new player dashboard.

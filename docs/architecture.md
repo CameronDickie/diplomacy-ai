@@ -1,5 +1,86 @@
 # Architecture
 
+Two applications share one server process, one rules engine and one map:
+
+- the **scenario game** (`/challenge`, and `/` in the showcase profile): HTTP
+  API, signed-in players, SQLite as the authority. This is the product.
+- the **legacy room game** (`/` in the local profile): Socket.IO rooms held in
+  memory, used for local development with offline bots. It is disabled in the
+  showcase profile. The sections from "Ownership Boundaries" onward describe it.
+
+## Scenario game
+
+```text
+browser ──HTTP──▶ httpBoundary (origin checks, no-store)
+                    ├─ /api/auth      AuthService        sign-in, sessions, operator role
+                    ├─ /api/operator  OperatorService    overview, spectate, stop/ban, paid switch
+                    └─ /api           ChallengeService   catalog, replay, attempts, account
+                                         │  RateLimiter (address, then account)
+                                         ▼
+                                   AttemptService ── PhaseRules ──▶ Go engine (Godip)
+                                         │                └─ DecisionProvider (hold-only today)
+                                         ▼
+                                   Store ──worker thread──▶ SQLite (WAL)
+Notifier ◀── outbox table                       ▲
+                                    retention sweep (hourly)
+```
+
+Rules that shape the code:
+
+- **SQLite is the authority.** The browser holds no game state it can assert.
+  Every write happens in one `BEGIN IMMEDIATE` transaction on a worker thread;
+  in-memory promises only coalesce work and carry cancellation.
+- **A phase is a durable job.** Accepting orders freezes the board, definition
+  and action into `phase_jobs`. Deciding, resolving and committing each check a
+  fence (operation, attempt, phase, revision), so a late or duplicate result
+  cannot commit and a crash resumes from the frozen inputs.
+- **Requests are idempotent by request ID.** A repeated start or submission
+  returns the original result and consumes nothing.
+- **Public output is projected, not filtered.** `storage/publicData.ts` copies
+  named fields into public shapes; anything not named is absent.
+- **Opponent decisions come through one seam.** `DecisionProvider` receives a
+  frozen copy of the job and returns decisions; it cannot commit. Today it
+  returns legal holds. The funded `gpt-6-luna` adapter will plug in here.
+- **Provider calls are recorded before they are interpreted**, and every
+  `prepare`/`dispatch` re-checks that the attempt is active, the player is not
+  banned, the fence is current and the paid switch is not stopped.
+- **Scoring reads server-recorded Fall reports only**, after retreats settle.
+
+### Code map
+
+| Path | Responsibility |
+| -- | -- |
+| `config/runtime.cjs` | validated settings, profiles, paid-startup interlock |
+| `server/src/index.ts` | process wiring, HTTP and socket servers, shutdown |
+| `server/src/auth.ts`, `auth/` | OAuth flows, sessions, origin checks, operator role, socket policy |
+| `server/src/challenge/ChallengeService.ts` | public catalog and replay, attempt routes, account deletion, idle and retention sweeps |
+| `server/src/challenge/Catalog.ts` | rotation manifest and the featured-by-UTC-day function |
+| `server/src/challenge/TunisPilot.ts` | challenge definition type and the scorer |
+| `server/src/attempts/` | `AttemptService` (phase lifecycle), `PhaseRules` (legal orders, validation, resolution), action parsing |
+| `server/src/storage/Store.ts`, `worker.ts` | typed RPC to the SQLite worker; every operation |
+| `server/src/storage/migrations.ts` | append-only, checksummed schema |
+| `server/src/storage/phases.ts` | phase job fences and commit |
+| `server/src/storage/providerCalls.ts` | provider call ledger |
+| `server/src/storage/retention.ts` | cleanup and account deletion |
+| `server/src/storage/operator.ts`, `outbox.ts` | operator views, paid switch, audit, notifications |
+| `server/src/storage/publicData.ts` | public projections and challenge parsing |
+| `server/src/operator/` | operator routes and the notification sender |
+| `server/src/limits/RateLimiter.ts` | rate buckets and client address policy |
+| `server/src/providers/` | provider accounting and the Luna request contract |
+| `server/src/fixtures/` | board and scenario import/export, witnesses, CLI |
+| `server/fixtures/` | development scenarios and the rotation manifest |
+| `server/src/adjudication/` | bounded executor for the Go engine |
+| `server/src/GameRoom.ts`, `handlers/`, `llm/`, `discord/` | legacy room game and optional integrations |
+| `client/src/ui/ChallengeApp.tsx`, `OperatorPanel.tsx` | scenario page and operator view |
+| `client/src/hooks/useChallenge.ts`, `useAuth.tsx` | client state for the scenario flow |
+| `shared/src/types/challenge.ts`, `operator.ts`, `history.ts` | wire types |
+| `engine/` | Go wrapper around Godip; `cmd/generate-board` produces adjacency data |
+
+Tests live in `server/src/test`; each area above has a matching file, and
+`AccessMatrix.test.ts` fails if an API route is added without an access class.
+
+## Legacy room game
+
 ## Ownership Boundaries
 
 `client/` displays public game state and submits player intent. It is not trusted

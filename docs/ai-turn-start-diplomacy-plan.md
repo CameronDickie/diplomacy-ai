@@ -1,5 +1,7 @@
 # AI Turn-Start Diplomacy Plan
 
+> **Historical.** Written before the scenario flow existed; kept for context. It does not describe current behaviour and its setup steps should not be followed. See [README.md](README.md) for current documentation.
+
 ## Goal
 
 Let LLM powers initiate diplomacy near the beginning of an orders phase so

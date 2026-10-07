@@ -1,5 +1,7 @@
 # Playtest Iteration 2 Feature Notebook
 
+> **Historical.** Written before the scenario flow existed; kept for context. It does not describe current behaviour and its setup steps should not be followed. See [README.md](README.md) for current documentation.
+
 This notebook captures the longer solo playtest that mixed Discord voice,
 browser text diplomacy, LLM orders, and later-game build/retreat phases. The
 goal is to identify the last practical UX and reliability work before inviting

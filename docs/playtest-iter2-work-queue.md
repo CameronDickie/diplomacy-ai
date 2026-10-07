@@ -1,5 +1,7 @@
 # Playtest Iteration 2 Work Queue
 
+> **Historical.** Written before the scenario flow existed; kept for context. It does not describe current behaviour and its setup steps should not be followed. See [README.md](README.md) for current documentation.
+
 This queue turns [playtest-iter2-feature-notebook.md](./playtest-iter2-feature-notebook.md)
 into implementation-sized workstreams. The order is intentional: protect
 multiplayer correctness first, then remove high-friction order-entry bugs, then

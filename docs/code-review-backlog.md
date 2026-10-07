@@ -1,5 +1,7 @@
 # Code review and repair backlog
 
+> **Historical.** Written before the scenario flow existed; kept for context. It does not describe current behaviour and its setup steps should not be followed. See [README.md](README.md) for current documentation.
+
 Reviewed September 14, 2026. This is the working checklist for the whole-codebase
 review, not a claim that every item has been implemented.
 

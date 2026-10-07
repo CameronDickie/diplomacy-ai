@@ -1,55 +1,51 @@
-# Development checkpoint — September 27, 2026
+# Current state — October 6, 2026
 
-## Where development stopped
+A dated snapshot. For live status use Linear
+([tracking pointer](public-showcase-tracking.md)); for behaviour use the pages
+listed in [README.md](README.md).
 
-The active September 15 submission-recovery work has been reviewed, verified,
-and saved in a local Git checkpoint titled
-`Make phase submissions idempotent and recoverable`.
+## Built and tested
 
-- Orders, retreats, and builds carry phase IDs and request IDs.
-- Identical requests share one attempt; accepted receipts remain idempotent
-  after the phase changes. Reusing an ID with different content is rejected.
-- The server owns editing/submitting/accepted/failed status and restores it on
-  reconnect. Rejected submissions can be corrected and retried.
-- Mandatory Winter disbands no longer fail against a negative build allowance.
-- Browser forms reflect server acceptance and retain local drafts during a
-  network disconnect. Full page reloads do not preserve unsent drafts.
+| Area | Behaviour | Where |
+| -- | -- | -- |
+| Rules | Godip v0.6.5 adjudicates orders, retreats and builds through a bounded, cancellable executable | `engine/`, `server/src/adjudication` |
+| Scenarios | Versioned JSON boards and scenarios with deterministic success and failure witnesses | [board-fixtures.md](board-fixtures.md) |
+| Rotation | Six pinned development scenarios, one featured per UTC day; attempts stay pinned | [first-challenge.md](first-challenge.md) |
+| Public page | Goal, rules, limits and privacy text; sanitized reference replay; no account needed | `client/src/ui/ChallengeApp.tsx` |
+| Sign-in | GitHub (PKCE) and Google (signed OIDC), opaque revocable sessions, no linking by email | [authentication.md](authentication.md) |
+| Owned play | Start, resume, legal-order menus, submit, idempotent retries, settled-Fall scoring, phase history | [attempts.md](attempts.md) |
+| Durability | SQLite authority, checksummed migrations, frozen phase jobs, crash recovery, protected backup and restore | [storage.md](storage.md) |
+| Limits | Global, per-account and daily quotas in the admission transaction; idle expiry; per-route rate buckets | [limits.md](limits.md) |
+| Retention | Results 30 days, diagnostics 7 days, session and counter pruning; account deletion | [storage.md](storage.md) |
+| Operator | Overview, spectator view, paid stop switch, attempt stop, account ban, audit trail, notification outbox | [operator.md](operator.md) |
+| Provider accounting | Every provider call recorded before its output is interpreted; late bills reconcile | [provider-accounting.md](provider-accounting.md) |
+| Packaging | Non-root container with source and notices; CI on Linux and macOS | [deployment.md](deployment.md), [build-baseline.md](build-baseline.md) |
 
-Verification on September 27: `npm run check` passed, including the production
-build, all 69 server tests, and all 10 Go tests. No paid provider calls,
-deployment, or live Discord tests were performed. Manual browser checks for
-errors, retry/reconnect behavior, and form locking remain open.
+## Not built
 
-## Next work
+| Gap | Consequence | Linear |
+| -- | -- | -- |
+| Budget reservation and exhaustion | No paid call can be authorized; the server refuses to start with paid AI enabled | DIC-64 |
+| Luna adapter, bounded prompts, funded recovery | Opponents hold every turn in practice mode | DIC-66, DIC-67, DIC-60 |
+| Sponsored attempt mode | Every attempt is `PRACTICE` | DIC-54 |
+| Usage-receipt pruning | `provider_calls` is kept indefinitely until a cumulative ledger exists | DIC-62 with DIC-64 |
+| Quality, latency and cost measurement | No evidence that Luna opponents are fair, fast or affordable | DIC-68 |
+| End-to-end release verification and runbook exercise | Not release-ready | DIC-70, DIC-72 |
+| Approved public catalog | The rotation is test content and is not labelled daily | owner decision |
 
-[Public showcase tracking](public-showcase-tracking.md) links the active Linear
-MVP plan. DIC-49 establishes the reproducible build and CI baseline; see
-[build-baseline.md](build-baseline.md) for its verification record.
-[code-review-backlog.md](code-review-backlog.md) retains the detailed repair
-history. The older roadmap and playtest notebooks retain broader feature plans;
-a planned feature is not necessarily implemented. The remaining core-game work
-identified at the previous checkpoint is:
+## Evidence and its limits
 
-1. Finish the browser smoke checks for submission recovery and error visibility
-   (R15/R16), ideally using two human clients.
-2. Implement authoritative human legal-order menus (R17): friendly-occupied
-   destinations, convoy support, cooperative convoys, and reachable split coasts.
-   Godip already supplies legal-order catalogs for LLM decisions.
-3. Repair chat delivery/retry behavior (R18), then persist games and recover
-   interrupted phases transactionally (R7). Games currently disappear when the
-   server process restarts.
-4. Coordinate ongoing negotiations with phase resolution (R4), preserve all
-   production AI configuration (R8), and account for every provider attempt (R20).
+All verification so far is offline: unit and HTTP tests with mocked providers
+and a mocked mail adapter, plus browser passes against a local server using a
+locally seeded test session. There have been no paid provider calls, no live
+notification emails beyond the one setup email recorded in Linear, and no
+deployment. Real-provider sign-in was verified once on localhost for both
+providers; later browser passes did not repeat it.
 
-Future features include deadlines and pause/resume, draw/end-game rules, richer
-power activity, and bounded all-LLM simulations. Voice and Discord repairs are
-deferred behind reliable browser play and recovery. Product choices such as
-deadline defaults and disconnected-seat replacement still need decisions.
+`npm run check` is the single local gate. CI runs it on Ubuntu with Node 22 and
+Go 1.23 and on macOS with Node 26 and Go 1.27, and builds the production image.
 
 ## Set up another computer
-
-Install Node.js 22.16 or newer, npm, Git, and Go 1.23 or newer. Clone the
-repository using your GitHub SSH access:
 
 ```bash
 git clone git@github.com:CameronDickie/diplomacy-ai.git
@@ -59,23 +55,17 @@ npm run check
 npm run dev
 ```
 
-Open `http://localhost:5173`. The development commands build the Go engine for
-the current computer; neither Terraform nor deployment is needed for local play.
+No `.env` is required. Secrets, Terraform state and build output are not part of
+the checkout. See the repository README for the URLs.
 
-The server can start without a `.env` file using stub LLM controllers and no
-Discord integration. For optional paid AI or Discord features, create a local
-`.env` using [../.env.example](../.env.example) and the integration setup notes.
-Local secrets, Terraform state, and generated build/dependency directories are
-not part of the portable source checkout.
+## Repository history note
 
-## Git history cleanup
-
-The generated `infra/terraform/diplomacy/.terraform/` provider cache was removed
-from every commit before the initial GitHub push. All 19 existing commits were
-preserved, and each cleaned commit was checked against its original tree and
-metadata. The infrastructure source and `.terraform.lock.hcl` are unchanged.
-The cache is ignored and can be regenerated with `terraform init`.
-
-The original history is backed up locally in
-`.git/diplomacy-before-github-2026-09-27.bundle`; that backup is not uploaded.
-Commit hashes from the first infrastructure commit onward changed during cleanup.
+Before the first push the generated Terraform provider cache was removed from
+every commit; commit hashes from the first infrastructure commit onward changed.
+On October 6, 2026 an automated pattern scan of tracked files and of every line
+ever added in history (provider, GitHub, Google, Resend, AWS and Discord token
+shapes and private-key headers) found no matches; the only environment-style
+files ever tracked are `.env.example` and `terraform.tfvars.example`, and
+tracked email addresses are placeholders. That is a pattern scan, not a
+guarantee: a human review of history before making the repository public is
+still part of the release gate (DIC-72).

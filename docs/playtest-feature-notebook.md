@@ -1,5 +1,7 @@
 # Playtest Feature Notebook
 
+> **Historical.** Written before the scenario flow existed; kept for context. It does not describe current behaviour and its setup steps should not be followed. See [README.md](README.md) for current documentation.
+
 This document turns playtest observations into independent implementation
 workstreams. Each workstream should be small enough to design, implement, test,
 and review without requiring the others to ship at the same time.
