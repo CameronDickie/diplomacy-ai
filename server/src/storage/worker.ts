@@ -192,6 +192,8 @@ async function handle(request: StoreRequest): Promise<unknown> {
     case 'attemptFunding': return new FundingRepository(db).attempt(input.attemptId);
     case 'grantFunding': return transaction(() => new FundingRepository(db).grant(input));
     case 'setFundingPolicy': return transaction(() => new FundingRepository(db).policy(input));
+    case 'resolveLiability': return transaction(() => new FundingRepository(db).resolve(input));
+    case 'heldLiabilities': return new FundingRepository(db).held();
     case 'releaseProviderCall': return transaction(() => new FundingRepository(db).releasePrepared(input));
     case 'reconcileFunding': return transaction(() => ({released:new FundingRepository(db).reconcile(input.now)}));
     case 'dispatchProviderCall': return transaction(() => new ProviderCallRepository(db).dispatch(input));

@@ -23,13 +23,13 @@ export type Refusal = { refused: 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED'
 export class FundingRepository {
   constructor(private db: DatabaseSync) {}
   private pool() { return this.db.prepare('SELECT settled_nanousd,attempt_cap_nanousd,ceiling_limit_nanousd FROM funding_pool WHERE id=1').get()!; }
-  private held(attemptId?: string): number {
+  private heldTotal(attemptId?: string): number {
     return Number(this.db.prepare("SELECT COALESCE(sum(reserved_nanousd),0) n FROM reservations WHERE state='HELD' AND (?1 IS NULL OR attempt_id=?1)").get(attemptId ?? null)!.n);
   }
   totals(): FundingTotals {
     const pool = this.pool(), grants = this.db.prepare('SELECT count(*) n,COALESCE(sum(amount_nanousd),0) total FROM funding_grants').get()!;
     const granted = Number(grants.total), limit = pool.ceiling_limit_nanousd === null ? null : Number(pool.ceiling_limit_nanousd);
-    const ceiling = limit === null ? granted : Math.min(granted,limit), settled = Number(pool.settled_nanousd), held = this.held();
+    const ceiling = limit === null ? granted : Math.min(granted,limit), settled = Number(pool.settled_nanousd), held = this.heldTotal();
     // In flight: prepared or dispatched and still expected to report. Unknown: finished, or answered, without usable usage.
     const unknown = Number(this.db.prepare(`SELECT COALESCE(sum(r.reserved_nanousd),0) n FROM reservations r LEFT JOIN provider_calls c ON c.id=r.call_id
       WHERE r.state='HELD' AND (c.id IS NULL OR c.outcome IS NOT NULL OR c.received_at IS NOT NULL)`).get()!.n);
@@ -37,7 +37,7 @@ export class FundingRepository {
       availableNanousd:Math.max(0,ceiling-settled-held), attemptCapNanousd:Number(pool.attempt_cap_nanousd), grants:Number(grants.n) };
   }
   attempt(attemptId: string): { settledNanousd: number; heldNanousd: number } {
-    return { settledNanousd:Number(this.db.prepare('SELECT settled_nanousd FROM attempt_spend WHERE attempt_id=?').get(attemptId)?.settled_nanousd ?? 0), heldNanousd:this.held(attemptId) };
+    return { settledNanousd:Number(this.db.prepare('SELECT settled_nanousd FROM attempt_spend WHERE attempt_id=?').get(attemptId)?.settled_nanousd ?? 0), heldNanousd:this.heldTotal(attemptId) };
   }
   /** Replenishment. The reference makes a repeated command harmless and a reused reference with another amount an error. */
   grant(input: StoreOperations['grantFunding']['input']): FundingTotals {
@@ -85,6 +85,29 @@ export class FundingRepository {
     // A bill above its worst-case estimate means the estimate is wrong: stop admitting more on it.
     const overEstimate = !reservation || reservation.state === 'RELEASED' || costNanousd > Number(reservation.reserved_nanousd);
     if (overEstimate || this.totals().settledNanousd > this.totals().ceilingNanousd) stopPaid(this.db,'COST_ANOMALY',now);
+  }
+  /**
+   * Closes a held reservation at an amount the owner has verified with the provider, for a call
+   * that ended without reporting usage. Zero is allowed when the provider confirms no charge.
+   * Like a grant it needs host access and a reference, and it is recorded in the audit trail.
+   */
+  resolve(input: StoreOperations['resolveLiability']['input']): FundingTotals {
+    time(input.now);
+    if (!Number.isSafeInteger(input.costNanousd) || input.costNanousd < 0 || input.costNanousd > 1_000_000_000_000 || typeof input.authorizationRef !== 'string' || !/^[A-Za-z0-9:_.-]{8,100}$/.test(input.authorizationRef)) invalid();
+    const row = this.db.prepare(`SELECT r.state,r.attempt_id,c.state call_state,c.outcome,c.received_at FROM reservations r LEFT JOIN provider_calls c ON c.id=r.call_id WHERE r.call_id=?`).get(input.callId);
+    // A call still in flight may yet report its own usage; only an ended one can be resolved by hand.
+    if (!row || row.state !== 'HELD' || (row.call_state !== null && row.outcome === null && row.received_at === null)) throw new StoreError('STORE_CONFLICT','Only a held reservation for a call that has ended can be resolved.');
+    this.db.prepare("UPDATE reservations SET state='SETTLED',settled_nanousd=?,closed_at=? WHERE call_id=?").run(input.costNanousd,input.now,input.callId);
+    this.db.prepare('UPDATE funding_pool SET settled_nanousd=settled_nanousd+?,updated_at=? WHERE id=1').run(input.costNanousd,input.now);
+    this.db.prepare('INSERT INTO attempt_spend(attempt_id,settled_nanousd,calls) VALUES(?,?,1) ON CONFLICT(attempt_id) DO UPDATE SET settled_nanousd=settled_nanousd+excluded.settled_nanousd,calls=calls+1').run(String(row.attempt_id),input.costNanousd);
+    this.db.prepare("INSERT INTO operator_audit(at,operator_id,action,target) VALUES(?,?,'LIABILITY_RESOLVED',?)").run(input.now,`cli:${input.authorizationRef}`.slice(0,100),input.callId);
+    return this.totals();
+  }
+  /** Lists what is still held, oldest first, so the owner can look each call up with the provider. */
+  held(): StoreOperations['heldLiabilities']['output'] {
+    return this.db.prepare(`SELECT r.call_id,r.attempt_id,r.reserved_nanousd,r.created_at,c.state,c.outcome,c.response_id FROM reservations r LEFT JOIN provider_calls c ON c.id=r.call_id
+      WHERE r.state='HELD' ORDER BY r.created_at,r.call_id LIMIT 500`).all().map(r => ({ callId:String(r.call_id), attemptId:String(r.attempt_id), reservedNanousd:Number(r.reserved_nanousd), createdAt:Number(r.created_at),
+        callState:r.state === null ? null : String(r.state), outcome:r.outcome === null ? null : String(r.outcome), responseId:r.response_id === null ? null : String(r.response_id) }));
   }
   /** Only a call still PREPARED can be released: dispatch is the durable claim taken before any network use. */
   private release(callId: string, now: number): void {

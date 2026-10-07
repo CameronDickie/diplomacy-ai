@@ -47,6 +47,34 @@ calls** if the pool had run out. `LLM_TOTAL_BUDGET_USD` only narrows what grants
 allow. Paid play itself is still switched off in code until the provider adapter
 is integrated and the owner authorizes spend.
 
+## Turning on live Luna opponents (not done; owner decision)
+
+Today a deployment offers practice only. Everything below is deliberate work
+that has **not** been done, in the order it should happen:
+
+1. **Live evaluation.** On the machine that holds the ledger database, record a
+   grant for the experiment and run a small live batch
+   ([evaluation.md](evaluation.md)). This is the first time money is spent.
+   Read the report against the three targets.
+2. **Decide.** If the targets are missed, stop here. Do not relax them quietly.
+3. **Remove the two code interlocks in one reviewed change**: the refusal in
+   `assertRuntimeReady` (`config/runtime.cjs`) and the matching check at the top
+   of `ChallengeService`'s constructor, and in that same change construct
+   `httpLunaTransport` from `OPENAI_API_KEY` when `DIPLOMACY_PAID_AI_ENABLED` is
+   true. Nothing else selects the real transport. Update `RuntimeConfig.test.ts`,
+   `scripts/staging-check.sh` (it asserts the refusal) and `AccessMatrix.test.ts`
+   if a route changes.
+4. **Configure** `DIPLOMACY_PAID_AI_ENABLED=true`, `LLM_ALLOWED_PROVIDERS=OPENAI`,
+   `OPENAI_API_KEY`, `LLM_TOTAL_BUDGET_USD` (a brake, not a source of funds) and
+   `LLM_MAX_GAME_COST_USD` (the per-attempt cap), plus the operator ID and both
+   sign-in providers, which paid showcase mode requires.
+5. **Grant** funds in the production database and check `storage funding`.
+6. **Watch** the operator view during the first attempts; **Stop new paid
+   calls** is immediate.
+
+Until step 3 the server refuses to start with paid AI enabled, whatever the
+environment says.
+
 ## Stop an attempt or ban an account
 
 Operator → the attempt's row → **Stop** or **Ban account**, then confirm. Stop

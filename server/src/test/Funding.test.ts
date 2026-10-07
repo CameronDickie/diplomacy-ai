@@ -267,3 +267,31 @@ test('the storage command grants exact decimal dollars once per reference and re
     await assert.rejects(storage(...args),args.join(' '));
   assert.deepEqual([(await f.totals()).ceilingNanousd,(await f.totals()).grants],[2_300_000_001,2]);
 });
+
+test('a held liability for an ended call can be resolved once at a verified amount; in-flight and closed ones cannot',async t=>{
+  const f=await setup(t),p=await f.phase('a');
+  for(const call of ['timed-out','in-flight','answered']){await p.prepare(call);await f.store.call('dispatchProviderCall',{id:call,now:f.now()});}
+  await f.store.call('finishProviderCall',{id:'timed-out',outcome:'TIMEOUT',now:f.now()});
+  await f.store.call('receiveProviderCall',{id:'answered',responseId:'resp_a',usage:usage(10_000),now:f.now()});
+  assert.deepEqual((await f.store.call('heldLiabilities',{})).map(h=>[h.callId,h.reservedNanousd,h.outcome]),[['in-flight',COST,null],['timed-out',COST,'TIMEOUT']]);
+  const resolve=(callId:string,costNanousd:number,authorizationRef='owner-verified-0001')=>f.store.call('resolveLiability',{callId,costNanousd,authorizationRef,now:f.now()});
+  await assert.rejects(resolve('in-flight',0),{code:'STORE_CONFLICT'});
+  await assert.rejects(resolve('answered',0),{code:'STORE_CONFLICT'});
+  await assert.rejects(resolve('missing',0),{code:'STORE_CONFLICT'});
+  for(const [cost,ref] of [[-1,'owner-verified-0001'],[1.5,'owner-verified-0001'],[5,'short']] as const)await assert.rejects(resolve('timed-out',cost,ref),{code:'STORE_INVALID'});
+  const after=await resolve('timed-out',42_000);
+  assert.deepEqual([after.settledNanousd,after.unknownLiabilityNanousd,after.reservedNanousd],[52_000,0,COST]);
+  await assert.rejects(resolve('timed-out',42_000),{code:'STORE_CONFLICT'});
+  // If the provider's own bill turns up afterwards it is not charged a second time.
+  await f.store.call('receiveProviderCall',{id:'timed-out',responseId:'resp_late',usage:usage(42_000),now:f.now()});
+  assert.equal((await f.totals()).settledNanousd,52_000);
+  assert.deepEqual(await f.store.call('attemptFunding',{attemptId:'a'}),{settledNanousd:52_000,heldNanousd:COST});
+  assert.deepEqual((await f.store.call('operatorOverview',{})).audit.map(x=>[x.action,x.target,x.operatorId]),[['LIABILITY_RESOLVED','timed-out','cli:owner-verified-0001']]);
+  // The command line does the same, and accepts a verified zero.
+  await f.store.call('finishProviderCall',{id:'in-flight',outcome:'TRANSPORT_ERROR',now:f.now()});
+  const run=promisify(execFile),cli=fileURLToPath(new URL('../storage/cli.js',import.meta.url));
+  const storage=async(...args:string[])=>JSON.parse((await run(process.execPath,[cli,...args],{env:{PATH:process.env.PATH}})).stdout);
+  assert.deepEqual((await storage('held',f.path)).map((h:{callId:string})=>h.callId),['in-flight']);
+  assert.deepEqual([(await storage('resolve',f.path,'in-flight','0','owner-verified-0002')).unknownLiabilityNanousd,(await f.totals()).settledNanousd],[0,52_000]);
+  await assert.rejects(storage('resolve',f.path,'in-flight','0'));
+});

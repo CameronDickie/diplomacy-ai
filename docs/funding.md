@@ -48,6 +48,22 @@ dispatched afterwards. The hourly sweep (`reconcileFunding`) does this for
 prepared calls whose attempt is closed or gone. A dispatched call is never
 released.
 
+## Resolving a liability that never settles
+
+A call that timed out or errored may never report usage, and its reservation
+would otherwise stay held for good. After checking the provider's own records,
+the owner can close it at the verified amount (zero if the provider confirms no
+charge):
+
+```bash
+npm run storage -- held /data/diplomacy.sqlite
+npm run storage -- resolve /data/diplomacy.sqlite <call-id> <USD> <authorization-reference>
+```
+
+Only a held reservation for a call that has ended can be resolved; one still in
+flight cannot. It is recorded in the operator audit trail, and a bill arriving
+later for the same call is not charged again.
+
 ## Limits and refusals
 
 | Refusal | When | Effect |

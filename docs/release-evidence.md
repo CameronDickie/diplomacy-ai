@@ -27,6 +27,8 @@ Status: **not release-ready.** The open rows below are blockers.
 | Notifications once per event, retry, no blocking of play | Verified offline with a mocked mail adapter | `Operator.test.ts` |
 | Backup, restart and restore preserve identity, attempts, reports, spend, unresolved liability | Verified in a local container | `scripts/staging-check.sh` |
 | Rollback | Procedure documented; older-image refusal covered by migration-mismatch tests | [deployment.md](deployment.md), `Store.test.ts` |
+| One end-to-end journey over HTTP: guest → mocked GitHub sign-in → practice win with early capture → restart → sponsored attempt (mock opponents) → operator oversight → pause, wait, credit request, resume → account deletion → sign-out | Verified offline in CI | `Journey.test.ts` |
+| Automated browser tests in CI | **Not built.** Browser behaviour is covered by manual passes against a local server (guest, signed-in play, replay isolation, account deletion, operator view, rotation win, mock sponsored attempt) at desktop and phone widths | DIC-70 |
 | Budget ledger: grants, reservations, per-attempt and total caps, exhaustion, crash safety | Verified offline with synthetic amounts | `Funding.test.ts`, staging check; [funding.md](funding.md) |
 | Luna request contract, bounded context, decision provider, funded crash recovery | Verified offline with a mock transport | `LunaPreset.test.ts`, `LunaContext.test.ts`, `LunaProvider.test.ts` |
 | Sponsored attempt mode in the API and UI | Verified offline with a mock transport; browser pass against the local mock | `SponsoredMode.test.ts` |
@@ -41,3 +43,17 @@ Status: **not release-ready.** The open rows below are blockers.
 
 Update this table when a row changes; do not mark a row verified on the
 strength of code existing.
+
+## Manual browser passes recorded so far
+
+All against a local server with a scratch database and locally seeded test
+sessions; none used real sign-in or a real provider.
+
+| Pass | What was checked |
+| -- | -- |
+| Guest, desktop and 375 px | guide copy uses server limits; replay steps to the end and returns; no horizontal overflow |
+| Signed-in replay isolation | a chosen order survives opening and leaving the reference replay |
+| Account deletion | confirm step, sign-out, history cleared, API returns 401 |
+| Operator view | tiles, spectator map, stop, ban, paid switch, audit list; 375 px without overflow |
+| Rotation | the day's featured scenario played to "Objective complete · Early capture" |
+| Mock sponsored attempt | second start button, mode badge and label, opponents moved after one turn |

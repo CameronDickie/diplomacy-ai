@@ -71,6 +71,8 @@ export interface StoreOperations {
   attemptFunding: { input: { attemptId:string }; output: { settledNanousd:number; heldNanousd:number } };
   grantFunding: { input: { amountNanousd:number; authorizationRef:string; grantedBy:string; now:number }; output: FundingTotals };
   setFundingPolicy: { input: { attemptCapNanousd:number; ceilingLimitNanousd:number|null; now:number }; output: FundingTotals };
+  resolveLiability: { input: { callId:string; costNanousd:number; authorizationRef:string; now:number }; output: FundingTotals };
+  heldLiabilities: { input: {}; output: Array<{ callId:string; attemptId:string; reservedNanousd:number; createdAt:number; callState:string|null; outcome:string|null; responseId:string|null }> };
   releaseProviderCall: { input: { id:string; now:number }; output: FundingTotals };
   reconcileFunding: { input: { now:number }; output: { released:number } };
   operatorOverview: { input: {}; output: { funding:FundingTotals; activeAttempts:number; attempts:OperatorAttemptRow[]; spend:SpendTotals; paid:PaidState; outbox:{counts:Record<OutboxMessage['state'],number>;recent:OutboxMessage[]}; audit:Array<{at:number;operatorId:string;action:string;target:string|null}> } };
