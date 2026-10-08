@@ -18,7 +18,7 @@ browser ──HTTP──▶ httpBoundary (origin checks, no-store)
                                          │  RateLimiter (address, then account)
                                          ▼
                                    AttemptService ── PhaseRules ──▶ Go engine (Godip)
-                                         │                └─ DecisionProvider (hold-only today)
+                                         │                └─ DecisionProvider (by attempt mode)
                                          ▼
                                    Store ──worker thread──▶ SQLite (WAL)
 Notifier ◀── outbox table                       ▲
@@ -39,8 +39,12 @@ Rules that shape the code:
 - **Public output is projected, not filtered.** `storage/publicData.ts` copies
   named fields into public shapes; anything not named is absent.
 - **Opponent decisions come through one seam.** `DecisionProvider` receives a
-  frozen copy of the job and returns decisions; it cannot commit. Today it
-  returns legal holds. The funded `gpt-6-luna` adapter will plug in here.
+  frozen copy of the job and returns decisions; it cannot commit. Each
+  attempt's pinned mode routes it: legal holds (practice), the deterministic
+  practice bot, or a sponsored model through the funding ledger. Sponsored
+  model specifics (exact request, worst-case price, answer parsing) sit behind
+  `OpponentContract`, implemented for `gpt-6-luna` and `claude-haiku-5-5`. The
+  sponsored path runs against a mock transport only; paid startup is refused.
 - **Provider calls are recorded before they are interpreted**, and every
   `prepare`/`dispatch` re-checks that the attempt is active, the player is not
   banned, the fence is current and the paid switch is not stopped.
@@ -69,7 +73,7 @@ Rules that shape the code:
 | `server/src/attempts/PracticeBot.ts` | the free deterministic practice opponent |
 | `server/src/luna/`, `server/src/evaluation/` | Luna choices, context, decision provider, transports; the evaluation harness |
 | `server/src/limits/RateLimiter.ts` | rate buckets and client address policy |
-| `server/src/providers/` | provider accounting and the Luna request contract |
+| `server/src/providers/` | provider accounting, the `OpponentContract` seam, and the Luna and Haiku request contracts and answer parsers |
 | `server/src/fixtures/` | board and scenario import/export, witnesses, CLI |
 | `server/fixtures/` | development scenarios and the rotation manifest |
 | `server/src/adjudication/` | bounded executor for the Go engine |
@@ -179,7 +183,8 @@ host-only outcome summary with game-level run, retry, and fallback counters;
 the event excludes prompts, private messages, memory, and structured decisions.
 
 The current provider implementations are the deterministic stub, OpenAI
-structured output, and Gemini structured output. Provider and model selection is
+structured output, Gemini structured output, and local Ollama structured output
+([local-ai.md](local-ai.md)). Provider and model selection is
 resolved through server-owned role defaults, allowlists, timeouts, retry limits,
 output-token limits, and per-game estimated spend caps before any paid request
 is made.

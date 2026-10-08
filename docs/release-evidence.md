@@ -3,8 +3,14 @@
 A requirement-by-requirement record of what has been verified and how. "Offline"
 means automated tests with mocked providers and mail, or a local server or
 container using locally seeded test sessions. Nothing here is evidence from a
-deployed site, a paid provider call or a live notification email, because none
-has happened.
+deployed site or a live notification email, because neither has happened. The
+only paid provider calls ever made are one owner-funded evaluation attempt of
+the sequential Luna preset on October 7, 2026; the game server has made none.
+
+The 31 container checks in `scripts/staging-check.sh` last passed against
+master `7c9b3e2` on October 8, 2026, after the concurrent-dispatch and Ollama
+merges. The Haiku preset merged afterwards is covered by CI's image job and its
+own container run, not by a fresh staging pass.
 
 Status: **not release-ready.** The open rows below are blockers.
 
@@ -33,7 +39,10 @@ Status: **not release-ready.** The open rows below are blockers.
 | Budget ledger: grants, reservations, per-attempt and total caps, exhaustion, crash safety | Verified offline with synthetic amounts | `Funding.test.ts` including late-bill corrections, narrowed-policy dispatch and immutable correction evidence; staging check; [funding.md](funding.md) |
 | Luna request contract, bounded context, exact-input HTTP preflight, decision provider, funded crash recovery | Verified offline with a mock transport | `LunaPreset.test.ts`, `LunaContext.test.ts`, `LunaProvider.test.ts` |
 | Sponsored attempt mode in the API and UI | Verified offline with a mock transport; browser pass against the local mock | `SponsoredMode.test.ts` |
-| Any call to the real provider | **Open — never made; startup still refuses paid AI** | owner authorization |
+| Any call to a real provider from the game server | **Open — never made; startup still refuses paid AI** | owner authorization |
+| Real provider calls from the evaluation harness | One owner-funded live attempt of the sequential Luna preset (October 7, 2026). None for the concurrent Luna preset or for Haiku | [evaluation.md](evaluation.md) |
+| Second opponent preset (`claude-haiku-5-5`): pinned request, worst-case reservation, billed refusal/truncation, SDK transport with no retries, preset pinning | Verified offline against a stand-in endpoint; a mock game run in the hardened container with networking disabled. **Not shown: that the live API accepts this exact request, or how the model plays** | `HaikuPreset.test.ts`; `scripts/evaluate-in-container.sh`; [haiku-preset.md](haiku-preset.md) |
+| Local Ollama opponents for hosted rooms | Contract-tested against a stand-in server. **No real model run** | `OllamaProvider.test.ts`; [local-ai.md](local-ai.md) |
 | Evaluation harness: pinned manifest, durable phase timing/recovery evidence, ledger reconciliation | Verified offline, including SIGKILL at acceptance/recovery/commit, backup/restore and expired-attempt refusal | `Evaluation.test.ts`; [evaluation.md](evaluation.md) |
 | Quality, latency and cost targets (mean attempt under USD 1, phase p95 under 30 s, under 5 % unusable calls) | **Open — missed.** One live attempt of the sequential preset (October 7, 2026): cost passed, latency and unusable calls missed; one attempt is indicative only. The concurrent preset is unmeasured live and needs the owner's authorized evaluation | DIC-68 |
 | End-to-end verification with the funded path | **Open** | DIC-70 |
