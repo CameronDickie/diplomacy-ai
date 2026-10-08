@@ -28,7 +28,7 @@ const SUPPORTED_ENV_NAMES = [
   'DIPLOMACY_AUTH_CALLBACK_ORIGIN', 'DIPLOMACY_AUTH_RETURN_ORIGIN', 'DIPLOMACY_ADMIN_GITHUB_USER_IDS',
   'DIPLOMACY_GITHUB_CLIENT_ID', 'DIPLOMACY_GITHUB_CLIENT_SECRET',
   'DIPLOMACY_GOOGLE_CLIENT_ID', 'DIPLOMACY_GOOGLE_CLIENT_SECRET',
-  'OPENAI_API_KEY', 'GEMINI_API_KEY', 'OLLAMA_BASE_URL',
+  'OPENAI_API_KEY', 'GEMINI_API_KEY', 'ANTHROPIC_API_KEY', 'OLLAMA_BASE_URL',
   'LLM_ALLOWED_PROVIDERS', 'LLM_ALLOWED_MODELS',
   'LLM_MAX_GAME_COST_USD', 'LLM_TOTAL_BUDGET_USD', 'LLM_MAX_RETRIES',
   'LLM_REQUEST_TIMEOUT_MS', 'LLM_MAX_OUTPUT_TOKENS', 'LLM_MAX_INPUT_TOKENS',
@@ -44,7 +44,7 @@ const SUPPORTED_ENV_NAMES = [
   'DIPLOMACY_MAX_ACTIVE_ATTEMPTS', 'DIPLOMACY_MAX_ACTIVE_PER_ACCOUNT',
   'DIPLOMACY_DAILY_START_LIMIT', 'DIPLOMACY_IDLE_WARN_MINUTES', 'DIPLOMACY_IDLE_EXPIRE_MINUTES',
   'DIPLOMACY_RESULT_RETENTION_DAYS', 'DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS', 'DIPLOMACY_RECEIPT_RETENTION_DAYS',
-  'DIPLOMACY_TRUSTED_PROXY', 'DIPLOMACY_LUNA_TRANSPORT',
+  'DIPLOMACY_TRUSTED_PROXY', 'DIPLOMACY_LUNA_TRANSPORT', 'DIPLOMACY_SPONSORED_PRESET',
 ];
 
 function fail(name, requirement) {
@@ -199,6 +199,9 @@ function readRuntimeConfig(env = process.env, options = {}) {
   if (!['none', 'private'].includes(trustedProxy)) fail('DIPLOMACY_TRUSTED_PROXY', 'must be none or private');
   // `mock` plays sponsored attempts against a deterministic local stand-in. It makes no provider
   // call and is refused anywhere a visitor could mistake it for the real opponent.
+  // Which pinned contract new sponsored attempts use. One per deployment; attempts never switch.
+  const sponsoredPreset = value(env, 'DIPLOMACY_SPONSORED_PRESET', 'luna');
+  if (!['luna', 'haiku'].includes(sponsoredPreset)) fail('DIPLOMACY_SPONSORED_PRESET', 'must be luna or haiku');
   const lunaTransport = value(env, 'DIPLOMACY_LUNA_TRANSPORT', 'none');
   if (!['none', 'mock'].includes(lunaTransport)) fail('DIPLOMACY_LUNA_TRANSPORT', 'must be none or mock');
   if (lunaTransport === 'mock' && (mode !== 'local' || production)) fail('DIPLOMACY_LUNA_TRANSPORT', 'mock is only available in the local development profile');
@@ -216,7 +219,7 @@ function readRuntimeConfig(env = process.env, options = {}) {
     discord: { enabled: discordEnabled, voiceEnabled,
       voiceDebug: bool(env, 'DISCORD_VOICE_DEBUG', false), autoListen: bool(env, 'DISCORD_VOICE_AUTO_LISTEN', true) },
     engine: readEngineConfig(env),
-    notifyMode, admins, trustedProxy, lunaTransport, idleWarnMinutes, idleExpireMinutes, maxActiveAttempts, maxActivePerAccount,
+    notifyMode, admins, trustedProxy, lunaTransport, sponsoredPreset, idleWarnMinutes, idleExpireMinutes, maxActiveAttempts, maxActivePerAccount,
     dailyStartLimit: number(env, 'DIPLOMACY_DAILY_START_LIMIT', 3, 1, 100, true),
     resultRetentionDays: number(env, 'DIPLOMACY_RESULT_RETENTION_DAYS', 30, 1, 365, true),
     diagnosticRetentionDays: number(env, 'DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS', 7, 1, 365, true),

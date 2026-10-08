@@ -14,7 +14,7 @@ function manifest(v:EvaluationManifest):EvaluationManifest {
   run(v.runId);
   for(const value of [v.scenario,v.script,v.presetId,v.pricingVersion,v.contextVersion,v.harnessVersion])
     if(typeof value!=='string'||!/^[a-zA-Z0-9_-]{1,100}$/.test(value))invalid();
-  if(!['mock','live'].includes(v.transport)||v.model!=='gpt-6-luna'||v.timingPolicy!=='wall-submission-commit-v1'
+  if(!['mock','live'].includes(v.transport)||!['gpt-6-luna','claude-haiku-5-5'].includes(v.model)||v.timingPolicy!=='wall-submission-commit-v1'
     ||!Number.isSafeInteger(v.scenarioVersion)||v.scenarioVersion<1||v.scenarioVersion>1000
     ||(v.seed!==null&&(!Number.isSafeInteger(v.seed)||v.seed<0||v.seed>0xffffffff))
     ||!Number.isSafeInteger(v.maxRecoveries)||v.maxRecoveries<0||v.maxRecoveries>10

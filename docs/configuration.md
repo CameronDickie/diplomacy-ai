@@ -59,6 +59,7 @@ silently ignored. Comma-separated lists are trimmed and deduplicated.
 | `DIPLOMACY_ENGINE_TIMEOUT_MS` | 10000; integer 50–120000 |
 | `DIPLOMACY_ENGINE_MAX_OUTPUT_BYTES` | 4194304; integer 1024–16777216 |
 | `DIPLOMACY_TRUSTED_PROXY` | `none`; or `private` to take the client address from the right-most `X-Forwarded-For` entry when the direct peer is a private-network proxy |
+| `DIPLOMACY_SPONSORED_PRESET` | `luna`; or `haiku`. The pinned contract new sponsored attempts use; existing attempts keep theirs ([haiku-preset.md](haiku-preset.md)) |
 | `DIPLOMACY_LUNA_TRANSPORT` | `none`; `mock` (local non-production profile only) offers sponsored attempts against a deterministic stand-in that makes no provider call |
 | `DIPLOMACY_MAX_ACTIVE_ATTEMPTS` | 3; integer 1–100 |
 | `DIPLOMACY_MAX_ACTIVE_PER_ACCOUNT` | 1; positive integer no greater than global capacity |
@@ -86,7 +87,8 @@ now use this storage; see [authentication](authentication.md).
 ## AI policy
 
 `OPENAI_API_KEY` and `GEMINI_API_KEY` are required only when their paid provider is
-enabled. Private/local provider identifiers are `STUB`, `OPENAI`, `GEMINI`,
+enabled. `ANTHROPIC_API_KEY` is read only by a live evaluation of the Haiku preset;
+the server itself does not use it. Private/local provider identifiers are `STUB`, `OPENAI`, `GEMINI`,
 `ANTHROPIC`, `OPENROUTER`, `OLLAMA`; enabling an unimplemented adapter
 (`ANTHROPIC`, `OPENROUTER`) is rejected.
 Showcase accepts only STUB/OPENAI and exactly `gpt-6-luna` for OpenAI.

@@ -1,7 +1,7 @@
 import { ALL_POWERS, TERRITORIES } from '@diplomacy/shared';
 import type { Power, PublicPhaseReport } from '@diplomacy/shared';
 import type { PhaseJob } from '../attempts/types.js';
-import { LUNA_PRESET, buildLunaRequest, lunaReservationNanousd } from '../providers/LunaPreset.js';
+import { LUNA_CONTRACT, type OpponentContract, type OpponentRequest } from '../providers/OpponentContract.js';
 import { ChoiceError, buildChoices, orderChoices, retreatChoices, type ChoiceSet, type LegalOption } from './Choices.js';
 
 export const CONTEXT_VERSION = 'luna-context-v1';
@@ -43,7 +43,7 @@ export interface LunaPrompt {
   set: ChoiceSet;
   context: string;
   /** Exact serialized request and its hash, as reserved and sent. */
-  request: ReturnType<typeof buildLunaRequest>;
+  request: OpponentRequest;
   /** Reserve the entire accepted token ceiling; bytes do not prove a model token bound. */
   maxCostNanousd: number;
   measured: { contextBytes: number; requestBytes: number; sharedBytes: number; listed: number; total: number; recentLines: number; compacted: boolean };
@@ -55,7 +55,7 @@ export interface LunaPrompt {
  * then each unit's SUPPORT/CONVOY options from the end of its list — and the reduction is reported
  * in `measured`. A unit's HOLD is never removed. If it still does not fit, this throws.
  */
-export function lunaPrompt(job: Pick<PhaseJob,'board' | 'definition'>, power: Power, legal: readonly LegalOption[], lastReport: PublicPhaseReport | null): LunaPrompt | null {
+export function lunaPrompt(job: Pick<PhaseJob,'board' | 'definition'>, power: Power, legal: readonly LegalOption[], lastReport: PublicPhaseReport | null, contract: OpponentContract = LUNA_CONTRACT): LunaPrompt | null {
   if (!job.definition.opponentPowers.includes(power)) throw new ChoiceError('Only an opponent power is prompted.');
   const build = (keep: number) => job.board.phase === 'ORDERS' ? orderChoices(job.board,power,legal,keep) : job.board.phase === 'RETREATS' ? retreatChoices(job.board,power) : buildChoices(job.board,power);
   const full = build(Number.MAX_SAFE_INTEGER);
@@ -70,10 +70,10 @@ export function lunaPrompt(job: Pick<PhaseJob,'board' | 'definition'>, power: Po
     if (set.groups.length > 34 || set.choices.length > 100_000) break;
     const shared = sharedContext(job,lastReport,shape.recent), context = `${shared}\n\n${ownSection(set)}`;
     const contextBytes = Buffer.byteLength(context,'utf8');
-    if (contextBytes > LUNA_PRESET.maxContextBytes) continue;
-    const request = buildLunaRequest({ context }), requestBytes = Buffer.byteLength(request.body,'utf8');
-    if (requestBytes > LUNA_PRESET.maxRequestBytes) continue;
-    return { power, set, context, request, maxCostNanousd: lunaReservationNanousd(LUNA_PRESET.maxInputTokens),
+    if (contextBytes > contract.preset.maxContextBytes) continue;
+    const request = contract.buildRequest({ context }), requestBytes = Buffer.byteLength(request.body,'utf8');
+    if (requestBytes > contract.preset.maxRequestBytes) continue;
+    return { power, set, context, request, maxCostNanousd: contract.reservationNanousd(contract.preset.maxInputTokens),
       measured: { contextBytes, requestBytes, sharedBytes: Buffer.byteLength(shared,'utf8'), listed: set.coverage.listed, total: set.coverage.total, recentLines: shape.recent, compacted: shape !== shapes[0] } };
   }
   throw new ChoiceError('This position cannot be described within the request limits.');

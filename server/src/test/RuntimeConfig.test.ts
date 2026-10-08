@@ -61,7 +61,7 @@ test('production renderer preserves every supported setting, including aliases, 
     DIPLOMACY_ADMIN_GITHUB_USER_IDS: '1234,5678',
     DIPLOMACY_GITHUB_CLIENT_ID: 'synthetic-id', DIPLOMACY_GITHUB_CLIENT_SECRET: 'synthetic$#key',
     DIPLOMACY_GOOGLE_CLIENT_ID: 'synthetic-id', DIPLOMACY_GOOGLE_CLIENT_SECRET: 'synthetic$#key',
-    OPENAI_API_KEY: 'synthetic$#key', GEMINI_API_KEY: 'synthetic$#key', OLLAMA_BASE_URL: 'http://gpu-box.lan:11434',
+    OPENAI_API_KEY: 'synthetic$#key', GEMINI_API_KEY: 'synthetic$#key', ANTHROPIC_API_KEY: 'synthetic$#key', OLLAMA_BASE_URL: 'http://gpu-box.lan:11434',
     LLM_ALLOWED_PROVIDERS: 'STUB,OPENAI,GEMINI', LLM_ALLOWED_MODELS: 'synthetic-global',
     LLM_MAX_GAME_COST_USD: '0.75', LLM_TOTAL_BUDGET_USD: '2', LLM_MAX_RETRIES: '2',
     LLM_REQUEST_TIMEOUT_MS: '12000', LLM_MAX_OUTPUT_TOKENS: '512', LLM_MAX_INPUT_TOKENS: '4096',
@@ -72,7 +72,7 @@ test('production renderer preserves every supported setting, including aliases, 
     DIPLOMACY_MAX_ACTIVE_ATTEMPTS: '4', DIPLOMACY_MAX_ACTIVE_PER_ACCOUNT: '2',
     DIPLOMACY_DAILY_START_LIMIT: '5', DIPLOMACY_IDLE_WARN_MINUTES: '10', DIPLOMACY_IDLE_EXPIRE_MINUTES: '15',
     DIPLOMACY_RESULT_RETENTION_DAYS: '5', DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS: '2', DIPLOMACY_RECEIPT_RETENTION_DAYS: '180',
-    DIPLOMACY_TRUSTED_PROXY: 'private', DIPLOMACY_LUNA_TRANSPORT: 'none',
+    DIPLOMACY_TRUSTED_PROXY: 'private', DIPLOMACY_LUNA_TRANSPORT: 'none', DIPLOMACY_SPONSORED_PRESET: 'haiku',
   };
   for (const provider of PROVIDERS) {
     env[`LLM_ALLOWED_MODELS_${provider}`] = `synthetic-${provider}`;

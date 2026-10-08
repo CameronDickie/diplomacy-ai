@@ -18,7 +18,7 @@ function intent(v:ProviderCallIntent):ProviderCallIntent {
   identifier(v.id); identifier(v.fence.operationId); identifier(v.fence.attemptId);
   if(typeof v.fence.phaseId!=='string'||v.fence.phaseId.length>200)invalid();
   integer(v.fence.revision);identifier(v.pricingVersion);integer(v.maxCostNanousd,15_000_000_000);
-  if(!v.maxCostNanousd||v.provider!=='OPENAI'||v.model!=='gpt-6-luna'||!['ORDERS','RETREATS','BUILDS'].includes(v.role)||!ALL_POWERS.includes(v.power)||!/^[a-f0-9]{64}$/.test(v.requestHash))invalid();
+  if(!v.maxCostNanousd||!(v.provider==='OPENAI'&&v.model==='gpt-6-luna'||v.provider==='ANTHROPIC'&&v.model==='claude-haiku-5-5')||!['ORDERS','RETREATS','BUILDS'].includes(v.role)||!ALL_POWERS.includes(v.power)||!/^[a-f0-9]{64}$/.test(v.requestHash))invalid();
   return v;
 }
 function usage(v:ProviderUsage):ProviderUsage {

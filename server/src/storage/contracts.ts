@@ -75,7 +75,7 @@ export interface StoredExhibition {
 export interface EvaluationManifest {
   runId:string; transport:'mock'|'live'; scenario:string; scenarioVersion:number; fixtureHash:string;
   script:string; seed:number|null; presetId:string; pricingVersion:string; presetHash:string;
-  contextVersion:string; model:'gpt-6-luna'; harnessVersion:string; timingPolicy:'wall-submission-commit-v1'; maxRecoveries:number;
+  contextVersion:string; model:'gpt-6-luna'|'claude-haiku-5-5'; harnessVersion:string; timingPolicy:'wall-submission-commit-v1'; maxRecoveries:number;
 }
 export interface EvaluationPhase {
   operationId:string; attemptId:string; phaseId:string; sequence:number; startedAt:number;

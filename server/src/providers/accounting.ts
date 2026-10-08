@@ -6,8 +6,8 @@ export interface ProviderCallIntent {
   id: string;
   fence: PhaseFence;
   power: Power;
-  provider: 'OPENAI';
-  model: 'gpt-6-luna';
+  provider: 'OPENAI' | 'ANTHROPIC';
+  model: 'gpt-6-luna' | 'claude-haiku-5-5';
   role: 'ORDERS' | 'RETREATS' | 'BUILDS';
   pricingVersion: string;
   requestHash: string;

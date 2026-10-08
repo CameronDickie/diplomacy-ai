@@ -15,10 +15,10 @@ import { AttemptService, offlineDecisions } from '../attempts/AttemptService.js'
 import { practiceBot } from '../attempts/PracticeBot.js';
 import { PhaseRules } from '../attempts/PhaseRules.js';
 import { RateLimiter, type RateCategory } from '../limits/RateLimiter.js';
-import { LUNA_PRESET, lunaReservationNanousd } from '../providers/LunaPreset.js';
+import { opponentContract, type OpponentContract } from '../providers/OpponentContract.js';
 import { LunaDecisionProvider } from '../luna/LunaDecisionProvider.js';
 import { routedDecisions } from '../luna/Routing.js';
-import { mockLunaTransport, type LunaTransport } from '../luna/Transport.js';
+import { mockOpponentTransport, type LunaTransport } from '../luna/Transport.js';
 
 const HISTORY_PAGE=20;
 export class ChallengeService {
@@ -34,14 +34,17 @@ export class ChallengeService {
   /** Set when sponsored attempts can be offered by this process: a development mock, or an injected test transport. */
   private readonly sponsoredMock:boolean;
   private readonly sponsoredOffered:boolean;
+  /** The preset new sponsored attempts are pinned to. Existing attempts keep the one they started with. */
+  private readonly contract:OpponentContract;
   private constructor(private store:Store,private config:RuntimeConfig,private now:()=>number,transport?:LunaTransport) {
     // The real provider transport is deliberately not selectable here: paid startup stays refused until the owner authorizes spend.
     if(config.llm.paidEnabled)throw Error('Funded challenge adapter is not integrated.');
+    this.contract=opponentContract(config.sponsoredPreset);
     this.sponsoredMock=!transport&&config.lunaTransport==='mock';
-    const luna=transport??(this.sponsoredMock?mockLunaTransport({pick:'seeded',seed:now()%2_147_483_647}):undefined);
+    const luna=transport??(this.sponsoredMock?mockOpponentTransport(this.contract,{pick:'seeded',seed:now()%2_147_483_647}):undefined);
     this.sponsoredOffered=Boolean(luna);
     this.limits=new RateLimiter(config.trustedProxy,now);
-    this.attempts=new AttemptService(store,routedDecisions(store,offlineDecisions(this.rules),practiceBot(this.rules),luna?new LunaDecisionProvider(store,this.rules,luna,{now}):null),this.rules,
+    this.attempts=new AttemptService(store,routedDecisions(store,offlineDecisions(this.rules),practiceBot(this.rules),luna?new LunaDecisionProvider(store,this.rules,luna,{now,contract:this.contract}):null),this.rules,
       {maxRunning:config.maxActiveAttempts,idleExpireMs:config.idleExpireMinutes*60_000,now});
   }
   static async open(store:Store,config:RuntimeConfig,now=Date.now,options:{lunaTransport?:LunaTransport}={}):Promise<ChallengeService> {
@@ -93,7 +96,7 @@ export class ChallengeService {
     let notice:ChallengeAttemptView['notice']=null;
     if(attempt.mode==='SPONSORED'&&attempt.lifecycle==='ACTIVE'&&attempt.execution==='RECOVERING'){
       const [paid,funding,own]=await Promise.all([this.store.call('paidState',{}),this.store.call('fundingTotals',{}),this.store.call('attemptFunding',{attemptId:attempt.id})]);
-      notice=paid.stopped?'SPONSORED_PAUSED':own.settledNanousd+own.heldNanousd+lunaReservationNanousd(LUNA_PRESET.maxInputTokens)>funding.attemptCapNanousd?'ATTEMPT_BUDGET':'SPONSORED_RETRY';
+      notice=paid.stopped?'SPONSORED_PAUSED':own.settledNanousd+own.heldNanousd+this.contract.reservationNanousd(this.contract.preset.maxInputTokens)>funding.attemptCapNanousd?'ATTEMPT_BUDGET':'SPONSORED_RETRY';
     }
     return {id:attempt.id,revision:attempt.revision,phaseId:attempt.phaseId,challenge:this.card(challenge.definition,challenge.board,attempt.mode),mode:attempt.mode,notice,
       lifecycle:attempt.lifecycle,execution:attempt.execution,board:{...publicBoard(attempt.board),year:attempt.board.year,season:attempt.board.season,phase:attempt.board.phase},
@@ -188,7 +191,7 @@ export class ChallengeService {
         now:this.now(),maxActive:this.config.maxActiveAttempts,maxPerAccount:this.config.maxActivePerAccount,dailyLimit:this.config.dailyStartLimit,replayOnly:selected!==featured,
         // The preset and its price list are pinned to the attempt; the pool must cover at least one worst-case call.
         ...(mode==='BOT'?{bot:true}:{}),
-        ...(mode==='SPONSORED'?{sponsored:{preset:{id:LUNA_PRESET.id,pricingVersion:LUNA_PRESET.pricingVersion},minimumAvailableNanousd:lunaReservationNanousd(LUNA_PRESET.maxInputTokens)}}:{})});
+        ...(mode==='SPONSORED'?{sponsored:{preset:{id:this.contract.preset.id,pricingVersion:this.contract.preset.pricingVersion},minimumAvailableNanousd:this.contract.reservationNanousd(this.contract.preset.maxInputTokens)}}:{})});
       res.json(await this.view(attempt));
     }));
     router.get('/attempts/:id',guarded('read'),run(async(req,res)=>{res.json(await this.view(await this.owned(req.params.id,player(res))));}));

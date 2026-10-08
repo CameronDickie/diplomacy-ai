@@ -34,6 +34,7 @@ export interface RuntimeConfig {
   admins: string[];
   trustedProxy: 'none' | 'private';
   lunaTransport: 'none' | 'mock';
+  sponsoredPreset: 'luna' | 'haiku';
   idleWarnMinutes: number;
   idleExpireMinutes: number;
   maxActiveAttempts: number;

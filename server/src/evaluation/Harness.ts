@@ -7,7 +7,7 @@ import { challengeDefinition, importScenario, type ScenarioFixture } from '../fi
 import { CONTEXT_VERSION } from '../luna/Context.js';
 import { LunaDecisionProvider } from '../luna/LunaDecisionProvider.js';
 import type { LunaTransport } from '../luna/Transport.js';
-import { LUNA_PRESET, lunaReservationNanousd } from '../providers/LunaPreset.js';
+import { LUNA_CONTRACT, type OpponentContract } from '../providers/OpponentContract.js';
 import type { Store } from '../storage/Store.js';
 import { hashToken } from '../storage/Store.js';
 import type { EvaluationManifest, EvaluationPhase, StoredAttempt } from '../storage/contracts.js';
@@ -19,6 +19,8 @@ export interface EvaluationOptions {
   store: Store;
   transport: LunaTransport;
   transportKind: 'mock' | 'live';
+  /** The pinned preset under evaluation. Defaults to Luna. */
+  contract?: OpponentContract;
   runId: string;
   scenario: string;
   scenarioVersion?: number;
@@ -67,7 +69,7 @@ async function loadScenario(name: string, version: number): Promise<ScenarioFixt
  * recovered through the provider's own reconciliation, and nothing already bought is bought again.
  */
 export async function evaluate(options: EvaluationOptions): Promise<EvaluationReport> {
-  const { store, runId } = options, now = options.now ?? Date.now, clock = options.clock ?? Date.now, log = options.log ?? (() => {});
+  const { store, runId } = options, contract = options.contract ?? LUNA_CONTRACT, now = options.now ?? Date.now, clock = options.clock ?? Date.now, log = options.log ?? (() => {});
   if (!/^[a-z0-9-]{3,40}$/.test(runId)) throw new Error('Run ID must be 3–40 lowercase letters, digits or dashes.');
   if (!Number.isSafeInteger(options.attempts) || options.attempts < 1 || options.attempts > 200) throw new Error('Attempts must be between 1 and 200.');
   const maxRecoveries = options.maxRecoveries ?? 2, version = options.scenarioVersion ?? 1;
@@ -78,13 +80,13 @@ export async function evaluate(options: EvaluationOptions): Promise<EvaluationRe
   if (!fixture.witnesses.some(w => w.name === options.script)) throw new Error(`Scenario has no script named ${options.script}.`);
   const manifest=await store.call('registerEvaluationRun',{manifest:{runId,transport:options.transportKind,scenario:definition.id,scenarioVersion:definition.version,
     fixtureHash:createHash('sha256').update(canonicalJson(fixture)).digest('hex'),script:options.script,seed:options.seed??null,
-    presetId:LUNA_PRESET.id,pricingVersion:LUNA_PRESET.pricingVersion,presetHash:createHash('sha256').update(canonicalJson(LUNA_PRESET)).digest('hex'),
-    contextVersion:CONTEXT_VERSION,model:LUNA_PRESET.model,harnessVersion:'luna-evaluation-v4',timingPolicy:'wall-submission-commit-v1',maxRecoveries},now:now()});
+    presetId:contract.preset.id,pricingVersion:contract.preset.pricingVersion,presetHash:contract.presetHash,
+    contextVersion:CONTEXT_VERSION,model:contract.preset.model,harnessVersion:'luna-evaluation-v4',timingPolicy:'wall-submission-commit-v1',maxRecoveries},now:now()});
   const content = { definition, board: fixture.board };
   await store.call('registerChallenge',{ ...content, hash: createHash('sha256').update(canonicalJson(content)).digest('hex'), now: now() });
   const player = await store.call('identity',{ provider: 'github', subject: `evaluation-${runId}`, displayName: 'Evaluation harness', now: now() });
   const rules = new PhaseRules(), settledBefore = (await store.call('fundingTotals',{})).settledNanousd;
-  const service = new AttemptService(store,new LunaDecisionProvider(store,rules,options.transport,{ now }),rules,{ now, maxRunning: 1,measurementClock:()=>Math.round(clock()),
+  const service = new AttemptService(store,new LunaDecisionProvider(store,rules,options.transport,{ now, contract }),rules,{ now, maxRunning: 1,measurementClock:()=>Math.round(clock()),
     boundary:async(stage,job)=>{if(stage==='intent'||stage==='committed')await options.boundary?.(stage,job.attemptId);} });
   const results: AttemptResult[] = [], notes: string[] = [];
   let preexisting = 0, interrupted = false;
@@ -97,7 +99,7 @@ export async function evaluate(options: EvaluationOptions): Promise<EvaluationRe
       try {
         // Mapping and attempt creation are atomic; an expired mapping can never buy the attempt again.
         attempt = await store.call('createEvaluationAttempt',{runId,ordinal:n,playerId:player.id,reconnectTokenHash:hashToken(id),now:now(),
-          sponsored:{preset:{id:LUNA_PRESET.id,pricingVersion:LUNA_PRESET.pricingVersion},minimumAvailableNanousd:lunaReservationNanousd(LUNA_PRESET.maxInputTokens)}});
+          sponsored:{preset:{id:contract.preset.id,pricingVersion:contract.preset.pricingVersion},minimumAvailableNanousd:contract.reservationNanousd(contract.preset.maxInputTokens)}});
       } catch (error) {
         if((error as {code?:string}).code==='STORE_CONFLICT')throw error;
         notes.push(`Stopped before attempt ${n}: ${(error as { code?: string }).code ?? 'start refused'}. Sponsored play is paused or unfunded.`);break;

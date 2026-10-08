@@ -11,6 +11,7 @@
     "test": "node --test dist/test/*.test.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.1",
     "@diplomacy/shared": "*",
     "@discordjs/voice": "^0.19.2",
     "discord.js": "^14.26.4",

@@ -5,8 +5,7 @@ import type { PhaseAction, PhaseDecisions } from '../attempts/types.js';
 import type { Store } from '../storage/Store.js';
 import { StoreError } from '../storage/contracts.js';
 import type { ProviderCallIntent, ProviderCallRecord } from '../providers/accounting.js';
-import { LUNA_PRESET } from '../providers/LunaPreset.js';
-import { normalizeLunaResponse } from '../providers/LunaResponse.js';
+import { LUNA_CONTRACT, type OpponentContract } from '../providers/OpponentContract.js';
 import { ProviderCallError, recordedCall } from '../providers/RecordedCall.js';
 import { forcedAction, parseChoices } from './Choices.js';
 import { lunaPrompt } from './Context.js';
@@ -19,6 +18,8 @@ export class LunaDecisionError extends Error {
 }
 interface Options {
   now?: () => number;
+  /** Which pinned preset to serve. Defaults to Luna. */
+  contract?: OpponentContract;
   /** Total provider calls one power may consume for one phase, across every recovery. */
   maxCallsPerPower?: number;
   timeoutMs?: number;
@@ -37,10 +38,13 @@ interface Options {
  */
 export class LunaDecisionProvider implements DecisionProvider {
   private readonly now: () => number;
+  /** The one preset this provider serves; an attempt pinned to another is refused before any call. */
+  private readonly contract: OpponentContract;
   constructor(private store: Store, private rules: PhaseRules, private transport: LunaTransport, private options: Options = {}) {
     this.now = options.now ?? Date.now;
-    const width=options.maxConcurrentDecisions ?? LUNA_PRESET.maxConcurrentDecisions;
-    if(!Number.isSafeInteger(width)||width<1||width>LUNA_PRESET.maxConcurrentDecisions)throw new Error('Invalid opponent concurrency.');
+    this.contract = options.contract ?? LUNA_CONTRACT;
+    const width=options.maxConcurrentDecisions ?? this.contract.preset.maxConcurrentDecisions;
+    if(!Number.isSafeInteger(width)||width<1||width>this.contract.preset.maxConcurrentDecisions)throw new Error('Invalid opponent concurrency.');
   }
   decide(context: DecisionContext): Promise<PhaseDecisions> { return this.run(context); }
   recover(context: DecisionContext): Promise<PhaseDecisions> { return this.run(context); }
@@ -49,7 +53,7 @@ export class LunaDecisionProvider implements DecisionProvider {
     signal.throwIfAborted();
     const attempt=await this.store.call('attempt',{id:job.attemptId,playerId:job.playerId});
     if(!attempt)throw new LunaDecisionError('PAUSED_OR_CLOSED',job.definition.opponentPowers[0]);
-    if(attempt.preset&&(attempt.preset.id!==LUNA_PRESET.id||attempt.preset.pricingVersion!==LUNA_PRESET.pricingVersion))
+    if(attempt.preset&&(attempt.preset.id!==this.contract.preset.id||attempt.preset.pricingVersion!==this.contract.preset.pricingVersion))
       throw new LunaDecisionError('PRESET_MISMATCH',job.definition.opponentPowers[0]);
     const reports = await this.store.call('reports',{ attemptId: job.attemptId }), last = reports.at(-1) ?? null;
     const saved = new Map((await this.store.call('providerDecisions',{ operationId: job.operationId })).map(d => [d.power,d]));
@@ -73,7 +77,7 @@ export class LunaDecisionProvider implements DecisionProvider {
         try {
           const legal = job.board.phase === 'ORDERS' ? await this.rules.legal(job.board,power,signal) : [];
           signal.throwIfAborted();
-          const prompt = lunaPrompt(job,power,legal,last);
+          const prompt = lunaPrompt(job,power,legal,last,this.contract);
           if (!prompt) { decisions[power] = forcedAction(job.board); continue; }
           const kept = saved.get(power);
           if (kept) {
@@ -101,7 +105,7 @@ export class LunaDecisionProvider implements DecisionProvider {
     };
     // Transactions serialize funding admission even while requests overlap. Every worker's accounted
     // outcome is awaited; late provider receipts can still settle bills but cannot save stale actions.
-    await Promise.all(Array.from({ length: this.options.maxConcurrentDecisions ?? LUNA_PRESET.maxConcurrentDecisions },() => worker()));
+    await Promise.all(Array.from({ length: this.options.maxConcurrentDecisions ?? this.contract.preset.maxConcurrentDecisions },() => worker()));
     if (failed || signal.aborted) {
       const current = await this.store.call('providerCallsForOperation',{ operationId: job.operationId });
       for (const call of current.filter(c => c.state === 'PREPARED' && c.fence.revision === job.revision))
@@ -142,7 +146,7 @@ export class LunaDecisionProvider implements DecisionProvider {
       const used = earlier.filter(c => c.dispatchedAt !== null).length;
       if (used >= (this.options.maxCallsPerPower ?? 3)) fail('CALL_LIMIT');
       const intent: ProviderCallIntent = { id: `${job.operationId}:${power}:${earlier.length + 1}`,
-        fence: { operationId: job.operationId, attemptId: job.attemptId, phaseId: job.phaseId, revision: job.revision }, power, provider: 'OPENAI', model: LUNA_PRESET.model,
+        fence: { operationId: job.operationId, attemptId: job.attemptId, phaseId: job.phaseId, revision: job.revision }, power, provider: this.contract.preset.provider, model: this.contract.preset.model,
         role: job.board.phase, pricingVersion: prompt.request.pricingVersion, requestHash: prompt.request.requestHash, maxCostNanousd: prompt.maxCostNanousd };
       for (;;) {
         try { await this.store.call('prepareProviderCall',{ intent, now: this.now() }); break; }
@@ -174,8 +178,8 @@ export class LunaDecisionProvider implements DecisionProvider {
       }
     }
     try {
-      return await recordedCall({ store: this.store, id, signal, timeoutMs: this.options.timeoutMs ?? LUNA_PRESET.timeoutMs, now: this.now,
-        transport: async s => { const response = await transport({ body: prompt.request.body, signal: s }); return normalizeLunaResponse(response.body,response.status); },
+      return await recordedCall({ store: this.store, id, signal, timeoutMs: this.options.timeoutMs ?? this.contract.preset.timeoutMs, now: this.now,
+        transport: async s => { const response = await transport({ body: prompt.request.body, signal: s }); return this.contract.normalizeResponse(response.body,response.status); },
         validate: async (parsed,callSignal) => {
           const action = prompt.set.toAction(parseChoices(parsed));
           await this.rules.validate(job.board,power,action,callSignal);

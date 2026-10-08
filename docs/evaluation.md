@@ -118,7 +118,9 @@ unless **all** of these are true, each of which only the owner can arrange:
    (`npm run storage -- grant …`). Recording that grant is the authorization.
 3. The database already exists. Use the one that holds all earlier spend; a new
    database would hide it.
-4. `OPENAI_API_KEY` is set in the environment of that command. It is never read
+4. The preset's key is set in the environment of that command: `OPENAI_API_KEY`
+   for `--preset luna` (the default), `ANTHROPIC_API_KEY` for `--preset haiku`
+   ([haiku-preset.md](haiku-preset.md), which also covers running in a container). It is never read
    from a file or an argument and never printed.
 5. `--attempts` is at most 10.
 

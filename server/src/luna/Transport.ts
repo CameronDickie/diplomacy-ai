@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { LUNA_PRESET, buildLunaRequest } from '../providers/LunaPreset.js';
+import { LUNA_CONTRACT, type OpponentContract } from '../providers/OpponentContract.js';
 
 export interface LunaResponse { status: number; body: unknown }
 /** Sends one already-serialized request. No retries. Plain transports are local test doubles. */
@@ -97,14 +98,16 @@ export interface MockOptions {
  * the request size. It never touches the network and its "cost" is priced like a real answer so the
  * ledger is exercised honestly.
  */
-export function mockLunaTransport(options: MockOptions = {}): LunaTransport {
+export function mockLunaTransport(options: MockOptions = {}): LunaTransport { return mockOpponentTransport(LUNA_CONTRACT,options); }
+/** The same stand-in for any preset: it reads that preset's request and answers in that provider's envelope. */
+export function mockOpponentTransport(contract: OpponentContract, options: MockOptions = {}): LunaTransport {
   let serial = 0;
   return async ({ body, signal }) => {
     signal.throwIfAborted();
     // Request-local randomness makes seeded choices independent of worker completion order.
     let state=createHash('sha256').update(String((options.seed??1)>>>0)).update(body).digest().readUInt32BE(0);
     const random=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return state/2**32;};
-    const text = String(JSON.parse(body).input[0].content[0].text), own = text.slice(text.lastIndexOf('\nYou are '));
+    const text = contract.contextOf(body), own = text.slice(text.lastIndexOf('\nYou are '));
     const groups: number[][] = [];
     for (const line of own.split('\n')) {
       if (/:$/.test(line)) groups.push([]);
@@ -114,8 +117,6 @@ export function mockLunaTransport(options: MockOptions = {}): LunaTransport {
     const choose = (list: number[]) => options.pick === 'seeded' ? list[Math.floor(random() * list.length)] : list[0];
     const choices = exactly ? groups.flat().slice(0,Number(exactly[1])) : upTo ? groups.slice(0,Number(upTo[1])).map(choose) : groups.filter(g => g.length).map(choose);
     const output = JSON.stringify({ choices }), input = Math.ceil(Buffer.byteLength(body) / 4), out = Math.ceil(output.length / 3) + 16;
-    return { status: 200, body: { id: `resp_mock_${++serial}_${Date.now().toString(36)}`, model: LUNA_PRESET.model, service_tier: LUNA_PRESET.serviceTier, status: 'completed', error: null,
-      usage: { input_tokens: input, output_tokens: out, total_tokens: input + out, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 }, output_tokens_details: { reasoning_tokens: 16 } },
-      output: [{ type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: output }] }] } };
+    return { status: 200, body: contract.mockEnvelope({ serial: ++serial, text: output, inputTokens: input, outputTokens: out }) };
   };
 }
