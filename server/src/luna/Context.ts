@@ -4,7 +4,7 @@ import type { PhaseJob } from '../attempts/types.js';
 import { LUNA_CONTRACT, type OpponentContract, type OpponentRequest } from '../providers/OpponentContract.js';
 import { ChoiceError, buildChoices, orderChoices, retreatChoices, type ChoiceSet, type LegalOption } from './Choices.js';
 
-export const CONTEXT_VERSION = 'luna-context-v1';
+export const CONTEXT_VERSION = 'luna-context-v2';
 /** Recent public results are useful but optional: they are the first thing dropped when space is short. */
 const RECENT_LINE_LIMIT = 40;
 const unit = (u: PhaseJob['board']['units'][number]) => `${u.type === 'ARMY' ? 'A' : 'F'} ${u.territory}${u.coast ? `/${u.coast}` : ''}${u.mustRetreat ? ' (dislodged)' : ''}`;
@@ -55,9 +55,9 @@ export interface LunaPrompt {
  * then each unit's SUPPORT/CONVOY options from the end of its list — and the reduction is reported
  * in `measured`. A unit's HOLD is never removed. If it still does not fit, this throws.
  */
-export function lunaPrompt(job: Pick<PhaseJob,'board' | 'definition'>, power: Power, legal: readonly LegalOption[], lastReport: PublicPhaseReport | null, contract: OpponentContract = LUNA_CONTRACT): LunaPrompt | null {
+export function lunaPrompt(job: Pick<PhaseJob,'board' | 'definition'>, power: Power, legal: readonly LegalOption[], lastReport: PublicPhaseReport | null, contract: OpponentContract = LUNA_CONTRACT, contested?: ReadonlySet<string>): LunaPrompt | null {
   if (!job.definition.opponentPowers.includes(power)) throw new ChoiceError('Only an opponent power is prompted.');
-  const build = (keep: number) => job.board.phase === 'ORDERS' ? orderChoices(job.board,power,legal,keep) : job.board.phase === 'RETREATS' ? retreatChoices(job.board,power) : buildChoices(job.board,power);
+  const build = (keep: number) => job.board.phase === 'ORDERS' ? orderChoices(job.board,power,legal,keep,contested) : job.board.phase === 'RETREATS' ? retreatChoices(job.board,power) : buildChoices(job.board,power);
   const full = build(Number.MAX_SAFE_INTEGER);
   if (!full) return null;
   const widest = Math.max(...full.groups.map(g => g.choices.length));

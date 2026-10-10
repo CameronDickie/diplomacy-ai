@@ -40,6 +40,16 @@ What this does **not** show:
 
 The detailed report and ledger stay in the private evaluation volume.
 
+### After the instruction changes (October 10, 2026)
+
+The baseline above used the original instructions (`haiku-challenge-v1`), under
+which opponents mostly held. With the current instructions and pruned choices
+(`haiku-challenge-v3`, three live attempts) the opponents move and expand
+([luna-context.md](luna-context.md) has the comparison), and the targets were
+still met: about USD 0.023 per attempt, phase p95 8.8 s, 0.7 % unusable calls.
+Games are longer and cost about twice as much because units now do things that
+lead to retreats and builds.
+
 ## One preset per deployment, one per attempt
 
 `DIPLOMACY_SPONSORED_PRESET` is `luna` (default) or `haiku`. New sponsored
@@ -50,7 +60,7 @@ not reconfigured. An evaluation run is pinned the same way through its manifest.
 The seam is `server/src/providers/OpponentContract.ts`. A preset supplies only
 its exact request, its worst-case price, and how to read its provider's answer.
 
-## The pinned request (`haiku-challenge-v1`)
+## The pinned request (`haiku-challenge-v3`)
 
 | Setting | Value | Why |
 | -- | -- | -- |

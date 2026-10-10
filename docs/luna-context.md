@@ -6,7 +6,7 @@ engine then checks. It contains no transport and makes no provider call.
 
 ## What a request contains
 
-`Context.ts` (`luna-context-v1`) writes plain text in two parts:
+`Context.ts` (`luna-context-v2`) writes plain text in two parts:
 
 1. **Shared prefix**, identical for all six opponents in a phase so the provider
    can cache it: season and phase, the scenario's pinned objective, supply
@@ -18,7 +18,31 @@ engine then checks. It contains no transport and makes no provider call.
 It is built only from the frozen public board, the challenge definition and the
 last public report. The human player's accepted orders (`PhaseJob.humanAction`)
 and other opponents' saved decisions are never read, and one power never sees
-another power's options. There is no rules text, map topology, chat or memory.
+another power's options. There is no map topology, chat or memory.
+
+## Standing instructions
+
+Every opponent, whatever the model, receives the same instructions
+(`providers/OpponentInstructions.ts`). They give it a purpose (keep and gain
+supply centers; there is no negotiation) and the rules that make a set of
+orders hang together: move rather than hold without a reason, never walk into
+your own unit that is not leaving, never send two units to one place, and a
+support or convoy only counts when the other unit is ordered to match.
+
+They exist because the first human playtest (October 9, 2026) showed both
+models choosing each unit's order in isolation and mostly standing still.
+Measured on live Haiku games of the Tunis pilot:
+
+| | Old instructions | Current |
+| -- | -- | -- |
+| Unit orders that were holds | 86 % | 41 % |
+| Unit orders that were moves | 12 % | 50 % |
+| Supply centers held by the six opponents at game end | 22–29 | 31–33 |
+| Order sets with a self-defeating order | about 2 % | about 2 % |
+
+Ten games before, three after; indicative only. Luna has not been re-measured.
+The instructions are part of each preset's pinned request, so changing them is
+a new preset id (`luna-challenge-v4`, `haiku-challenge-v3`).
 
 ## Choices
 
@@ -26,10 +50,32 @@ another power's options. There is no rules text, map topology, chat or memory.
 
 | Phase | Listed | Must pick |
 | -- | -- | -- |
-| Orders | every legal order from Godip's catalog, per unit, HOLD first, then moves, supports, convoys | exactly one per active unit |
+| Orders | the legal orders that can serve this power, per unit: moves, then supports and convoys, then HOLD last | exactly one per active unit |
 | Retreats | disband, then each legal destination (with coast) per dislodged unit | exactly one per dislodged unit |
 | Builds | army and fleet (per coast) for each free owned home center | up to the allowance, one per center; empty waives |
 | Disbands | each of the power's units | exactly the required number |
+
+### Which orders are offered
+
+Godip's catalog lists every legal order, including many that cannot help the
+power choosing. Before numbering, the list is reduced using public board facts
+only:
+
+- **No orders for another power's units.** There is no negotiation, so
+  supporting or convoying someone else's unit is never part of a plan.
+- **No support where nobody else can reach.** A support for one of your own
+  units is offered only if another power's unit occupies the territory or could
+  move there this turn. Every power's legal moves are computed once per phase
+  from the public board to decide this; nobody's submitted orders are used.
+- **Every hold and every move is kept**, so a fully legal answer always exists.
+
+Each move also says what it reaches: whose supply center it is, and whether a
+unit is there (`KIE moves to DEN (unowned supply center)`).
+
+`coherenceIssues` in `Choices.ts` classifies order sets that still work against
+themselves (a move into your own stationary unit, two units to one place, an
+unmatched support or convoy). These are legal, so they are not rejected; they
+are counted in the playtest log and used to compare versions.
 
 A power with nothing to decide — no units to order, nothing dislodged, no
 adjustment, or builds owed but no free home center — gets its forced action and

@@ -27,6 +27,31 @@ export function ChallengeApp(){
   const chosenOrders=own.filter(u=>!u.mustRetreat).map(u=>options.find(o=>o.id===(choices[u.id]??defaultOrder(u)))?.order).filter(o=>o!==undefined);
   const buildDelta=board&&card?TERRITORIES.filter(t=>t.isSupplyCenter&&board.territoryOwners[t.id]===card.humanPower).length-own.length:0;
   const homes=TERRITORIES.filter(t=>t.homePower===card?.humanPower&&board?.territoryOwners[t.id]===card?.humanPower&&!board?.units.some(u=>u.territory===t.id));
+  // What the player actually submitted last turn and how each order resolved, from the public report.
+  const lastOrders=useMemo(()=>{const r=[...game.reports].reverse().find(x=>x.phase==='ORDERS');return r&&r.phase==='ORDERS'&&card?{when:`${title(r.season)} ${r.year}`,orders:r.resolvedOrders.filter(o=>o.power===card.humanPower)}:null;},[game.reports,card?.humanPower]);
+  // A convoy needs a fleet at sea beside the army; until then the rules engine offers none, which is easy to mistake for a fault.
+  const convoyHint=Boolean(board?.phase==='ORDERS'&&game.legal&&own.some(u=>u.type==='ARMY')&&own.some(u=>u.type==='FLEET')&&!options.some(o=>o.order.type==='CONVOY'));
+  // An army only crosses by convoy if a fleet is ordered to carry it. When exactly one of the player's fleets can,
+  // choosing the army's convoy move sets that fleet's order too; with several possible fleets the warning below asks.
+  function choose(u:Unit,id:string){
+    setChoices(v=>{
+      const next={...v,[u.id]:id},[,type,target]=id.split('|');
+      if(type==='MOVE_VIA_CONVOY'){
+        const carriers=options.filter(o=>o.id.split('|')[1]==='CONVOY'&&o.id.split('|')[2]===u.territory&&o.id.split('|')[3]===target);
+        const fleets=[...new Set(carriers.map(o=>o.unitTerritory))];
+        const fleet=fleets.length===1?own.find(x=>x.territory===fleets[0]):undefined;
+        if(fleet)next[fleet.id]=carriers[0].id;
+      }
+      return next;
+    });
+  }
+  const chosenIds=own.filter(u=>!u.mustRetreat).map(u=>choices[u.id]??defaultOrder(u)).filter(Boolean).map(id=>id.split('|'));
+  const convoyWarnings=board?.phase==='ORDERS'?[
+    ...chosenIds.filter(([unit,type,target])=>type==='MOVE_VIA_CONVOY'&&!chosenIds.some(([,t,army,to])=>t==='CONVOY'&&army===unit&&to===target))
+      .map(([unit,,target])=>`${territoryName(unit as Parameters<typeof territoryName>[0])} is ordered to ${territoryName(target.split('/')[0] as Parameters<typeof territoryName>[0])} by convoy, but none of your fleets is ordered to convoy it there. Set a fleet to "convoys ${unit} to ${target}", or the move will fail.`),
+    ...chosenIds.filter(([,type,army,to])=>type==='CONVOY'&&own.some(u=>u.territory===army)&&!chosenIds.some(([unit,t,target])=>unit===army&&t==='MOVE_VIA_CONVOY'&&target===to))
+      .map(([fleet,,army,to])=>`${territoryName(fleet.split('/')[0] as Parameters<typeof territoryName>[0])} is ordered to convoy ${army} to ${to}, but that army is not ordered to move there by convoy.`),
+  ]:[];
   function activity(){void game.activity();}
   function submission():ChallengeAction|null{
     if(!a)return null;
@@ -96,10 +121,13 @@ export function ChallengeApp(){
           {a?.lifecycle==='ACTIVE'&&<p role="status">Your attempt is untouched while you watch: its board and any orders you have chosen are waiting where you left them.</p>}</>:!a?<p>Start a practice attempt to enter orders. Select a unit on the map or use its menu here.</p>:<>
           {a.lifecycle==='ACTIVE'&&<>
           <p>Choose from rules-engine legal actions. Legal means allowed, not guaranteed to succeed.</p>
-          {a.acceptedAction&&a.execution!=='ACCEPTING'&&<div><p>Your submission is locked while this phase resolves.</p>{a.acceptedAction.phase==='ORDERS'&&<ul>{a.acceptedAction.orderIds.map(id=><li key={id}>{id.split('|').join(' · ')}</li>)}</ul>}</div>}
+          {lastOrders&&lastOrders.orders.length>0&&<div className="challenge-last-orders"><strong>Your orders, {lastOrders.when}</strong>
+            <ul>{lastOrders.orders.map(o=><li key={o.id} className={o.resolution==='SUCCEEDS'?undefined:'failed'}>{describeOrder(o.id)} · {o.resolution==='SUCCEEDS'?'succeeded':title(o.resolution)}</li>)}</ul></div>}
+          {convoyHint&&editable&&<p className="muted">No convoy is possible this turn. A convoy needs one of your fleets in a sea space next to the army; move a fleet out to sea first, and the convoy orders will appear here next turn.</p>}
+          {a.acceptedAction&&a.execution!=='ACCEPTING'&&<div><p>Your submission is locked while this phase resolves.</p>{a.acceptedAction.phase==='ORDERS'&&<ul>{a.acceptedAction.orderIds.map(id=><li key={id}>{describeOrder(id)}</li>)}</ul>}</div>}
           {a.board.phase==='ORDERS'&&own.filter(u=>!u.mustRetreat).map(u=><label key={u.id} className={selected===u.territory?'selected-order':''}>
             <button className="unit-selector" onClick={()=>{setSelected(u.territory);activity();}}>{u.type} · {territoryName(u.territory)}</button>
-            <select aria-label={`Order for ${u.territory}`} disabled={!editable||!game.legal} value={choices[u.id]??defaultOrder(u)} onChange={e=>{setChoices(v=>({...v,[u.id]:e.target.value}));activity();}}>
+            <select aria-label={`Order for ${u.territory}`} disabled={!editable||!game.legal} value={choices[u.id]??defaultOrder(u)} onChange={e=>{choose(u,e.target.value);activity();}}>
               {!game.legal&&<option value="">{a.execution==='ACCEPTING'?'Loading legal choices…':'Orders saved'}</option>}
               {options.filter(o=>o.unitTerritory===u.territory).map(o=><option key={o.id} value={o.id}>{o.description}</option>)}
             </select></label>)}
@@ -107,6 +135,7 @@ export function ChallengeApp(){
             {u.retreatOptions.flatMap(t=>u.retreatCoasts[t]?.length?u.retreatCoasts[t]!.map(c=>`${t}/${c}`):[t]).map(d=><option key={d} value={d}>{d}</option>)}</select></label>)}
           {a.board.phase==='BUILDS'&&<><p>{buildDelta>=0?`Up to ${buildDelta} builds. Unused builds are waived.`:`Choose ${-buildDelta} units to disband.`}</p>
             {buildDelta>0?homes.map(h=><label key={h.id}>Build in {h.name}<select disabled={!editable} value={builds[h.id]??''} onChange={e=>{setBuilds(v=>({...v,[h.id]:e.target.value}));activity();}}><option value="">No build</option><option value="ARMY">Army</option>{h.type!=='LAND'&&(h.coasts.length?h.coasts.map(c=><option key={c} value={`FLEET/${c}`}>Fleet · {c} coast</option>):<option value="FLEET">Fleet</option>)}</select></label>):own.map(u=><label className="disband-choice" key={u.id}><input type="checkbox" disabled={!editable||buildDelta===0} checked={disbands.includes(u.id)} onChange={e=>{setDisbands(v=>e.target.checked?[...v,u.id]:v.filter(id=>id!==u.id));activity();}}/>{u.type} {u.territory}</label>)}</>}
+          {editable&&convoyWarnings.map(w=><div className="challenge-alert" role="status" key={w}>{w}</div>)}
           {own.length===0&&<p>No units need your orders this phase. Continue to see the next result.</p>}
           <button className="primary" disabled={!editable||!complete} onClick={()=>{const action=submission();if(action)void game.submit(action);}}>{game.busy?'Saving…':a.execution==='ACCEPTING'?'Submit orders':'Orders saved'}</button>
           </>}
@@ -121,6 +150,14 @@ export function ChallengeApp(){
 const title=(power:string)=>power[0]+power.slice(1).toLowerCase();
 function untilChange(at:number,now:number){const minutes=Math.max(0,Math.ceil((at-now)/60_000));return minutes>=60?`${Math.floor(minutes/60)}h ${minutes%60}m`:`${minutes}m`;}
 /** Where the objective stands on the board being shown; ownership only moves after a settled Fall. */
+/** An order ID as a sentence: "LVP|MOVE|YOR" reads "Liverpool moves to Yorkshire". */
+function describeOrder(id:string):string {
+  const [unit,type,first,second]=id.split('|'),place=(t?:string)=>t?territoryName(t.split('/')[0] as Parameters<typeof territoryName>[0])+(t.includes('/')?` (${t.split('/')[1].toLowerCase()} coast)`:''):'';
+  return type==='HOLD'?`${place(unit)} holds`:type==='MOVE'?`${place(unit)} moves to ${place(first)}`:type==='MOVE_VIA_CONVOY'?`${place(unit)} moves to ${place(first)} by convoy`
+    :type==='SUPPORT_HOLD'?`${place(unit)} supports ${place(first)} holding`:type==='SUPPORT_MOVE'?`${place(unit)} supports ${place(first)} to ${place(second)}`
+    :type==='CONVOY'?`${place(unit)} convoys ${place(first)} to ${place(second)}`:id.split('|').join(' · ');
+}
+
 function Progress({card,board,live}:{card:ChallengeCard;board:ChallengeCard['board'];live:boolean}){
   const owner=board.territoryOwners[card.targetTerritory]??null,there=board.units.find(u=>u.territory===card.targetTerritory);
   const falls=Math.max(0,card.deadlineYear-board.year+(board.season==='WINTER'?0:1));

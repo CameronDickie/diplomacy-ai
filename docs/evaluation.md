@@ -153,7 +153,8 @@ sample is not a release approval.
 
 ## Concurrent policy calibration
 
-Harness v4 uses preset `luna-challenge-v2` with at most six independent opponent
+Harness v4 introduced preset `luna-challenge-v2` (now `luna-challenge-v4` after the
+instruction changes in [luna-context.md](luna-context.md)) with at most six independent opponent
 decisions in flight. It preserves the v3 scripted adjustment fix and pins
 request-local seeded mock choices, so response order cannot scramble a mock
 run. Existing v2/v3 manifests and older funded presets are refused before new

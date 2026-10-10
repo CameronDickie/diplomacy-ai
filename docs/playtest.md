@@ -30,8 +30,9 @@ A live playtest needs the key of each model in use: `OPENAI_API_KEY` for Luna,
 
 ## Set up
 
-1. Create an env file outside version control, for example `playtest.env`
-   (`.env.*` is ignored by git). Do not reuse the root `.env` if it does not
+1. Create an env file that git ignores, for example `playtest.env` (`*.env`
+   and `.env.*` are ignored). It will hold provider keys: run `git status`
+   and confirm it is not listed before committing anything. Do not reuse the root `.env` if it does not
    validate; point the server at this file instead.
 
    ```
@@ -82,11 +83,19 @@ changing models, start a new attempt.
 
 ## Reading a game
 
+- **Your orders** from the last turn, and whether each succeeded, are listed
+  above the order menus.
+- A convoy needs two orders: the army's "moves ... by convoy" and a fleet's
+  "convoys ...". Choosing the army's sets the fleet's when only one fleet can
+  carry it, and a warning shows whenever the two do not match.
+
 - The brief on the left names every opponent's model and says whether real
   provider calls are being made.
 - **Playtest log**, beside the phase reports, lists per model the calls, valid
   answers, average provider time and cost, and per phase each power's model,
   outcome, time, cost and the orders it chose (`LON|MOVE|NTH`).
+- An order set that works against itself (for example a support for a move
+  that was not ordered) is flagged in the log, with a count per model.
 - The log is built from the accounting records. Prompts and raw answers are
   not stored anywhere.
 - `npm run storage -- funding "$PWD/data/playtest.sqlite"` shows what is left.

@@ -108,13 +108,14 @@ export function mockOpponentTransport(contract: OpponentContract, options: MockO
     let state=createHash('sha256').update(String((options.seed??1)>>>0)).update(body).digest().readUInt32BE(0);
     const random=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return state/2**32;};
     const text = contract.contextOf(body), own = text.slice(text.lastIndexOf('\nYou are '));
-    const groups: number[][] = [];
+    const groups: number[][] = [], holds = new Set<number>();
     for (const line of own.split('\n')) {
       if (/:$/.test(line)) groups.push([]);
-      else { const match = /^(\d+) /.exec(line); if (match && groups.length) groups.at(-1)!.push(Number(match[1])); }
+      else { const match = /^(\d+) (.*)$/.exec(line); if (match && groups.length) { groups.at(-1)!.push(Number(match[1])); if (/ holds$/.test(match[2])) holds.add(Number(match[1])); } }
     }
     const upTo = /Pick up to (\d+)/.exec(own), exactly = /Pick exactly (\d+) numbers?: the unit/.exec(own);
-    const choose = (list: number[]) => options.pick === 'seeded' ? list[Math.floor(random() * list.length)] : list[0];
+    // The quiet default is each unit's hold, wherever it is listed.
+    const choose = (list: number[]) => options.pick === 'seeded' ? list[Math.floor(random() * list.length)] : list.find(n => holds.has(n)) ?? list[0];
     const choices = exactly ? groups.flat().slice(0,Number(exactly[1])) : upTo ? groups.slice(0,Number(upTo[1])).map(choose) : groups.filter(g => g.length).map(choose);
     const output = JSON.stringify({ choices }), input = Math.ceil(Buffer.byteLength(body) / 4), out = Math.ceil(output.length / 3) + 16;
     return { status: 200, body: contract.mockEnvelope({ serial: ++serial, text: output, inputTokens: input, outputTokens: out }) };

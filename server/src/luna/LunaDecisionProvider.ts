@@ -1,3 +1,4 @@
+import { ALL_POWERS } from '@diplomacy/shared';
 import type { Power } from '@diplomacy/shared';
 import type { DecisionContext, DecisionProvider } from '../attempts/AttemptService.js';
 import type { PhaseRules } from '../attempts/PhaseRules.js';
@@ -72,6 +73,20 @@ export class LunaDecisionProvider implements DecisionProvider {
       else if (call.state === 'DISPATCHED') await this.store.call('finishProviderCall',{ id: call.id, outcome: 'TRANSPORT_ERROR', now: this.now() }).catch(() => {});
     }
     // `waiting` holds the tasks parked on a sibling: two parked tasks must never wait on each other.
+    // Every power's legal orders, from the public board only, asked for once per phase. They tell each
+    // opponent where another power could arrive, which decides whether a support has any purpose.
+    const legalByPower = new Map<Power, Promise<Awaited<ReturnType<PhaseRules['legal']>>>>();
+    const legalOf = (power: Power) => {
+      let legal = legalByPower.get(power);
+      if (!legal) legalByPower.set(power,legal = job.board.phase === 'ORDERS' ? this.rules.legal(job.board,power,signal) : Promise.resolve([]));
+      return legal;
+    };
+    const contestedFor = async (power: Power): Promise<Set<string>> => {
+      const contested = new Set(job.board.units.filter(u => u.power !== power).map(u => u.territory));
+      for (const other of ALL_POWERS) if (other !== power) for (const option of await legalOf(other))
+        if (option.order.type === 'MOVE' && option.order.targetTerritory) contested.add(option.order.targetTerritory.split('/')[0]);
+      return contested;
+    };
     const inFlight = new Set<Promise<unknown>>(), waiting = new Set<Promise<unknown>>();
     let next = 0, failed = false, failure: unknown;
     const worker = async () => {
@@ -80,9 +95,9 @@ export class LunaDecisionProvider implements DecisionProvider {
       while (!failed && !signal.aborted && next < job.definition.opponentPowers.length) {
         const power = job.definition.opponentPowers[next++];
         try {
-          const legal = job.board.phase === 'ORDERS' ? await this.rules.legal(job.board,power,signal) : [];
+          const legal = await legalOf(power), contested = job.board.phase === 'ORDERS' ? await contestedFor(power) : undefined;
           signal.throwIfAborted();
-          const prompt = lunaPrompt(job,power,legal,last,this.plan.contractFor(power));
+          const prompt = lunaPrompt(job,power,legal,last,this.plan.contractFor(power),contested);
           if (!prompt) { decisions[power] = forcedAction(job.board); continue; }
           const kept = saved.get(power);
           if (kept) {

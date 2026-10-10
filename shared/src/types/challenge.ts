@@ -46,8 +46,10 @@ export interface PlaytestCall {
   power:Power; model:string; outcome:string|null; latencyMs:number|null;
   inputTokens:number|null; outputTokens:number|null; reasoningTokens:number|null;
   costNanousd:number|null; heldNanousd:number; decision:unknown|null;
+  /** Ways this power's own orders worked against each other (for example a support for a move it did not order). */
+  issues:string[];
 }
 export interface PlaytestPhase { phaseId:string; kind:'ORDERS'|'RETREATS'|'BUILDS'; calls:PlaytestCall[] }
-export interface PlaytestModelTotals { calls:number; valid:number; costNanousd:number; heldNanousd:number; latencyMsTotal:number; timedCalls:number; outputTokens:number }
+export interface PlaytestModelTotals { calls:number; valid:number; costNanousd:number; heldNanousd:number; latencyMsTotal:number; timedCalls:number; outputTokens:number; /** Order sets with at least one self-defeating order. */ incoherent:number }
 /** Development only: which model decided each power, what it chose, how long it took and what it cost. */
 export interface PlaytestLog { attemptId:string; phases:PlaytestPhase[]; models:Record<string,PlaytestModelTotals> }

@@ -21,7 +21,7 @@ async function job(name: string, human?: Power): Promise<Pick<PhaseJob,'board' |
     humanAction: { phase: 'ORDERS', orderIds: ['SENTINEL-HUMAN-ORDER'] }, decisions: null, reportOffset: 0, createdAt: 0 };
 }
 const legalFor = async (j: PhaseJob, power: Power): Promise<LegalOption[]> => j.board.phase === 'ORDERS' ? rules.legal(j.board,power,signal()) : [];
-const holds = (set: NonNullable<ReturnType<typeof orderChoices>>) => set.groups.map(g => g.choices[0]);
+const holds = (set: NonNullable<ReturnType<typeof orderChoices>>) => set.groups.map(g => g.choices.at(-1)!);
 
 test('opening prompts fit the preset, share one prefix, list every legal option and never show the human\'s orders or another power\'s options',async()=>{
   const j = await job('tunis-expedition'), prompts = [];
@@ -37,7 +37,8 @@ test('opening prompts fit the preset, share one prefix, list every legal option 
     // Reserve all accepted input plus capped output; bytes alone do not prove the input tokens.
     assert.equal(p.maxCostNanousd,5_120_000);
     assert.match(p.context,/goal is to own TUN after a Fall turn no later than Fall 1903/);
-    for (const group of p.set.groups) assert.match(p.set.choices[group.choices[0]].label,/hold/i,`${p.power} ${group.id}`);
+    // The hold is always kept, and listed last so that standing still is not the first thing offered.
+    for (const group of p.set.groups) assert.match(p.set.choices[group.choices.at(-1)!].label,/hold/i,`${p.power} ${group.id}`);
     assert.ok(!p.context.includes('SENTINEL') && !p.request.body.includes('SENTINEL'));
     for (const option of humanOptions.filter(o => o.order.type !== 'HOLD')) assert.ok(!p.context.includes(option.description),`${p.power} sees ${option.description}`);
     for (const other of j.definition.opponentPowers.filter(o => o !== p.power))
@@ -134,7 +135,7 @@ test('an oversized catalog is reduced in a fixed, reported order that always kee
   assert.equal(p.measured.compacted,true);assert.equal(p.measured.total,big.length);assert.ok(p.measured.listed < big.length && p.measured.listed >= legal.length);
   assert.ok(p.measured.contextBytes <= LUNA_PRESET.maxContextBytes && p.measured.requestBytes <= LUNA_PRESET.maxRequestBytes);
   // Real moves are kept ahead of supports, and every unit still starts with its hold.
-  for (const group of p.set.groups) assert.match(p.set.choices[group.choices[0]].label,/hold/i);
+  for (const group of p.set.groups) assert.match(p.set.choices[group.choices.at(-1)!].label,/hold/i);
   for (const option of legal.filter(o => o.order.type === 'MOVE')) assert.ok(p.context.includes(option.description),option.description);
   await rules.validate(j.board,'FRANCE',p.set.toAction(holds(p.set)),signal());
   assert.equal(lunaPrompt(j,'FRANCE',big,null)!.request.requestHash,p.request.requestHash);

@@ -1,4 +1,5 @@
 import type { PlaytestLog, PlaytestPhase } from '@diplomacy/shared';
+import { coherenceIssues } from '../luna/Choices.js';
 import type { Store } from '../storage/Store.js';
 
 /**
@@ -23,8 +24,9 @@ export async function playtestLog(store: Store, attemptId: string): Promise<Play
     phase.calls.push({ power: call.power, model: call.model, outcome: call.outcome, latencyMs,
       inputTokens: call.usage?.inputTokens ?? null, outputTokens: call.usage?.outputTokens ?? null, reasoningTokens: call.usage?.reasoningTokens ?? null,
       costNanousd: call.usage?.costNanousd ?? null, heldNanousd: call.usage ? 0 : call.dispatchedAt !== null ? call.maxCostNanousd : 0,
-      decision: action ?? null });
-    const total = models[call.model] ??= { calls: 0, valid: 0, costNanousd: 0, heldNanousd: 0, latencyMsTotal: 0, timedCalls: 0, outputTokens: 0 };
+      decision: action ?? null, issues: Array.isArray(action?.orderIds) ? coherenceIssues(action.orderIds) : [] });
+    if (Array.isArray(action?.orderIds) && coherenceIssues(action.orderIds).length) (models[call.model] ??= { calls: 0, valid: 0, costNanousd: 0, heldNanousd: 0, latencyMsTotal: 0, timedCalls: 0, outputTokens: 0, incoherent: 0 }).incoherent++;
+    const total = models[call.model] ??= { calls: 0, valid: 0, costNanousd: 0, heldNanousd: 0, latencyMsTotal: 0, timedCalls: 0, outputTokens: 0, incoherent: 0 };
     total.calls++; if (call.outcome === 'VALID') total.valid++;
     total.costNanousd += call.usage?.costNanousd ?? 0; total.outputTokens += call.usage?.outputTokens ?? 0;
     if (!call.usage && call.dispatchedAt !== null) total.heldNanousd += call.maxCostNanousd;
