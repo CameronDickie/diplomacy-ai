@@ -83,7 +83,10 @@ test('coasts, supports and convoys from the rules engine survive the catalog and
       const legal = await legalFor(j,power), p = lunaPrompt(j,power,legal,null);
       if (!j.board.units.some(u => u.power === power)) { assert.equal(p,null,`${name} ${power}`); continue; }
       assert.ok(p,`${name} ${power}`);
-      assert.equal(p.measured.listed,legal.length,`${name} ${power}`);
+      // Everything is listed except the plain form of a move that only a convoy can make, which duplicates its "via convoy" form.
+      const explicit = new Set(legal.filter(o => o.id.includes('|MOVE_VIA_CONVOY|')).map(o => o.id.replace('|MOVE_VIA_CONVOY|','|MOVE|')));
+      const duplicates = legal.filter(o => explicit.has(o.id) && !p.set.choices.some(c => c.label.startsWith(o.description) && !c.label.startsWith(`${o.description} via convoy`))).length;
+      assert.equal(p.measured.listed,legal.length - duplicates,`${name} ${power}`);
       // Every combination of first and last options is a legal submission.
       for (const pick of [p.set.groups.map(g => g.choices[0]),p.set.groups.map(g => g.choices.at(-1)!)])
         await rules.validate(j.board,power,p.set.toAction(pick),signal());

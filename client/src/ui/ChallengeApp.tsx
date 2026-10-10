@@ -1,10 +1,10 @@
 import { useEffect,useMemo,useState } from 'react';
-import { TERRITORIES, type ChallengeAction,type ChallengeAttemptView,type ChallengeCard,type ChallengeLimits,type PublicPhaseReport,type Unit } from '@diplomacy/shared';
+import { ADJACENCY, TERRITORIES, type ChallengeAction,type ChallengeAttemptView,type ChallengeCard,type ChallengeLimits,type PublicPhaseReport,type Unit } from '@diplomacy/shared';
 import { useChallenge } from '../hooks/useChallenge.js';
 import { MapGraph } from './MapGraph.js';
 import { OperatorPanel } from './OperatorPanel.js';
 import { PlaytestPanel } from './PlaytestPanel.js';
-import { territoryName } from '../lib/game.js';
+import { adjacentTerritories,territoryName } from '../lib/game.js';
 
 export function ChallengeApp(){
   const game=useChallenge(),a=game.attempt,card=a?.challenge??game.cards[0];
@@ -22,7 +22,13 @@ export function ChallengeApp(){
   const own=board?.units.filter(u=>u.power===card?.humanPower)??[];
   const selectedUnit=own.find(u=>u.territory===selected&&!u.mustRetreat)??null;
   const editable=Boolean(a&&a.lifecycle==='ACTIVE'&&a.execution==='ACCEPTING'&&!game.busy&&!replay);
-  const options=game.legal?.options??[];
+  // The rules engine lists a move to a place only a convoy can reach twice, as a plain move and as "via convoy".
+  // They are the same order; showing both made convoys look inconsistent, so only the explicit one is offered.
+  const options=useMemo(()=>{
+    const all=game.legal?.options??[],explicit=new Set(all.filter(o=>o.id.split('|')[1]==='MOVE_VIA_CONVOY').map(o=>`${o.unitTerritory}>${o.id.split('|')[2]}`));
+    return all.filter(o=>{const [,type,target]=o.id.split('|'),unit=board?.units.find(u=>u.territory===o.unitTerritory&&u.power===card?.humanPower);
+      return !(type==='MOVE'&&explicit.has(`${o.unitTerritory}>${target}`)&&unit&&!adjacentTerritories(unit).includes(target.split('/')[0] as never));});
+  },[game.legal,board,card?.humanPower]);
   const defaultOrder=(u:Unit)=>options.find(o=>o.unitTerritory===u.territory&&o.order.type==='HOLD')?.id??'';
   const chosenOrders=own.filter(u=>!u.mustRetreat).map(u=>options.find(o=>o.id===(choices[u.id]??defaultOrder(u)))?.order).filter(o=>o!==undefined);
   const buildDelta=board&&card?TERRITORIES.filter(t=>t.isSupplyCenter&&board.territoryOwners[t.id]===card.humanPower).length-own.length:0;
@@ -38,9 +44,12 @@ export function ChallengeApp(){
       const next={...v,[u.id]:id},[,type,target]=id.split('|');
       if(type==='MOVE_VIA_CONVOY'){
         const carriers=options.filter(o=>o.id.split('|')[1]==='CONVOY'&&o.id.split('|')[2]===u.territory&&o.id.split('|')[3]===target);
-        const fleets=[...new Set(carriers.map(o=>o.unitTerritory))];
-        const fleet=fleets.length===1?own.find(x=>x.territory===fleets[0]):undefined;
-        if(fleet)next[fleet.id]=carriers[0].id;
+        // Several fleets may be able to take part in some route. The one that can do it alone touches both
+        // the army's coast and the destination; if exactly one fleet qualifies, it is the obvious carrier.
+        const touches=(sea:string,land:string)=>{const f=ADJACENCY[sea as keyof typeof ADJACENCY]?.fleet;return (Array.isArray(f)?f:Object.values(f??{}).flat()).includes(land.split('/')[0] as never);};
+        const all=[...new Set(carriers.map(o=>o.unitTerritory))],direct=all.filter(sea=>touches(sea,u.territory)&&touches(sea,target));
+        const pick=direct.length===1?direct[0]:all.length===1?all[0]:null,fleet=pick?own.find(x=>x.territory===pick):undefined;
+        if(fleet)next[fleet.id]=carriers.find(o=>o.unitTerritory===pick)!.id;
       }
       return next;
     });
@@ -52,6 +61,9 @@ export function ChallengeApp(){
     ...chosenIds.filter(([,type,army,to])=>type==='CONVOY'&&own.some(u=>u.territory===army)&&!chosenIds.some(([unit,t,target])=>unit===army&&t==='MOVE_VIA_CONVOY'&&target===to))
       .map(([fleet,,army,to])=>`${territoryName(fleet.split('/')[0] as Parameters<typeof territoryName>[0])} is ordered to convoy ${army} to ${to}, but that army is not ordered to move there by convoy.`),
   ]:[];
+  // Some phases ask nothing of the player (another power's retreat, a winter with no change). They still need
+  // a click to move on, so the sidebar says what the phase is and why there is nothing to choose.
+  const nothingToDo=Boolean(board&&(board.phase==='ORDERS'?own.filter(u=>!u.mustRetreat).length===0:board.phase==='RETREATS'?!own.some(u=>u.mustRetreat):buildDelta===0));
   function activity(){void game.activity();}
   function submission():ChallengeAction|null{
     if(!a)return null;
@@ -120,7 +132,13 @@ export function ChallengeApp(){
           <p>Recorded orders and resolved positions. A legal order can still fail when another power contests it.</p>
           {a?.lifecycle==='ACTIVE'&&<p role="status">Your attempt is untouched while you watch: its board and any orders you have chosen are waiting where you left them.</p>}</>:!a?<p>Start a practice attempt to enter orders. Select a unit on the map or use its menu here.</p>:<>
           {a.lifecycle==='ACTIVE'&&<>
-          <p>Choose from rules-engine legal actions. Legal means allowed, not guaranteed to succeed.</p>
+          <p className="challenge-phase-note"><strong>{phaseTitle(a.board)}</strong><br/>{nothingToDo
+            ?(a.board.phase==='RETREATS'?'Another power has a dislodged unit that must retreat or disband. None of yours is affected, so there is nothing for you to decide.'
+              :a.board.phase==='BUILDS'?'Other powers are building or disbanding to match their supply centers. Your count already matches, so there is nothing for you to decide.'
+              :'You have no units to order this turn.')
+            :a.board.phase==='ORDERS'?'Give each of your units one order. These are the rules engine’s legal orders; legal means allowed, not guaranteed to succeed.'
+            :a.board.phase==='RETREATS'?'One of your units was dislodged. Choose where it retreats, or disband it.'
+            :'Match your units to your supply centers: build where you have gained, disband where you have lost.'}</p>
           {lastOrders&&lastOrders.orders.length>0&&<div className="challenge-last-orders"><strong>Your orders, {lastOrders.when}</strong>
             <ul>{lastOrders.orders.map(o=><li key={o.id} className={o.resolution==='SUCCEEDS'?undefined:'failed'}>{describeOrder(o.id)} · {o.resolution==='SUCCEEDS'?'succeeded':title(o.resolution)}</li>)}</ul></div>}
           {convoyHint&&editable&&<p className="muted">No convoy is possible this turn. A convoy needs one of your fleets in a sea space next to the army; move a fleet out to sea first, and the convoy orders will appear here next turn.</p>}
@@ -136,8 +154,7 @@ export function ChallengeApp(){
           {a.board.phase==='BUILDS'&&<><p>{buildDelta>=0?`Up to ${buildDelta} builds. Unused builds are waived.`:`Choose ${-buildDelta} units to disband.`}</p>
             {buildDelta>0?homes.map(h=><label key={h.id}>Build in {h.name}<select disabled={!editable} value={builds[h.id]??''} onChange={e=>{setBuilds(v=>({...v,[h.id]:e.target.value}));activity();}}><option value="">No build</option><option value="ARMY">Army</option>{h.type!=='LAND'&&(h.coasts.length?h.coasts.map(c=><option key={c} value={`FLEET/${c}`}>Fleet · {c} coast</option>):<option value="FLEET">Fleet</option>)}</select></label>):own.map(u=><label className="disband-choice" key={u.id}><input type="checkbox" disabled={!editable||buildDelta===0} checked={disbands.includes(u.id)} onChange={e=>{setDisbands(v=>e.target.checked?[...v,u.id]:v.filter(id=>id!==u.id));activity();}}/>{u.type} {u.territory}</label>)}</>}
           {editable&&convoyWarnings.map(w=><div className="challenge-alert" role="status" key={w}>{w}</div>)}
-          {own.length===0&&<p>No units need your orders this phase. Continue to see the next result.</p>}
-          <button className="primary" disabled={!editable||!complete} onClick={()=>{const action=submission();if(action)void game.submit(action);}}>{game.busy?'Saving…':a.execution==='ACCEPTING'?'Submit orders':'Orders saved'}</button>
+          <button className="primary" disabled={!editable||!complete} onClick={()=>{const action=submission();if(action)void game.submit(action);}}>{game.busy?'Saving…':a.execution!=='ACCEPTING'?'Orders saved':nothingToDo?'Continue':a.board.phase==='RETREATS'?'Submit retreats':a.board.phase==='BUILDS'?'Submit adjustments':'Submit orders'}</button>
           </>}
           {a.lifecycle!=='ACTIVE'&&<p>This attempt has ended. Review its saved phases below.</p>}
           {game.playtest&&a?.mode==='SPONSORED'&&<PlaytestPanel log={game.playtest}/>}
@@ -150,6 +167,9 @@ export function ChallengeApp(){
 const title=(power:string)=>power[0]+power.slice(1).toLowerCase();
 function untilChange(at:number,now:number){const minutes=Math.max(0,Math.ceil((at-now)/60_000));return minutes>=60?`${Math.floor(minutes/60)}h ${minutes%60}m`:`${minutes}m`;}
 /** Where the objective stands on the board being shown; ownership only moves after a settled Fall. */
+function phaseTitle(board:{year:number;season:string;phase:string}):string {
+  return board.phase==='ORDERS'?`${title(board.season)} ${board.year} · orders`:board.phase==='RETREATS'?`${title(board.season)} ${board.year} · retreats`:`Winter ${board.year} · builds and disbands`;
+}
 /** An order ID as a sentence: "LVP|MOVE|YOR" reads "Liverpool moves to Yorkshire". */
 function describeOrder(id:string):string {
   const [unit,type,first,second]=id.split('|'),place=(t?:string)=>t?territoryName(t.split('/')[0] as Parameters<typeof territoryName>[0])+(t.includes('/')?` (${t.split('/')[1].toLowerCase()} coast)`:''):'';

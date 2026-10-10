@@ -33,6 +33,8 @@ test('the orders seen in a real playtest are recognised as self-defeating, and a
   for(const sound of [['BER|MOVE|KIE','KIE|MOVE|DEN','MUN|MOVE|RUH'],['BER|SUPPORT_MOVE|MUN|SIL','KIE|HOLD','MUN|MOVE|SIL'],['BER|SUPPORT_HOLD|MUN','KIE|MOVE|HOL','MUN|HOLD'],
     ['YOR|MOVE_VIA_CONVOY|BEL','NTH|CONVOY|YOR|BEL','EDI|HOLD'],['STP/SOUTH|MOVE|BOT','MOS|MOVE|STP','WAR|HOLD','SEV|MOVE|BLA'],['A|MOVE|B','B|MOVE|C','C|MOVE|A']])
     assert.deepEqual(coherenceIssues(sound),[],sound.join(' '));
+  // Seen in live play (Italy, Luna): a plain move to a place only a convoy reaches, with the fleet ordered to carry it, is a matched convoy.
+  assert.deepEqual(coherenceIssues(['APU|MOVE|GRE','ION|CONVOY|APU|GRE','PIE|MOVE|TYR']),[]);
   assert.deepEqual(coherenceIssues(['BER|MOVE|SIL','MUN|MOVE|SIL','KIE|HOLD']),['SAME_DESTINATION']);
   assert.deepEqual(coherenceIssues(['BER|MOVE|MUN','MUN|MOVE|BER','KIE|HOLD']),['SELF_BLOCKED_MOVE'],'two units cannot simply swap places');
   assert.deepEqual(coherenceIssues(['BER|SUPPORT_HOLD|MUN','MUN|MOVE|TYR','KIE|HOLD']),['UNMATCHED_SUPPORT'],'supporting a hold for a unit that leaves');
@@ -83,4 +85,19 @@ test('each move says what it reaches, from the public board only, and the standi
   assert.equal(JSON.parse(buildHaikuRequest({context:'x'}).body).system,OPPONENT_INSTRUCTIONS);
   // New instructions are a new contract: attempts pinned to the old ones are refused, not silently changed.
   assert.deepEqual([buildLunaRequest({context:'x'}).presetId,buildHaikuRequest({context:'x'}).presetId],['luna-challenge-v4','haiku-challenge-v3']);
+});
+
+test('a convoy-only destination is offered once, as an explicit convoy move, while a land move next door keeps both forms',async()=>{
+  const fixture=JSON.parse(await readFile(new URL('../../fixtures/development/belgian-landing.v1.json',import.meta.url),'utf8'));
+  const board=structuredClone(fixture.board);
+  for(const u of board.units)if(u.power==='ENGLAND')u.territory=u.territory==='LVP'?'YOR':u.territory==='LON'?'NTH':'ENG';
+  board.season='FALL';
+  const legal=await new PhaseRules().legal(board,'ENGLAND',signal);
+  // The rules engine lists both forms for every convoy destination.
+  for(const id of ['YOR|MOVE|BEL','YOR|MOVE_VIA_CONVOY|BEL','YOR|MOVE|EDI','YOR|MOVE_VIA_CONVOY|EDI'])assert.ok(legal.some(o=>o.id===id),id);
+  const labels=orderChoices(board,'ENGLAND',legal)!.choices.map(c=>c.label.replace(/ \(.*\)$/,''));
+  assert.equal(labels.includes('YOR moves to BEL'),false);assert.ok(labels.includes('YOR moves to BEL via convoy'));
+  // Edinburgh is next to Yorkshire by land: walking there and being carried there are different orders.
+  assert.ok(labels.includes('YOR moves to EDI')&&labels.includes('YOR moves to EDI via convoy'));
+  assert.ok(labels.includes('YOR holds')&&labels.includes('NTH convoys YOR to BEL'));
 });

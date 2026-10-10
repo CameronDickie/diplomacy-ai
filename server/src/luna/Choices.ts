@@ -1,4 +1,4 @@
-import { TERRITORIES, TERRITORY_MAP } from '@diplomacy/shared';
+import { ADJACENCY, TERRITORIES, TERRITORY_MAP } from '@diplomacy/shared';
 import type { Order, Power } from '@diplomacy/shared';
 import type { BoardFixture } from '../fixtures/BoardFixture.js';
 import type { PhaseAction } from '../attempts/types.js';
@@ -85,7 +85,8 @@ export function coherenceIssues(orderIds: readonly string[]): CoherenceIssue[] {
       else if (o.type === 'SUPPORT_HOLD' ? moving(supported) : !moving(supported) || province(supported.first) !== province(o.second ?? '')) issues.add('UNMATCHED_SUPPORT');
     } else if (o.type === 'CONVOY') {
       const army = at(o.first);
-      if (army && !(army.type === 'MOVE_VIA_CONVOY' && province(army.first) === province(o.second ?? ''))) issues.add('UNMATCHED_CONVOY');
+      // The rules engine also accepts a plain move to a place only a convoy can reach, so either form matches.
+      if (army && !(moving(army) && province(army.first) === province(o.second ?? ''))) issues.add('UNMATCHED_CONVOY');
     }
   }
   return [...issues].sort();
@@ -100,6 +101,11 @@ export function orderChoices(board: BoardFixture, power: Power, legal: readonly 
   const units = board.units.filter(u => u.power === power && !u.mustRetreat).sort((a,b) => a.territory.localeCompare(b.territory));
   if (!units.length) return null;
   if (contested) legal = legal.filter(option => purposeful(option.id,new Set(units.map(u => u.territory)),contested));
+  // Godip lists a move to a place only a convoy can reach twice: as a plain move and as "via convoy".
+  // They are the same order, so only the explicit one is offered.
+  const explicit = new Set(legal.filter(o => o.id.split('|')[1] === 'MOVE_VIA_CONVOY').map(o => `${o.unitTerritory}>${province(o.id.split('|')[2])}`));
+  legal = legal.filter(o => { const [unit, type, target] = o.id.split('|');
+    return !(type === 'MOVE' && explicit.has(`${o.unitTerritory}>${province(target)}`) && !(ADJACENCY[province(unit) as keyof typeof ADJACENCY]?.army ?? []).includes(province(target) as never)); });
   const choices: Choice[] = [], ids: string[] = [], groups: ChoiceSet['groups'] = [];
   for (const unit of units) {
     const own = legal.filter(o => o.unitTerritory === unit.territory && o.order.power === power)

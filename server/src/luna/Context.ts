@@ -4,7 +4,7 @@ import type { PhaseJob } from '../attempts/types.js';
 import { LUNA_CONTRACT, type OpponentContract, type OpponentRequest } from '../providers/OpponentContract.js';
 import { ChoiceError, buildChoices, orderChoices, retreatChoices, type ChoiceSet, type LegalOption } from './Choices.js';
 
-export const CONTEXT_VERSION = 'luna-context-v2';
+export const CONTEXT_VERSION = 'luna-context-v3';
 /** Recent public results are useful but optional: they are the first thing dropped when space is short. */
 const RECENT_LINE_LIMIT = 40;
 const unit = (u: PhaseJob['board']['units'][number]) => `${u.type === 'ARMY' ? 'A' : 'F'} ${u.territory}${u.coast ? `/${u.coast}` : ''}${u.mustRetreat ? ' (dislodged)' : ''}`;
