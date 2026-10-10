@@ -7,9 +7,38 @@ worst-case reservation before every call, exactly-once settlement, recovery,
 legal-order validation and the bounded per-power context
 ([funding.md](funding.md), [luna-context.md](luna-context.md)).
 
-**Status: built and tested offline only.** No real Haiku call has been made.
-Its quality, latency and real cost are unmeasured. The server still refuses to
-start with paid AI enabled.
+**Status: first live baseline completed October 9, 2026; not enabled for
+players.** The server still refuses to start with paid AI enabled.
+
+## Live baseline (October 9, 2026)
+
+One owner-authorized run of ten attempts of the Tunis development pilot, in the
+locked-down container, against a fresh ledger volume. The live API accepted the
+pinned request unchanged.
+
+| Target | Measured | Result |
+| -- | -- | -- |
+| Mean attempt cost under USD 1 | about USD 0.011 (highest attempt about USD 0.012) | met |
+| Phase latency p95 under 30 s | 4.7 s (median 3.1 s, slowest phase 7.9 s) | met |
+| Under 5 % calls that were not a valid decision | 0.5 % (2 of 407) | met |
+
+- 80 phases, 407 calls, none stalled. Every phase was timed.
+- The two unusable calls were illegal selections (`INVALID_ACTION`). Each was
+  recovered by one further reserved call; no phase waited on a player.
+- No refusals, no truncated answers, no timeouts, no unknown bills. Nothing was
+  left held and the ledger reconciled to the settled total.
+- No prompt caching occurred, as intended.
+
+What this does **not** show:
+
+- **How well it plays.** The scripted human failed its objective in all ten
+  attempts, as it also does against the random mock and did against Luna, so
+  that outcome measures the script, not the opponents. Judging play needs a
+  person to play attempts and read the opponents' orders.
+- **Other scenarios.** One scenario and one script were sampled.
+- **Rates.** Ten attempts are indicative; the report says so itself.
+
+The detailed report and ledger stay in the private evaluation volume.
 
 ## One preset per deployment, one per attempt
 
@@ -146,6 +175,5 @@ through the ledger recorded under `ANTHROPIC` / `claude-haiku-5-5`; and refusal
 to continue a run under the other preset. The whole Luna suite still passes
 unchanged through the shared contract.
 
-These are contract tests against the documented API and SDK types. They do not
-show that the live API accepts this exact request or how the model plays; the
-first live attempt establishes both.
+These are contract tests against the documented API and SDK types. The live
+baseline above shows the live API accepts this exact request.

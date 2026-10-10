@@ -21,7 +21,7 @@ listed in [README.md](README.md).
 | Practice bot | Free deterministic opponents as their own pinned mode (`BOT`); legal by construction, reproducible per attempt | [attempts.md](attempts.md) |
 | Bot exhibition games | Background bot-only games with pause/resume/cancel, draw and limit rules; public viewing | [operator.md](operator.md) |
 | Sponsored mode (mock only) | Pinned per-attempt mode, typed refusals, waiting notices, recovery; playable locally with `DIPLOMACY_LUNA_TRANSPORT=mock` | [attempts.md](attempts.md), [luna-context.md](luna-context.md) |
-| Second opponent preset (mock only) | `claude-haiku-5-5` behind the same ledger and recovery, selected per deployment and pinned per attempt; a locked-down container wrapper for evaluations. No live call made | [haiku-preset.md](haiku-preset.md) |
+| Second opponent preset | `claude-haiku-5-5` behind the same ledger and recovery, selected per deployment and pinned per attempt; a locked-down container wrapper for evaluations. One live baseline of ten attempts met all three targets; play quality is unjudged and it is not enabled for players | [haiku-preset.md](haiku-preset.md) |
 | Provider accounting | Every provider call recorded before its output is interpreted; late bills reconcile | [provider-accounting.md](provider-accounting.md) |
 | Funding ledger | Explicit grants, atomic worst-case reservations, exactly-once settlement, typed exhaustion that pauses paid play | [funding.md](funding.md) |
 | Local AI for hosted rooms | Optional Ollama opponents for clone owners: server-configured endpoint, model allowlist, capability check, no key or paid switch; refused in showcase. Contract-tested against a stand-in server only, not against a real model | [local-ai.md](local-ai.md) |
