@@ -26,6 +26,8 @@ export class AuthService {
   private exchanges = 0;
   private readonly secret: string;
   private readonly invalidation = new Set<(hash: string) => void>();
+  /** A sign-in with no identity provider, for local development only. */
+  private readonly devLogin: boolean;
   readonly cookieName: string;
   private readonly flowCookie: string;
   constructor(readonly store: Store, readonly config: RuntimeConfig, env: NodeJS.ProcessEnv = process.env,
@@ -36,6 +38,7 @@ export class AuthService {
       const clientSecret = env[`DIPLOMACY_${name.toUpperCase()}_CLIENT_SECRET`];
       if (clientId && clientSecret && this.secret.length >= 32) this.credentials[name] = { clientId, clientSecret };
     }
+    this.devLogin = config.devLogin === true && config.profile === 'local' && !config.production && this.secret.length >= 32;
     this.cookieName = config.cookieSecure ? '__Host-diplomacy_session' : 'diplomacy_session';
     this.flowCookie = config.cookieSecure ? '__Host-diplomacy_oauth' : 'diplomacy_oauth';
   }
@@ -119,10 +122,11 @@ export class AuthService {
     router.get('/session', (request, response) => {
       void this.resolve(request.headers.cookie).then(principal => {
         const payload: PlayerSession = {
-          authenticated: !!principal, enabled: this.config.authEnabled || Object.keys(this.credentials).length > 0,
+          authenticated: !!principal, enabled: this.config.authEnabled || Object.keys(this.credentials).length > 0 || this.devLogin,
           profile: this.config.profile, operator: principal?.operator ?? false,
           user: principal ? { id: principal.player.id, displayName: principal.player.displayName, provider: principal.player.provider } : null,
           providers: Object.keys(this.credentials) as Provider[],
+          ...(this.devLogin ? { devSignIn: true } : {}),
           capabilities: {
             providerSettings: !!principal?.operator && this.config.profile !== 'showcase',
             discord: !!principal?.operator && this.config.profile !== 'showcase' && this.config.discord.enabled,
@@ -131,6 +135,20 @@ export class AuthService {
         };
         response.json(payload);
       }).catch(() => response.status(503).json({ message: 'Sign-in is temporarily unavailable.' }));
+    });
+    // Development only. The route does not exist unless the configuration contract allowed it, and this
+    // repeats the profile check so a hand-built config cannot mint sessions either. The subject is not a
+    // numeric provider ID, so this identity can never match the operator allowlist.
+    if (this.devLogin) router.post('/dev-login', (request, response) => {
+      void (async () => {
+        const player = await this.store.call('identity', { provider: 'github', subject: 'local-development', displayName: 'Local developer', now: this.now() });
+        if (player.bannedAt !== null) { response.status(403).json({ message: 'This account is banned.' }); return; }
+        await this.revoke(request.headers.cookie);
+        const token = newToken(), tokenHash = this.tokenHash(`${this.cookieName}=${token}`)!, issuedAt = this.now();
+        await this.store.call('createSession', { tokenHash, playerId: player.id, now: issuedAt, expiresAt: issuedAt + SESSION_TTL });
+        response.cookie(this.cookieName, token, { ...this.cookieOptions(), maxAge: SESSION_TTL });
+        response.sendStatus(204);
+      })().catch(() => response.status(503).json({ message: 'Development sign-in is unavailable.' }));
     });
     router.post('/logout', (request, response) => {
       void this.revoke(request.headers.cookie).then(() => {

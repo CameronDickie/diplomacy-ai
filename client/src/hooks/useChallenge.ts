@@ -1,5 +1,5 @@
 import { useEffect,useRef,useState } from 'react';
-import type { ExhibitionReplay,ExhibitionSummary,ChallengeAction,ChallengeAttemptView,ChallengeCard,ChallengeMode,ChallengeCatalog,ChallengeHistoryPage,ChallengeLegalCatalog,ChallengeReplay,PublicPhaseReport,SubmissionState } from '@diplomacy/shared';
+import type { ExhibitionReplay,ExhibitionSummary,ChallengeAction,ChallengeAttemptView,ChallengeCard,ChallengeMode,ChallengeCatalog,ChallengeHistoryPage,ChallengeLegalCatalog,ChallengeReplay,PlaytestLog,PublicPhaseReport,SubmissionState } from '@diplomacy/shared';
 import { useAuth } from './useAuth.js';
 const base=import.meta.env.VITE_SERVER_URL||'';
 export async function challengeRequest<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
@@ -15,6 +15,7 @@ export function useChallenge(){
   const [catalog,setCatalog]=useState<ChallengeCatalog|null>(null),[demo,setDemo]=useState<ChallengeReplay|null>(null);
   const [attempt,setAttempt]=useState<ChallengeAttemptView|null>(null),[history,setHistory]=useState<ChallengeAttemptView[]>([]);
   const [legal,setLegal]=useState<ChallengeLegalCatalog|null>(null),[reports,setReports]=useState<PublicPhaseReport[]>([]);
+  const [playtest,setPlaytest]=useState<PlaytestLog|null>(null);
   const [exhibitions,setExhibitions]=useState<ExhibitionSummary[]>([]);
   const [older,setOlder]=useState<string|null>(null),[creditRequested,setCreditRequested]=useState(false);
   const [error,setError]=useState(''),[busy,setBusy]=useState(false),[loaded,setLoaded]=useState(false);
@@ -64,6 +65,10 @@ export function useChallenge(){
     setLegal(null);
     if(!attempt||!identity)return;
     const controller=new AbortController(),version=attempt.revision,id=attempt.id;
+    // Offered by development servers only; the route does not exist anywhere else.
+    if(attempt.mode==='SPONSORED'&&(catalog?.sponsoredMock||catalog?.sponsoredLive))
+      challengeRequest<PlaytestLog>(`/attempts/${id}/playtest`,undefined,controller.signal).then(r=>{if(identityRef.current===identity)setPlaytest(r);}).catch(()=>{});
+    else setPlaytest(null);
     challengeRequest<{reports:PublicPhaseReport[]}>(`/attempts/${id}/reports`,undefined,controller.signal).then(r=>{if(identityRef.current===identity)setReports(r.reports);})
       .catch(e=>{if(!controller.signal.aborted)setError(e.message);});
     if(attempt.lifecycle==='ACTIVE'&&attempt.execution==='ACCEPTING'&&attempt.board.phase==='ORDERS')
@@ -71,7 +76,7 @@ export function useChallenge(){
         if(identityRef.current===identity&&current.current?.id===id&&current.current.revision===version)setLegal(r);
       }).catch(e=>{if(!controller.signal.aborted)setError(e.message);});
     return()=>controller.abort();
-  },[attempt?.id,attempt?.revision,identity]);
+  },[attempt?.id,attempt?.revision,attempt?.execution,identity]);
   async function mutate(work:(owner:string)=>Promise<void>){
     if(!identity||mutation.current)return;
     mutation.current=true;setBusy(true);setError('');
@@ -85,7 +90,7 @@ export function useChallenge(){
     const list=await challengeRequest<ChallengeHistoryPage>('/attempts');
     if(identityRef.current===owner){setHistory(list.attempts);setOlder(list.next);}
   }
-  return {auth,older,exhibitions,loadExhibition:(id:string)=>challengeRequest<ExhibitionReplay>(`/exhibitions/${id}`),cards:catalog?.challenges??[],limits:catalog?.limits??null,rotation:catalog?.rotation??null,sponsoredPlay:catalog?.sponsoredPlay??null,sponsoredMock:catalog?.sponsoredMock??false,capacity:catalog?.capacity??null,creditRequested,demo,attempt,history,legal,reports,error,busy,loaded,clearError:()=>setError(''),
+  return {auth,older,exhibitions,loadExhibition:(id:string)=>challengeRequest<ExhibitionReplay>(`/exhibitions/${id}`),cards:catalog?.challenges??[],limits:catalog?.limits??null,rotation:catalog?.rotation??null,sponsoredPlay:catalog?.sponsoredPlay??null,sponsoredMock:catalog?.sponsoredMock??false,sponsoredLive:catalog?.sponsoredLive??false,playtest,capacity:catalog?.capacity??null,creditRequested,demo,attempt,history,legal,reports,error,busy,loaded,clearError:()=>setError(''),
     start:(card:ChallengeCard,mode:ChallengeMode='PRACTICE')=>mutate(async owner=>{
       startId.current??=crypto.randomUUID();
       // The start ID is tied to the chosen mode, so switching mode after an uncertain response is a new request.

@@ -7,4 +7,6 @@ export interface PlayerSession {
   operator: boolean;
   capabilities: PlayerCapabilities;
   providers: Array<'github' | 'google'>;
+  /** Development only: this server offers a sign-in that needs no identity provider. */
+  devSignIn?: boolean;
 }

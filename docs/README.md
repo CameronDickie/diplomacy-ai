@@ -26,6 +26,7 @@ needs fixing.
 | [provider-accounting.md](provider-accounting.md) | recording every provider call before interpreting it |
 | [luna-preset.md](luna-preset.md) | the fixed `gpt-6-luna` request and price contract |
 | [haiku-preset.md](haiku-preset.md) | the alternative `claude-haiku-5-5` opponent contract, its prices, and running an evaluation in a locked-down container |
+| [playtest.md](playtest.md) | development-only local play against real models, mixed per power, with a move, time and cost log |
 | [luna-context.md](luna-context.md) | what an opponent request contains, its choices and its size bounds |
 | [local-ai.md](local-ai.md) | optional Ollama opponents for self-hosted rooms: setup, guarantees, model choice |
 | [build-baseline.md](build-baseline.md) | CI matrix and reproducible build notes |

@@ -86,8 +86,8 @@ test('the practice bot is the main free way to play: labelled, and its opponents
 test('a sponsored attempt against the mock opponents is labelled as such and the opponents move', async ({ page, context }) => {
   await signIn(context, 'sponsored');
   await page.goto('/challenge');
-  await page.getByRole('button', { name: 'Play against mock Luna opponents' }).click();
-  await expect(page.locator('.challenge-badge')).toContainText('Mock Luna opponents');
+  await page.getByRole('button', { name: 'Play against mock model opponents' }).click();
+  await expect(page.locator('.challenge-badge')).toContainText('Mock model opponents');
   await expect(brief(page)).toContainText('development stand-in, no provider calls');
   await expect(page.getByRole('button', { name: 'Submit orders' })).toBeEnabled();
   await page.getByRole('button', { name: 'Submit orders' }).click();

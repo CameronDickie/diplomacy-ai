@@ -7,6 +7,7 @@ export interface AuthContextValue extends PlayerSession {
   status: AuthStatus;
   submitting: boolean;
   loginUrl: (provider: 'github' | 'google') => string;
+  devLogin: () => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -54,6 +55,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener('diplomacy-session-expired', expired);
     return () => { sequence.current++; document.removeEventListener('visibilitychange', visible); window.removeEventListener('diplomacy-session-expired', expired); };
   }, []);
+  /** Development servers only; the button is shown only when the server says it offers this. */
+  async function devLogin(): Promise<void> {
+    setSubmitting(true); setMessage(null);
+    try {
+      const response = await fetch(`${apiBase}/api/auth/dev-login`, { method: 'POST', credentials: 'include' });
+      if (!response.ok) throw new Error('Development sign-in is unavailable.');
+      await refresh();
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Sign-in failed.'); }
+    finally { setSubmitting(false); }
+  }
   async function logout(): Promise<void> {
     sequence.current++;
     setSubmitting(true); setMessage(null);
@@ -65,7 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Sign-out failed.'); }
     finally { setSubmitting(false); }
   }
-  return <AuthContext.Provider value={{ ...session, status, message, submitting, refresh, logout,
+  return <AuthContext.Provider value={{ ...session, status, message, submitting, refresh, logout, devLogin,
     loginUrl: provider => `${apiBase}/api/auth/${provider}`,
   }}>{children}</AuthContext.Provider>;
 }

@@ -45,6 +45,7 @@ const SUPPORTED_ENV_NAMES = [
   'DIPLOMACY_DAILY_START_LIMIT', 'DIPLOMACY_IDLE_WARN_MINUTES', 'DIPLOMACY_IDLE_EXPIRE_MINUTES',
   'DIPLOMACY_RESULT_RETENTION_DAYS', 'DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS', 'DIPLOMACY_RECEIPT_RETENTION_DAYS',
   'DIPLOMACY_TRUSTED_PROXY', 'DIPLOMACY_LUNA_TRANSPORT', 'DIPLOMACY_SPONSORED_PRESET',
+  'DIPLOMACY_PLAYTEST_OPPONENTS', 'DIPLOMACY_DEV_LOGIN',
 ];
 
 function fail(name, requirement) {
@@ -203,7 +204,40 @@ function readRuntimeConfig(env = process.env, options = {}) {
   const sponsoredPreset = value(env, 'DIPLOMACY_SPONSORED_PRESET', 'luna');
   if (!['luna', 'haiku'].includes(sponsoredPreset)) fail('DIPLOMACY_SPONSORED_PRESET', 'must be luna or haiku');
   const lunaTransport = value(env, 'DIPLOMACY_LUNA_TRANSPORT', 'none');
-  if (!['none', 'mock'].includes(lunaTransport)) fail('DIPLOMACY_LUNA_TRANSPORT', 'must be none or mock');
+  if (!['none', 'mock', 'live'].includes(lunaTransport)) fail('DIPLOMACY_LUNA_TRANSPORT', 'must be none, mock or live');
+  // Development-only switches. Each is refused unless this is the local profile, not a production
+  // build, and (for anything that spends or signs in without a provider) bound to this machine only.
+  const host = value(env, 'HOST', mode === 'local' ? '127.0.0.1' : '0.0.0.0');
+  const development = mode === 'local' && !production;
+  const loopback = ['127.0.0.1', 'localhost', '::1'].includes(host);
+  const developmentOnly = (name, what) => {
+    if (!development) fail(name, `${what} is only available in the local development profile`);
+    if (!loopback) fail(name, `${what} requires HOST to be a loopback address`);
+  };
+  const playtestOpponents = {};
+  for (const item of list(value(env, 'DIPLOMACY_PLAYTEST_OPPONENTS'))) {
+    const [power, preset, ...rest] = item.split('=');
+    if (rest.length || !POWERS.includes(power) || !['luna', 'haiku'].includes(preset) || Object.hasOwn(playtestOpponents, power)) {
+      fail('DIPLOMACY_PLAYTEST_OPPONENTS', 'must list each power at most once as POWER=luna or POWER=haiku');
+    }
+    playtestOpponents[power] = preset;
+  }
+  if (Object.keys(playtestOpponents).length) {
+    developmentOnly('DIPLOMACY_PLAYTEST_OPPONENTS', 'per-power opponent models');
+    if (lunaTransport === 'none') fail('DIPLOMACY_PLAYTEST_OPPONENTS', 'requires DIPLOMACY_LUNA_TRANSPORT=mock or live');
+  }
+  if (lunaTransport === 'live') {
+    developmentOnly('DIPLOMACY_LUNA_TRANSPORT', 'live');
+    // Each model in use needs its own key; a key for one provider is never offered to the other.
+    const presets = new Set([sponsoredPreset, ...Object.values(playtestOpponents)]);
+    if (presets.has('luna')) requireValue(env, 'OPENAI_API_KEY');
+    if (presets.has('haiku')) requireValue(env, 'ANTHROPIC_API_KEY');
+  }
+  const devLogin = bool(env, 'DIPLOMACY_DEV_LOGIN', false);
+  if (devLogin) {
+    developmentOnly('DIPLOMACY_DEV_LOGIN', 'development sign-in');
+    requireValue(env, 'DIPLOMACY_AUTH_SESSION_SECRET');
+  }
   if (lunaTransport === 'mock' && (mode !== 'local' || production)) fail('DIPLOMACY_LUNA_TRANSPORT', 'mock is only available in the local development profile');
   const idleWarnMinutes = number(env, 'DIPLOMACY_IDLE_WARN_MINUTES', 25, 1, 1440, true);
   const idleExpireMinutes = number(env, 'DIPLOMACY_IDLE_EXPIRE_MINUTES', 30, 2, 1440, true);
@@ -213,13 +247,13 @@ function readRuntimeConfig(env = process.env, options = {}) {
   if (maxActivePerAccount > maxActiveAttempts) fail('DIPLOMACY_MAX_ACTIVE_PER_ACCOUNT', 'must not exceed global capacity');
   return {
     profile: mode, production, llm, authEnabled, callbackOrigin, returnOrigin, cookieSecure, corsOrigins,
-    host: value(env, 'HOST', mode === 'local' ? '127.0.0.1' : '0.0.0.0'),
+    host,
     port: number(env, 'PORT', 3001, 1, 65535, true),
     databasePath: value(env, 'DIPLOMACY_DATABASE_PATH', production ? '/data/diplomacy.sqlite' : './data/diplomacy.sqlite'),
     discord: { enabled: discordEnabled, voiceEnabled,
       voiceDebug: bool(env, 'DISCORD_VOICE_DEBUG', false), autoListen: bool(env, 'DISCORD_VOICE_AUTO_LISTEN', true) },
     engine: readEngineConfig(env),
-    notifyMode, admins, trustedProxy, lunaTransport, sponsoredPreset, idleWarnMinutes, idleExpireMinutes, maxActiveAttempts, maxActivePerAccount,
+    notifyMode, admins, trustedProxy, lunaTransport, sponsoredPreset, playtestOpponents, devLogin, idleWarnMinutes, idleExpireMinutes, maxActiveAttempts, maxActivePerAccount,
     dailyStartLimit: number(env, 'DIPLOMACY_DAILY_START_LIMIT', 3, 1, 100, true),
     resultRetentionDays: number(env, 'DIPLOMACY_RESULT_RETENTION_DAYS', 30, 1, 365, true),
     diagnosticRetentionDays: number(env, 'DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS', 7, 1, 365, true),

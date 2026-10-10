@@ -168,7 +168,9 @@ test('a sponsored phase that cannot be paid for waits with a clear notice and re
 test('the mock transport setting is local-only, labels itself, and plays a sponsored attempt without any network call',async t=>{
   for(const env of [{DIPLOMACY_PROFILE:'showcase'},{DIPLOMACY_PROFILE:'private'},{DIPLOMACY_PROFILE:'local',NODE_ENV:'production'}])
     assert.throws(()=>readRuntimeConfig({...env,DIPLOMACY_LUNA_TRANSPORT:'mock',DIPLOMACY_AUTH_SESSION_SECRET:'x'.repeat(40)}),/DIPLOMACY_LUNA_TRANSPORT|DIPLOMACY_PROFILE/,JSON.stringify(env));
-  assert.throws(()=>readRuntimeConfig({DIPLOMACY_LUNA_TRANSPORT:'live'}),/DIPLOMACY_LUNA_TRANSPORT/);
+  assert.throws(()=>readRuntimeConfig({DIPLOMACY_LUNA_TRANSPORT:'http'}),/DIPLOMACY_LUNA_TRANSPORT/);
+  // `live` is a development playtest and is covered, with its guards, in Playtest.test.ts.
+  assert.throws(()=>readRuntimeConfig({DIPLOMACY_LUNA_TRANSPORT:'live'}),/OPENAI_API_KEY/);
   assert.equal(readRuntimeConfig({}).lunaTransport,'none');
   const outbound:string[]=[],realFetch=globalThis.fetch;
   globalThis.fetch=((input:Parameters<typeof fetch>[0],init?:Parameters<typeof fetch>[1])=>{const url=String(input instanceof Request?input.url:input);if(!url.startsWith('http://127.0.0.1:'))outbound.push(url);return realFetch(input,init);}) as typeof fetch;

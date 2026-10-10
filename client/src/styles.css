@@ -1532,3 +1532,9 @@ fieldset.order-builder { min-width: 0; margin: 0; border: 0; padding: 0; }
 .challenge-progress { border:1px solid #34433c; border-radius:6px; padding:10px 12px; display:grid; gap:3px; font-size:13px; background:#101719; }
 .challenge-progress strong { color:#f2e6ca; font-weight:600; }
 .challenge-progress span { color:#b8c0b8; }
+
+.challenge-playtest table { width:100%; border-collapse:collapse; font-size:.85rem; margin:6px 0 10px; }
+.challenge-playtest th, .challenge-playtest td { text-align:left; padding:3px 6px 3px 0; border-bottom:1px solid #3a423c; }
+.challenge-playtest details { margin:6px 0; }
+.challenge-playtest ul { list-style:none; padding:0; margin:6px 0; display:grid; gap:6px; font-size:.85rem; }
+.challenge-playtest .muted { overflow-wrap:anywhere; }

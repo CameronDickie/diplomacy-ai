@@ -3,6 +3,7 @@ import { TERRITORIES, type ChallengeAction,type ChallengeAttemptView,type Challe
 import { useChallenge } from '../hooks/useChallenge.js';
 import { MapGraph } from './MapGraph.js';
 import { OperatorPanel } from './OperatorPanel.js';
+import { PlaytestPanel } from './PlaytestPanel.js';
 import { territoryName } from '../lib/game.js';
 
 export function ChallengeApp(){
@@ -41,7 +42,7 @@ export function ChallengeApp(){
     {!game.loaded&&!game.error&&<p>Loading the challenge…</p>}
     {operatorView&&game.auth.operator?<OperatorPanel/>:<div className="challenge-layout">
       <aside className="challenge-brief">
-        <span className="challenge-badge">Development pilot · {replay?(replay.exhibition?'Bot exhibition game':replay.reference?'Reference replay':'Your replay'):a?.mode==='SPONSORED'?(game.sponsoredMock?'Mock Luna opponents':'Sponsored · GPT-6 Luna opponents'):a?.mode==='BOT'?'Practice bot':'Offline practice'}</span>
+        <span className="challenge-badge">Development pilot · {replay?(replay.exhibition?'Bot exhibition game':replay.reference?'Reference replay':'Your replay'):a?.mode==='SPONSORED'?(game.sponsoredMock?'Mock model opponents':game.sponsoredLive?'Live playtest · real model calls':'Sponsored · GPT-6 Luna opponents'):a?.mode==='BOT'?'Practice bot':'Offline practice'}</span>
         <h2>Your mission</h2>{card&&<p>As {title(card.humanPower)}, own {territoryName(card.targetTerritory)} after Fall {card.deadlineYear} or sooner.</p>}
         <p>Own the supply center after a settled Fall turn, no later than Fall {card?.deadlineYear}. Moving there in Spring is not enough.</p>
         {card&&board&&<Progress card={card} board={board} live={a?.lifecycle==='ACTIVE'}/>}
@@ -50,7 +51,7 @@ export function ChallengeApp(){
         {game.rotation&&(!a||a.lifecycle!=='ACTIVE')&&<p className="muted">Development rotation: challenge {game.rotation.index+1} of {game.rotation.size} for {game.rotation.day} UTC. {game.cards[0]&&a&&a.challenge.id!==game.cards[0].id?`The current challenge is now ${game.cards[0].title}. `:''}The next one starts in {untilChange(game.rotation.nextChangeAt,clock)}.</p>}
         {!a||a.lifecycle!=='ACTIVE'?<><button className="primary" disabled={!game.auth.authenticated||game.busy||!game.cards[0]} onClick={()=>game.cards[0]&&void game.start(game.cards[0],'BOT')}>{a&&game.cards[0]&&a.challenge.id!==game.cards[0].id?`Start ${game.cards[0].title}`:'Play against the practice bot'}</button>
           <button disabled={!game.auth.authenticated||game.busy||!game.cards[0]} onClick={()=>game.cards[0]&&void game.start(game.cards[0])}>Start practice</button>
-          {game.sponsoredPlay==='OPEN'&&<button className="primary" disabled={!game.auth.authenticated||game.busy||!game.cards[0]} onClick={()=>game.cards[0]&&void game.start(game.cards[0],'SPONSORED')}>{game.sponsoredMock?'Play against mock Luna opponents':'Play against Luna opponents'}</button>}</>:<>
+          {game.sponsoredPlay==='OPEN'&&<button className="primary" disabled={!game.auth.authenticated||game.busy||!game.cards[0]} onClick={()=>game.cards[0]&&void game.start(game.cards[0],'SPONSORED')}>{game.sponsoredMock?'Play against mock model opponents':game.sponsoredLive?'Play a live playtest (real model calls)':'Play against Luna opponents'}</button>}</>:<>
           <div className="challenge-phase">{a.board.year} {a.board.season} · {a.board.phase}</div>
           <p role="status">{a.execution==='ACCEPTING'?'Your move':a.execution!=='RECOVERING'?(a.mode==='SPONSORED'?'Your orders are saved. The opponents are deciding…':'Your orders are saved. Resolving this phase…')
             :a.notice==='SPONSORED_PAUSED'?'Your orders are saved. Sponsored play is paused, so the opponents cannot move yet. Nothing is lost: continue when it resumes, or end the attempt.'
@@ -110,6 +111,7 @@ export function ChallengeApp(){
           <button className="primary" disabled={!editable||!complete} onClick={()=>{const action=submission();if(action)void game.submit(action);}}>{game.busy?'Saving…':a.execution==='ACCEPTING'?'Submit orders':'Orders saved'}</button>
           </>}
           {a.lifecycle!=='ACTIVE'&&<p>This attempt has ended. Review its saved phases below.</p>}
+          {game.playtest&&a?.mode==='SPONSORED'&&<PlaytestPanel log={game.playtest}/>}
           {game.reports.length>0&&<section><h2>Phase reports</h2>{game.reports.map((r,i)=><button className="attempt-history" key={r.id} onClick={()=>setReplay({reports:game.reports,index:i,after:true,reference:false})}>{r.year} {r.season} · {r.phase}</button>)}</section>}
         </>}
       </aside>

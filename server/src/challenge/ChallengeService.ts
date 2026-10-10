@@ -16,9 +16,12 @@ import { practiceBot } from '../attempts/PracticeBot.js';
 import { PhaseRules } from '../attempts/PhaseRules.js';
 import { RateLimiter, type RateCategory } from '../limits/RateLimiter.js';
 import { opponentContract, type OpponentContract } from '../providers/OpponentContract.js';
+import { playtestLog } from './PlaytestLog.js';
+import { mixedPlan, type OpponentPlan } from '../providers/OpponentPlan.js';
+import { anthropicHaikuTransport } from '../luna/HaikuTransport.js';
 import { LunaDecisionProvider } from '../luna/LunaDecisionProvider.js';
 import { routedDecisions } from '../luna/Routing.js';
-import { mockOpponentTransport, type LunaTransport } from '../luna/Transport.js';
+import { httpLunaTransport, mockOpponentTransport, type LunaTransport } from '../luna/Transport.js';
 
 const HISTORY_PAGE=20;
 export class ChallengeService {
@@ -34,21 +37,33 @@ export class ChallengeService {
   /** Set when sponsored attempts can be offered by this process: a development mock, or an injected test transport. */
   private readonly sponsoredMock:boolean;
   private readonly sponsoredOffered:boolean;
-  /** The preset new sponsored attempts are pinned to. Existing attempts keep the one they started with. */
-  private readonly contract:OpponentContract;
-  private constructor(private store:Store,private config:RuntimeConfig,private now:()=>number,transport?:LunaTransport) {
+  /** What new sponsored attempts are pinned to. Existing attempts keep what they started with. */
+  private readonly plan:OpponentPlan;
+  /** Development playtest against the real providers. Never true outside the local, non-production profile. */
+  private readonly sponsoredLive:boolean;
+  private constructor(private store:Store,private config:RuntimeConfig,private now:()=>number,transport?:LunaTransport,env:NodeJS.ProcessEnv=process.env) {
     // The real provider transport is deliberately not selectable here: paid startup stays refused until the owner authorizes spend.
     if(config.llm.paidEnabled)throw Error('Funded challenge adapter is not integrated.');
-    this.contract=opponentContract(config.sponsoredPreset);
+    const development=config.profile==='local'&&!config.production;
+    // Checked here as well as in the configuration contract: a hand-built config must not reach a provider either.
+    if(!development&&(config.lunaTransport!=='none'||Object.keys(config.playtestOpponents).length))throw Error('Development opponent transports are not available in this profile.');
+    this.plan=mixedPlan(config.playtestOpponents,opponentContract(config.sponsoredPreset));
     this.sponsoredMock=!transport&&config.lunaTransport==='mock';
-    const luna=transport??(this.sponsoredMock?mockOpponentTransport(this.contract,{pick:'seeded',seed:now()%2_147_483_647}):undefined);
+    this.sponsoredLive=!transport&&config.lunaTransport==='live';
+    const seed=now()%2_147_483_647;
+    // One transport per preset in the plan. Live transports read only their own provider's key.
+    const build=(contract:OpponentContract):LunaTransport=>this.sponsoredLive
+      ?(contract.key==='haiku'?anthropicHaikuTransport(env.ANTHROPIC_API_KEY??''):httpLunaTransport(env.OPENAI_API_KEY??''))
+      :mockOpponentTransport(contract,{pick:'seeded',seed});
+    const transports=this.sponsoredMock||this.sponsoredLive?Object.fromEntries(this.plan.contracts.map(c=>[c.key,build(c)])) as Partial<Record<OpponentContract['key'],LunaTransport>>:{};
+    const luna=transport??(this.sponsoredMock||this.sponsoredLive?build(this.plan.contracts[0]):undefined);
     this.sponsoredOffered=Boolean(luna);
     this.limits=new RateLimiter(config.trustedProxy,now);
-    this.attempts=new AttemptService(store,routedDecisions(store,offlineDecisions(this.rules),practiceBot(this.rules),luna?new LunaDecisionProvider(store,this.rules,luna,{now,contract:this.contract}):null),this.rules,
+    this.attempts=new AttemptService(store,routedDecisions(store,offlineDecisions(this.rules),practiceBot(this.rules),luna?new LunaDecisionProvider(store,this.rules,luna,{now,plan:this.plan,transports}):null),this.rules,
       {maxRunning:config.maxActiveAttempts,idleExpireMs:config.idleExpireMinutes*60_000,now});
   }
-  static async open(store:Store,config:RuntimeConfig,now=Date.now,options:{lunaTransport?:LunaTransport}={}):Promise<ChallengeService> {
-    const service=new ChallengeService(store,config,now,options.lunaTransport);
+  static async open(store:Store,config:RuntimeConfig,now=Date.now,options:{lunaTransport?:LunaTransport;env?:NodeJS.ProcessEnv}={}):Promise<ChallengeService> {
+    const service=new ChallengeService(store,config,now,options.lunaTransport,options.env);
     const load=async(path:string)=>JSON.parse(await readFile(new URL(`../../fixtures/${path}`,import.meta.url),'utf8'));
     service.rotation=parseRotation(await load('rotation/development.v1.json'));
     for(const entry of service.rotation.entries){
@@ -83,10 +98,20 @@ export class ChallengeService {
     }
     return packaged;
   }
+  /** Says plainly which model decides which power, and whether real provider calls are made. */
+  private sponsoredLabel(definition:ChallengeDefinition):string {
+    const models=definition.opponentPowers.map(power=>`${power} ${this.plan.contractFor(power).preset.model}`).join(', ');
+    // The single-Luna wording is what players of the public showcase have always been shown.
+    const only=this.plan.contracts[0];
+    const who=this.plan.mixed?`Mixed opponents (${models})`:only.key==='luna'?'Luna opponents':`${only.preset.model} opponents`;
+    if(!this.sponsoredMock&&!this.sponsoredLive&&!this.plan.mixed&&only.key==='luna')return 'GPT-6 Luna opponents · sponsored';
+    return this.sponsoredMock?`Mock ${who} · development stand-in, no provider calls`
+      :this.sponsoredLive?`Live ${who} · development playtest, real provider calls from your local ledger`:`${who} · sponsored`;
+  }
   private card(definition:ChallengeDefinition,board:StoredAttempt['board'],mode:ChallengeMode='PRACTICE'):ChallengeCard {
     return {id:definition.id,version:definition.version,title:definition.title,objectiveText:definition.objectiveText,humanPower:definition.humanPower,targetTerritory:definition.objective.territory,
       deadlineYear:definition.objective.deadlineYear,earlyAchievementYear:definition.earlyAchievementYear,
-      label:'DEVELOPMENT_PILOT',mode,opponentLabel:mode==='PRACTICE'?'Offline practice · hold-only opponents':mode==='BOT'?'Practice bot · free scripted opponents, no AI model':this.sponsoredMock?'Mock Luna opponents · development stand-in, no provider calls':'GPT-6 Luna opponents · sponsored',
+      label:'DEVELOPMENT_PILOT',mode,opponentLabel:mode==='PRACTICE'?'Offline practice · hold-only opponents':mode==='BOT'?'Practice bot · free scripted opponents, no AI model':this.sponsoredLabel(definition),
       board:{...publicBoard(board),year:board.year,season:board.season,phase:board.phase}};
   }
   private async view(attempt:StoredAttempt):Promise<ChallengeAttemptView> {
@@ -96,7 +121,7 @@ export class ChallengeService {
     let notice:ChallengeAttemptView['notice']=null;
     if(attempt.mode==='SPONSORED'&&attempt.lifecycle==='ACTIVE'&&attempt.execution==='RECOVERING'){
       const [paid,funding,own]=await Promise.all([this.store.call('paidState',{}),this.store.call('fundingTotals',{}),this.store.call('attemptFunding',{attemptId:attempt.id})]);
-      notice=paid.stopped?'SPONSORED_PAUSED':own.settledNanousd+own.heldNanousd+this.contract.reservationNanousd(this.contract.preset.maxInputTokens)>funding.attemptCapNanousd?'ATTEMPT_BUDGET':'SPONSORED_RETRY';
+      notice=paid.stopped?'SPONSORED_PAUSED':own.settledNanousd+own.heldNanousd+this.plan.reservationNanousd>funding.attemptCapNanousd?'ATTEMPT_BUDGET':'SPONSORED_RETRY';
     }
     return {id:attempt.id,revision:attempt.revision,phaseId:attempt.phaseId,challenge:this.card(challenge.definition,challenge.board,attempt.mode),mode:attempt.mode,notice,
       lifecycle:attempt.lifecycle,execution:attempt.execution,board:{...publicBoard(attempt.board),year:attempt.board.year,season:attempt.board.season,phase:attempt.board.phase},
@@ -150,7 +175,7 @@ export class ChallengeService {
     router.get('/challenges',this.limits.address('public'),run(async(_req,res)=>{
       const [active,paid]=await Promise.all([this.store.call('activeAttempts',{}),this.store.call('paidState',{})]);
       const {slot,entry}=this.featured();
-      const catalog:ChallengeCatalog={challenges:[entry.card],rotation:{id:this.rotation.id,version:this.rotation.version,label:'DEVELOPMENT_ROTATION',day:slot.day,index:slot.index,size:this.catalog.length,nextChangeAt:slot.nextChangeAt},sponsoredPlay:!this.sponsoredOffered?'NOT_OFFERED':paid.stopped?'PAUSED':'OPEN',sponsoredMock:this.sponsoredMock,
+      const catalog:ChallengeCatalog={challenges:[entry.card],rotation:{id:this.rotation.id,version:this.rotation.version,label:'DEVELOPMENT_ROTATION',day:slot.day,index:slot.index,size:this.catalog.length,nextChangeAt:slot.nextChangeAt},sponsoredPlay:!this.sponsoredOffered?'NOT_OFFERED':paid.stopped?'PAUSED':'OPEN',sponsoredMock:this.sponsoredMock,...(this.sponsoredLive?{sponsoredLive:true}:{}),
         capacity:active.length>=this.config.maxActiveAttempts?'FULL':'OPEN',limits:{maxActiveAttempts:this.config.maxActiveAttempts,maxActivePerAccount:this.config.maxActivePerAccount,
         dailyStartLimit:this.config.dailyStartLimit,idleWarnMinutes:this.config.idleWarnMinutes,idleExpireMinutes:this.config.idleExpireMinutes,resultRetentionDays:this.config.resultRetentionDays}};
       res.json(catalog);
@@ -191,7 +216,7 @@ export class ChallengeService {
         now:this.now(),maxActive:this.config.maxActiveAttempts,maxPerAccount:this.config.maxActivePerAccount,dailyLimit:this.config.dailyStartLimit,replayOnly:selected!==featured,
         // The preset and its price list are pinned to the attempt; the pool must cover at least one worst-case call.
         ...(mode==='BOT'?{bot:true}:{}),
-        ...(mode==='SPONSORED'?{sponsored:{preset:{id:this.contract.preset.id,pricingVersion:this.contract.preset.pricingVersion},minimumAvailableNanousd:this.contract.reservationNanousd(this.contract.preset.maxInputTokens)}}:{})});
+        ...(mode==='SPONSORED'?{sponsored:{preset:{id:this.plan.id,pricingVersion:this.plan.pricingVersion},minimumAvailableNanousd:this.plan.reservationNanousd}}:{})});
       res.json(await this.view(attempt));
     }));
     router.get('/attempts/:id',guarded('read'),run(async(req,res)=>{res.json(await this.view(await this.owned(req.params.id,player(res))));}));
@@ -228,6 +253,12 @@ export class ChallengeService {
     }));
     router.get('/attempts/:id/reports',guarded('read'),run(async(req,res)=>{
       await this.owned(req.params.id,player(res));res.json({reports:await this.store.call('reports',{attemptId:req.params.id})});
+    }));
+    // Development playtests only: which model decided each power, how long it took and what it cost.
+    // Not registered at all outside the local, non-production profile.
+    if(this.sponsoredMock||this.sponsoredLive)router.get('/attempts/:id/playtest',guarded('read'),run(async(req,res)=>{
+      const attempt=await this.owned(req.params.id,player(res));
+      res.json(await playtestLog(this.store,attempt.id));
     }));
     return router;
   }

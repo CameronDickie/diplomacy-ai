@@ -72,7 +72,7 @@ test('production renderer preserves every supported setting, including aliases, 
     DIPLOMACY_MAX_ACTIVE_ATTEMPTS: '4', DIPLOMACY_MAX_ACTIVE_PER_ACCOUNT: '2',
     DIPLOMACY_DAILY_START_LIMIT: '5', DIPLOMACY_IDLE_WARN_MINUTES: '10', DIPLOMACY_IDLE_EXPIRE_MINUTES: '15',
     DIPLOMACY_RESULT_RETENTION_DAYS: '5', DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS: '2', DIPLOMACY_RECEIPT_RETENTION_DAYS: '180',
-    DIPLOMACY_TRUSTED_PROXY: 'private', DIPLOMACY_LUNA_TRANSPORT: 'none', DIPLOMACY_SPONSORED_PRESET: 'haiku',
+    DIPLOMACY_TRUSTED_PROXY: 'private', DIPLOMACY_LUNA_TRANSPORT: 'none', DIPLOMACY_SPONSORED_PRESET: 'haiku', DIPLOMACY_PLAYTEST_OPPONENTS: '', DIPLOMACY_DEV_LOGIN: 'false',
   };
   for (const provider of PROVIDERS) {
     env[`LLM_ALLOWED_MODELS_${provider}`] = `synthetic-${provider}`;
@@ -88,7 +88,8 @@ test('production renderer preserves every supported setting, including aliases, 
   }
   assert.deepEqual(new Set(Object.keys(env)), new Set(SUPPORTED_ENV_NAMES), 'each new supported setting needs a round-trip witness');
   const rendered = parseEnv(renderProductionEnv(serialize(env)));
-  const { DIPLOMACY_ENV_FILE: _localPath, ...expected } = env;
+  // Development-only settings have no production value to carry.
+  const { DIPLOMACY_ENV_FILE: _localPath, DIPLOMACY_PLAYTEST_OPPONENTS: _developmentOnly, ...expected } = env;
   assert.deepEqual({ ...rendered }, expected);
   assert.deepEqual(readRuntimeConfig(rendered), readRuntimeConfig(env));
 });

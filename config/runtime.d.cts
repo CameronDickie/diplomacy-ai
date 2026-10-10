@@ -33,7 +33,11 @@ export interface RuntimeConfig {
   notifyMode: 'outbox' | 'resend';
   admins: string[];
   trustedProxy: 'none' | 'private';
-  lunaTransport: 'none' | 'mock';
+  lunaTransport: 'none' | 'mock' | 'live';
+  /** Development only: opponent powers assigned to a preset other than the default. */
+  playtestOpponents: Partial<Record<import('@diplomacy/shared').Power, 'luna' | 'haiku'>>;
+  /** Development only: a sign-in that needs no identity provider. */
+  devLogin: boolean;
   sponsoredPreset: 'luna' | 'haiku';
   idleWarnMinutes: number;
   idleExpireMinutes: number;

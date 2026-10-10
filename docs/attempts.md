@@ -165,8 +165,9 @@ player's orders saved, and its view carries a `notice`:
 
 ### Where sponsored play can run today
 
-Nowhere with a real provider: `DIPLOMACY_PAID_AI_ENABLED=true` is still refused
-at startup and the HTTP transport is not constructed. `DIPLOMACY_LUNA_TRANSPORT=mock`
+For players, nowhere with a real provider: `DIPLOMACY_PAID_AI_ENABLED=true` is
+still refused at startup. The only path to a real provider from the server is the
+development-only local playtest ([playtest.md](playtest.md)). `DIPLOMACY_LUNA_TRANSPORT=mock`
 (local, non-production profile only) offers sponsored attempts against a
 deterministic stand-in that reads the same request, answers in the provider's
 format and is priced like a real answer, so the ledger, limits, notices and

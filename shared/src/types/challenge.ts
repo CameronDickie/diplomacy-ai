@@ -37,6 +37,17 @@ export interface ChallengeLimits { maxActiveAttempts:number; maxActivePerAccount
  */
 /** Which pinned scenario is featured for the current UTC day. A development rotation is not a public daily schedule. */
 export interface ChallengeRotation { id:string; version:number; label:'DEVELOPMENT_ROTATION'; day:string; index:number; size:number; nextChangeAt:number }
-export interface ChallengeCatalog { challenges:ChallengeCard[]; rotation:ChallengeRotation; limits:ChallengeLimits; sponsoredPlay:'NOT_OFFERED'|'PAUSED'|'OPEN'; sponsoredMock:boolean; capacity:'OPEN'|'FULL' }
+export interface ChallengeCatalog { challenges:ChallengeCard[]; rotation:ChallengeRotation; limits:ChallengeLimits; sponsoredPlay:'NOT_OFFERED'|'PAUSED'|'OPEN'; sponsoredMock:boolean; /** Development playtest against real providers; never set by a production server. */ sponsoredLive?:boolean; capacity:'OPEN'|'FULL' }
 /** `REFERENCE` is the packaged public run; a player's own phase history is never served under this type. */
 export interface ChallengeReplay { kind:'REFERENCE'; challenge:ChallengeCard; reports:PublicPhaseReport[] }
+
+/** One provider call in a development playtest. `decision` is the validated action it produced, if any. */
+export interface PlaytestCall {
+  power:Power; model:string; outcome:string|null; latencyMs:number|null;
+  inputTokens:number|null; outputTokens:number|null; reasoningTokens:number|null;
+  costNanousd:number|null; heldNanousd:number; decision:unknown|null;
+}
+export interface PlaytestPhase { phaseId:string; kind:'ORDERS'|'RETREATS'|'BUILDS'; calls:PlaytestCall[] }
+export interface PlaytestModelTotals { calls:number; valid:number; costNanousd:number; heldNanousd:number; latencyMsTotal:number; timedCalls:number; outputTokens:number }
+/** Development only: which model decided each power, what it chose, how long it took and what it cost. */
+export interface PlaytestLog { attemptId:string; phases:PlaytestPhase[]; models:Record<string,PlaytestModelTotals> }
