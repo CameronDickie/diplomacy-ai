@@ -73,6 +73,8 @@ export class LunaDecisionProvider implements DecisionProvider {
       else if (call.state === 'DISPATCHED') await this.store.call('finishProviderCall',{ id: call.id, outcome: 'TRANSPORT_ERROR', now: this.now() }).catch(() => {});
     }
     // `waiting` holds the tasks parked on a sibling: two parked tasks must never wait on each other.
+    // Each opponent sees only its own conversation with the player, never another power's.
+    const talk = await this.store.call('chatMessages',{ attemptId: job.attemptId });
     // Every power's legal orders, from the public board only, asked for once per phase. They tell each
     // opponent where another power could arrive, which decides whether a support has any purpose.
     const legalByPower = new Map<Power, Promise<Awaited<ReturnType<PhaseRules['legal']>>>>();
@@ -97,7 +99,7 @@ export class LunaDecisionProvider implements DecisionProvider {
         try {
           const legal = await legalOf(power), contested = job.board.phase === 'ORDERS' ? await contestedFor(power) : undefined;
           signal.throwIfAborted();
-          const prompt = lunaPrompt(job,power,legal,last,this.plan.contractFor(power),contested);
+          const prompt = lunaPrompt(job,power,legal,last,this.plan.contractFor(power),contested,talk.filter(m => m.power === power));
           if (!prompt) { decisions[power] = forcedAction(job.board); continue; }
           const kept = saved.get(power);
           if (kept) {

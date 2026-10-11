@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { LUNA_PRESET, buildLunaRequest } from '../providers/LunaPreset.js';
+import { LUNA_PRESET, buildLunaChatRequest, buildLunaRequest } from '../providers/LunaPreset.js';
 import { LUNA_CONTRACT, type OpponentContract } from '../providers/OpponentContract.js';
 
 export interface LunaResponse { status: number; body: unknown }
@@ -54,7 +54,8 @@ export function httpLunaTransport(apiKey: string, request: typeof fetch = fetch)
     let parsed: ReturnType<typeof JSON.parse>;
     try {
       parsed = JSON.parse(body);
-      if (body !== buildLunaRequest({ context: parsed.input[0].content[0].text }).body
+      const context = { context: parsed.input[0].content[0].text };
+      if ((body !== buildLunaRequest(context).body && body !== buildLunaChatRequest(context).body)
         || Buffer.byteLength(body,'utf8') > LUNA_PRESET.maxRequestBytes) throw new Error();
     } catch { throw new Error('Invalid Luna request contract.'); }
     const countBody = JSON.stringify({ model: parsed.model, input: parsed.input, instructions: parsed.instructions,
@@ -107,7 +108,13 @@ export function mockOpponentTransport(contract: OpponentContract, options: MockO
     // Request-local randomness makes seeded choices independent of worker completion order.
     let state=createHash('sha256').update(String((options.seed??1)>>>0)).update(body).digest().readUInt32BE(0);
     const random=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return state/2**32;};
-    const text = contract.contextOf(body), own = text.slice(text.lastIndexOf('\nYou are '));
+    const text = contract.contextOf(body);
+    if (body === contract.buildChatRequest({ context: text }).body) {
+      const speaker = /\nYou are ([A-Z]+)\./.exec(text)?.[1] ?? 'This power', reply = JSON.stringify({ reply: `(stand-in reply, no model was asked) ${speaker} has read your message.` });
+      return { status: 200, body: contract.mockEnvelope({ serial: ++serial, text: reply, inputTokens: Math.ceil(Buffer.byteLength(body) / 4), outputTokens: Math.ceil(reply.length / 3) + 16 }) };
+    }
+    // Choices begin at the rule line; a conversation shown before it is not a list of choices.
+    const section = text.slice(text.lastIndexOf('\nYou are ')), own = section.slice(Math.max(0,section.search(/\nPick /)));
     const groups: number[][] = [], holds = new Set<number>();
     for (const line of own.split('\n')) {
       if (/:$/.test(line)) groups.push([]);

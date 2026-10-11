@@ -18,7 +18,7 @@ function intent(v:ProviderCallIntent):ProviderCallIntent {
   identifier(v.id); identifier(v.fence.operationId); identifier(v.fence.attemptId);
   if(typeof v.fence.phaseId!=='string'||v.fence.phaseId.length>200)invalid();
   integer(v.fence.revision);identifier(v.pricingVersion);integer(v.maxCostNanousd,15_000_000_000);
-  if(!v.maxCostNanousd||!(v.provider==='OPENAI'&&v.model==='gpt-6-luna'||v.provider==='ANTHROPIC'&&v.model==='claude-haiku-5-5')||!['ORDERS','RETREATS','BUILDS'].includes(v.role)||!ALL_POWERS.includes(v.power)||!/^[a-f0-9]{64}$/.test(v.requestHash))invalid();
+  if(!v.maxCostNanousd||!(v.provider==='OPENAI'&&v.model==='gpt-6-luna'||v.provider==='ANTHROPIC'&&v.model==='claude-haiku-5-5')||!['ORDERS','RETREATS','BUILDS','CHAT'].includes(v.role)||!ALL_POWERS.includes(v.power)||!/^[a-f0-9]{64}$/.test(v.requestHash))invalid();
   return v;
 }
 function usage(v:ProviderUsage):ProviderUsage {
@@ -43,6 +43,14 @@ export class ProviderCallRepository {
     const f=v.fence;
     // An operator or exhaustion stop closes every new paid prepare/dispatch, including queued and recovered work.
     if(paidState(this.db).stopped)throw new StoreError('STORE_CONFLICT','Sponsored play is stopped; no new provider call may begin.');
+    if(v.role==='CHAT'){
+      // A reply belongs to one stored, still-unanswered player message in an attempt that is still at that point.
+      const pending=this.db.prepare(`SELECT m.id FROM chat_messages m JOIN attempts a ON a.id=m.attempt_id JOIN players p ON p.id=a.player_id
+        WHERE m.id=? AND m.attempt_id=? AND m.power=? AND m.sender='PLAYER' AND m.reply_state='PENDING' AND m.phase_id=? AND m.revision=?
+        AND a.revision=m.revision AND a.phase_id=m.phase_id AND a.lifecycle='ACTIVE' AND a.execution='ACCEPTING' AND p.banned_at IS NULL`).get(f.operationId,f.attemptId,v.power,f.phaseId,f.revision);
+      if(!pending)conflict();
+      return;
+    }
     const row=this.db.prepare(`SELECT j.id FROM phase_jobs j JOIN attempts a ON a.id=j.attempt_id JOIN players p ON p.id=a.player_id
       WHERE j.id=? AND j.attempt_id=? AND j.phase_id=? AND j.revision=? AND a.revision=j.revision AND a.phase_id=j.phase_id
       AND json_extract(j.definition_json,'$.humanPower')<>? AND json_extract(j.board_json,'$.phase')=?

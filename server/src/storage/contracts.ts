@@ -93,6 +93,10 @@ export interface StoreOperations {
   setExhibitionState: { input: { id:string; action:'PAUSE'|'RESUME'|'CANCEL'|'FAIL'; now:number }; output: StoredExhibition };
   advanceExhibition: { input: { id:string; expectedPhases:number; board:BoardFixture; report:PublicPhaseReport; finished:boolean; quietLimit:number; now:number }; output: StoredExhibition };
   saveProviderDecision: { input: { callId:string; action:PhaseAction; now:number }; output: null };
+  chatSend: { input: { id:string; attemptId:string; playerId:string; power:Power; requestId:string; body:string; limit:number; now:number }; output: { message:import('./chat.js').StoredChatMessage; duplicate:boolean; used:number } };
+  chatReply: { input: { messageId:string; body:string; now:number }; output: import('./chat.js').StoredChatMessage };
+  chatFail: { input: { messageId:string; now:number }; output: void };
+  chatMessages: { input: { attemptId:string }; output: Array<import('./chat.js').StoredChatMessage> };
   providerDecisions: { input: { operationId:string }; output: Array<{ callId:string; power:Power; action:PhaseAction }> };
   fundingTotals: { input: {}; output: FundingTotals };
   attemptFunding: { input: { attemptId:string }; output: { settledNanousd:number; heldNanousd:number } };
@@ -151,7 +155,7 @@ export interface StoreOperations {
 }
 export type StoreOperation = keyof StoreOperations;
 export type StoreRequest = { [K in StoreOperation]: { id: number; operation: K; input: StoreOperations[K]['input'] } }[StoreOperation];
-export type StoreErrorCode = 'STORE_UNAVAILABLE' | 'STORE_BUSY' | 'STORE_CONFLICT' | 'STORE_FORBIDDEN' | 'STORE_INVALID' | 'STORE_SCHEMA' | 'CAPACITY_FULL' | 'ACTIVE_ATTEMPT_EXISTS' | 'DAILY_LIMIT' | 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED' | 'FUNDS_BUSY' | 'SPONSORED_UNAVAILABLE';
+export type StoreErrorCode = 'STORE_UNAVAILABLE' | 'STORE_BUSY' | 'STORE_CONFLICT' | 'STORE_FORBIDDEN' | 'STORE_INVALID' | 'STORE_SCHEMA' | 'CAPACITY_FULL' | 'ACTIVE_ATTEMPT_EXISTS' | 'DAILY_LIMIT' | 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED' | 'FUNDS_BUSY' | 'SPONSORED_UNAVAILABLE' | 'CHAT_LIMIT';
 export class StoreError extends Error {
   constructor(readonly code: StoreErrorCode, message: string) { super(message); this.name = 'StoreError'; }
 }

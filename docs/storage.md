@@ -17,6 +17,14 @@ the repository. Private evaluation manifests and phase timing/recovery evidence
 are durable; see [evaluation.md](evaluation.md). Legacy rooms remain in memory.
 Paid startup is still interlocked.
 
+## Chat messages
+
+`chat_messages` (migration 14) holds the player's private conversations with
+opponent powers, per attempt. Rows cascade from the attempt, so retention and
+account deletion remove them. A player's message is unique per attempt and
+request id; content is immutable; only its reply state changes. The feature
+that writes them is development only ([playtest.md](playtest.md)).
+
 ## Runtime and files
 
 Node.js 22.16+ is required for the built-in SQLite backup API, which is marked

@@ -1,6 +1,6 @@
 # Sponsored Luna request contract
 
-`server/src/providers/LunaPreset.ts` owns `luna-challenge-v4`, using only
+`server/src/providers/LunaPreset.ts` owns `luna-challenge-v5`, using only
 `gpt-6-luna` at `https://api.openai.com/v1/responses`. It is separate from legacy
 private-room seat/model policy. No visitor field is spread into API settings.
 `buildLunaRequest` accepts only a server-built context string and returns immutable

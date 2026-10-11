@@ -1,4 +1,5 @@
 import { ProviderCallRepository } from './providerCalls.js';
+import { ChatRepository } from './chat.js';
 import { parentPort, workerData } from 'node:worker_threads';
 import { DatabaseSync, backup } from 'node:sqlite';
 import { chmodSync, closeSync, lstatSync, mkdirSync, openSync } from 'node:fs';
@@ -194,6 +195,10 @@ async function handle(request: StoreRequest): Promise<unknown> {
     case 'evaluationPhases': return new EvaluationRepository(db).phases(input.attemptId);
     case 'createEvaluationAttempt': return refuseStart(transaction(() => new EvaluationRepository(db).create(input,getAttempt,createAttempt)));
     case 'saveProviderDecision': return transaction(() => new ProviderCallRepository(db).saveDecision(input));
+    case 'chatSend': return transaction(() => new ChatRepository(db).send(input));
+    case 'chatReply': return transaction(() => new ChatRepository(db).reply(input));
+    case 'chatFail': return transaction(() => new ChatRepository(db).fail(input));
+    case 'chatMessages': return new ChatRepository(db).list(input.attemptId);
     case 'providerDecisions': return new ProviderCallRepository(db).decisions(input.operationId);
     case 'createExhibition': return transaction(() => new ExhibitionRepository(db).create(input));
     case 'exhibition': return new ExhibitionRepository(db).get(input.id);

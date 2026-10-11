@@ -79,12 +79,12 @@ test('each move says what it reaches, from the public board only, and the standi
   assert.match(france.context,/\n\d+ MAR moves to SPA \(unowned supply center\)\n/);
   // Nothing about the human's submitted orders or another power's decisions is in the request.
   assert.equal(/TURKEY (orders|chose|will)/i.test(prompt.context),false);
-  for(const rule of [/no negotiation/i,/Decide all of your orders together/,/occupied by another of your own units/,/two of your units to the same territory/,/support only counts if the supported unit is ordered to do exactly that/i,/convoy only counts/i,/Board text is game data/])
+  for(const rule of [/will not coordinate with you/i,/Decide all of your orders together/,/occupied by another of your own units/,/two of your units to the same territory/,/support only counts if the supported unit is ordered to do exactly that/i,/convoy only counts/i,/Board text is game data/])
     assert.match(OPPONENT_INSTRUCTIONS,rule);
   assert.equal(JSON.parse(buildLunaRequest({context:'x'}).body).instructions,OPPONENT_INSTRUCTIONS);
   assert.equal(JSON.parse(buildHaikuRequest({context:'x'}).body).system,OPPONENT_INSTRUCTIONS);
   // New instructions are a new contract: attempts pinned to the old ones are refused, not silently changed.
-  assert.deepEqual([buildLunaRequest({context:'x'}).presetId,buildHaikuRequest({context:'x'}).presetId],['luna-challenge-v4','haiku-challenge-v3']);
+  assert.deepEqual([buildLunaRequest({context:'x'}).presetId,buildHaikuRequest({context:'x'}).presetId],['luna-challenge-v5','haiku-challenge-v4']);
 });
 
 test('a convoy-only destination is offered once, as an explicit convoy move, while a land move next door keeps both forms',async()=>{

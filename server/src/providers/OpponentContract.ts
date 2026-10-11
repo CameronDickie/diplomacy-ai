@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { canonicalJson } from '../fixtures/BoardFixture.js';
-import { HAIKU_PRESET, buildHaikuRequest, haikuContextOf, haikuReservationNanousd, mockHaikuEnvelope } from './HaikuPreset.js';
+import { HAIKU_PRESET, buildHaikuChatRequest, buildHaikuRequest, haikuContextOf, haikuReservationNanousd, mockHaikuEnvelope } from './HaikuPreset.js';
 import { normalizeHaikuResponse } from './HaikuResponse.js';
-import { LUNA_PRESET, buildLunaRequest, lunaReservationNanousd } from './LunaPreset.js';
+import { LUNA_PRESET, buildLunaChatRequest, buildLunaRequest, lunaReservationNanousd } from './LunaPreset.js';
 import { normalizeLunaResponse } from './LunaResponse.js';
 import type { ProviderResponse } from './RecordedCall.js';
 
@@ -32,6 +32,8 @@ export interface OpponentContract {
   /** Hash of every pinned setting and price, recorded in evaluation manifests. */
   presetHash: string;
   buildRequest(input: { context: string }): OpponentRequest;
+  /** The pinned request for one short reply to the player's message. Same model, limits and prices. */
+  buildChatRequest(input: { context: string }): OpponentRequest;
   /** Worst-case cost of one call given a verified input-token bound. */
   reservationNanousd(inputTokens: number): number;
   /** Billing fields and status only; decision JSON is parsed later, after the bill is recorded. */
@@ -46,7 +48,7 @@ const hash = (preset: object) => createHash('sha256').update(canonicalJson(prese
 
 export const LUNA_CONTRACT: OpponentContract = Object.freeze({
   key: 'luna' as const, preset: { ...LUNA_PRESET, provider: 'OPENAI' as const }, presetHash: hash(LUNA_PRESET),
-  buildRequest: buildLunaRequest, reservationNanousd: lunaReservationNanousd, normalizeResponse: normalizeLunaResponse,
+  buildRequest: buildLunaRequest, buildChatRequest: buildLunaChatRequest, reservationNanousd: lunaReservationNanousd, normalizeResponse: normalizeLunaResponse,
   contextOf: (body: string) => String(JSON.parse(body).input[0].content[0].text),
   mockEnvelope: ({ serial, text, inputTokens, outputTokens }: { serial: number; text: string; inputTokens: number; outputTokens: number }) => ({
     id: `resp_mock_${serial}_${Date.now().toString(36)}`, model: LUNA_PRESET.model, service_tier: LUNA_PRESET.serviceTier, status: 'completed', error: null,
@@ -56,7 +58,7 @@ export const LUNA_CONTRACT: OpponentContract = Object.freeze({
 
 export const HAIKU_CONTRACT: OpponentContract = Object.freeze({
   key: 'haiku' as const, preset: HAIKU_PRESET, presetHash: hash(HAIKU_PRESET),
-  buildRequest: buildHaikuRequest, reservationNanousd: haikuReservationNanousd, normalizeResponse: normalizeHaikuResponse,
+  buildRequest: buildHaikuRequest, buildChatRequest: buildHaikuChatRequest, reservationNanousd: haikuReservationNanousd, normalizeResponse: normalizeHaikuResponse,
   contextOf: haikuContextOf, mockEnvelope: mockHaikuEnvelope,
 });
 

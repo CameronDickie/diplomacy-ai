@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
-import { OPPONENT_INSTRUCTIONS } from './OpponentInstructions.js';
+import { CHAT_INSTRUCTIONS, OPPONENT_INSTRUCTIONS } from './OpponentInstructions.js';
 
 /** Version the whole contract whenever settings, schema or prices change. */
 export const HAIKU_PRESET = Object.freeze({
-  id: 'haiku-challenge-v3', provider: 'ANTHROPIC', model: 'claude-haiku-5-5', pricingVersion: 'haiku-5-5-standard-2026-10-08',
+  id: 'haiku-challenge-v4', provider: 'ANTHROPIC', model: 'claude-haiku-5-5', pricingVersion: 'haiku-5-5-standard-2026-10-08',
   serviceTier: 'standard', effort: 'low',
   // Thinking is always billed as output and counts toward max_tokens, so the cap is the worst case.
   maxInputTokens: 32_768, maxOutputTokens: 4_096,
@@ -24,7 +24,13 @@ const instructions = OPPONENT_INSTRUCTIONS;
  * has no server-side fallback and another model's rates must never apply to a reserved call.
  * The schema carries no numeric or length limits (the API rejects them); indices are bounded when parsed.
  */
-export function buildHaikuRequest(input: { context: string }) {
+export function buildHaikuRequest(input: { context: string }) { return build(input,instructions,ORDERS_SCHEMA); }
+/** The same pinned settings, asking for one short reply to the player instead of a set of choices. */
+export function buildHaikuChatRequest(input: { context: string }) { return build(input,CHAT_INSTRUCTIONS,REPLY_SCHEMA); }
+const ORDERS_SCHEMA = { type: 'object', properties: { choices: { type: 'array', items: { type: 'integer' } } },
+  required: ['choices'], additionalProperties: false } as const;
+const REPLY_SCHEMA = { type: 'object', properties: { reply: { type: 'string' } }, required: ['reply'], additionalProperties: false } as const;
+function build(input: { context: string }, system: string, schema: typeof ORDERS_SCHEMA | typeof REPLY_SCHEMA) {
   if (!input || typeof input !== 'object' || Object.keys(input).length !== 1 || !Object.hasOwn(input, 'context')
     || typeof input.context !== 'string' || !input.context.trim()
     || Buffer.byteLength(input.context, 'utf8') > HAIKU_PRESET.maxContextBytes) {
@@ -33,10 +39,8 @@ export function buildHaikuRequest(input: { context: string }) {
   const body = JSON.stringify({
     model: HAIKU_PRESET.model, max_tokens: HAIKU_PRESET.maxOutputTokens, stream: false,
     thinking: { type: 'adaptive' },
-    output_config: { effort: HAIKU_PRESET.effort, format: { type: 'json_schema',
-      schema: { type: 'object', properties: { choices: { type: 'array', items: { type: 'integer' } } },
-        required: ['choices'], additionalProperties: false } } },
-    system: instructions,
+    output_config: { effort: HAIKU_PRESET.effort, format: { type: 'json_schema', schema } },
+    system,
     messages: [{ role: 'user', content: input.context }],
   });
   // Serialized bytes are immutable, so later mutation cannot invalidate a reserved hash.

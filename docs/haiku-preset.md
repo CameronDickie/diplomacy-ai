@@ -60,7 +60,7 @@ not reconfigured. An evaluation run is pinned the same way through its manifest.
 The seam is `server/src/providers/OpponentContract.ts`. A preset supplies only
 its exact request, its worst-case price, and how to read its provider's answer.
 
-## The pinned request (`haiku-challenge-v3`)
+## The pinned request (`haiku-challenge-v4`)
 
 | Setting | Value | Why |
 | -- | -- | -- |

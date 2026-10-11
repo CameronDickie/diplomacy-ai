@@ -6,14 +6,16 @@ engine then checks. It contains no transport and makes no provider call.
 
 ## What a request contains
 
-`Context.ts` (`luna-context-v3`) writes plain text in two parts:
+`Context.ts` (`luna-context-v4`) writes plain text in two parts:
 
 1. **Shared prefix**, identical for all six opponents in a phase so the provider
    can cache it: season and phase, the scenario's pinned objective, supply
    centers by power, units by power, and up to 40 lines of the previous phase's
    public results.
-2. **Own section**: "You are FRANCE", the rule for how many numbers to pick, and
-   that power's numbered choices grouped by unit.
+2. **Own section**: "You are FRANCE"; that power's private conversation with
+   the human player if there is one (development playtests only, most recent
+   messages within 3,000 bytes, each on one line); the rule for how many numbers
+   to pick; and that power's numbered choices grouped by unit.
 
 It is built only from the frozen public board, the challenge definition and the
 last public report. The human player's accepted orders (`PhaseJob.humanAction`)
@@ -42,7 +44,12 @@ Measured on live Haiku games of the Tunis pilot:
 
 Ten games before, three after; indicative only. Luna has not been re-measured.
 The instructions are part of each preset's pinned request, so changing them is
-a new preset id (`luna-challenge-v4`, `haiku-challenge-v3`).
+a new preset id (currently `luna-challenge-v5`, `haiku-challenge-v4`).
+
+A second pinned request per model, with its own instructions
+(`CHAT_INSTRUCTIONS`), asks for one short reply to the player's latest message.
+It uses the same model, limits and prices, and the transports accept only these
+two request shapes.
 
 ## Choices
 
@@ -61,8 +68,9 @@ Godip's catalog lists every legal order, including many that cannot help the
 power choosing. Before numbering, the list is reduced using public board facts
 only:
 
-- **No orders for another power's units.** There is no negotiation, so
-  supporting or convoying someone else's unit is never part of a plan.
+- **No orders for another power's units**, unless this power has a
+  conversation with the human player, in which case orders that help the
+  player's units are offered so an agreement can be carried out.
 - **No support where nobody else can reach.** A support for one of your own
   units is offered only if another power's unit occupies the territory or could
   move there this turn. Every power's legal moves are computed once per phase

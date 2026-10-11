@@ -24,11 +24,12 @@ export function PlaytestPanel({ log }: { log: PlaytestLog }) {
   return <section className="challenge-playtest" aria-label="Playtest log">
     <h2>Playtest log</h2>
     <p className="muted">Development only. Built from the accounting records; prompts and raw answers are not stored.</p>
-    <table><thead><tr><th>Model</th><th>Calls</th><th>Valid</th><th>Self-defeating</th><th>Avg time</th><th>Cost</th></tr></thead>
+    <table><thead><tr><th>Model</th><th>Calls</th><th>Valid</th><th>Self-defeating</th><th>Avg time</th><th>Orders cost</th><th>Replies</th><th>Replies cost</th></tr></thead>
       <tbody>{models.map(([model, t]) => <tr key={model}>
         <td>{model}</td><td>{t.calls}</td><td>{t.valid}</td><td>{t.incoherent}</td>
         <td>{t.timedCalls ? `${(t.latencyMsTotal / t.timedCalls / 1000).toFixed(1)} s` : '—'}</td>
         <td>{usd(t.costNanousd)}{t.heldNanousd > 0 ? ` (+${usd(t.heldNanousd)} held)` : ''}</td>
+        <td>{t.chatCalls}</td><td>{usd(t.chatCostNanousd)}</td>
       </tr>)}</tbody></table>
     {[...log.phases].reverse().map((phase, index) => <details key={phase.phaseId} open={index === 0}>
       <summary>{phase.phaseId.split(':').slice(-3, -1).join(' ')} · {phase.kind.toLowerCase()}</summary>

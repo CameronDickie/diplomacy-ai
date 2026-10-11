@@ -63,7 +63,7 @@ test('a sponsored attempt is a distinct, pinned mode: its opponents are decided 
   assert.deepEqual([paid.mode,paid.challenge.mode,paid.challenge.opponentLabel,paid.notice],['SPONSORED','SPONSORED','GPT-6 Luna opponents · sponsored',null]);
   assert.deepEqual([free.mode,free.challenge.mode,free.challenge.opponentLabel],['PRACTICE','PRACTICE','Offline practice · hold-only opponents']);
   const stored=(await f.store.call('attempt',{id:paid.id}))!;
-  assert.deepEqual(stored.preset,{id:'luna-challenge-v4',pricingVersion:'luna-standard-2026-10-07'});assert.equal((await f.store.call('attempt',{id:free.id}))!.preset,null);
+  assert.deepEqual(stored.preset,{id:'luna-challenge-v5',pricingVersion:'luna-standard-2026-10-07'});assert.equal((await f.store.call('attempt',{id:free.id}))!.preset,null);
   // Practice first: the engine resolves it with holding opponents and nothing is bought.
   assert.equal((await f.turn(practice.cookie,free.id)).board.season,'FALL');
   assert.deepEqual([f.sent.length,f.count('provider_calls')],[0,0]);

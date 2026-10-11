@@ -38,6 +38,10 @@ export interface RuntimeConfig {
   playtestOpponents: Partial<Record<import('@diplomacy/shared').Power, 'luna' | 'haiku'>>;
   /** Development only: a sign-in that needs no identity provider. */
   devLogin: boolean;
+  /** Development only: private messages to opponents, each answered by a paid model call. */
+  playtestChat: boolean;
+  /** Messages a player may send in one attempt. */
+  chatMessageLimit: number;
   sponsoredPreset: 'luna' | 'haiku';
   idleWarnMinutes: number;
   idleExpireMinutes: number;

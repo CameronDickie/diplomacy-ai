@@ -62,6 +62,8 @@ silently ignored. Comma-separated lists are trimmed and deduplicated.
 | `DIPLOMACY_SPONSORED_PRESET` | `luna`; or `haiku`. The pinned contract new sponsored attempts use; existing attempts keep theirs ([haiku-preset.md](haiku-preset.md)) |
 | `DIPLOMACY_LUNA_TRANSPORT` | `none`; `mock` (local non-production profile only) offers sponsored attempts against a deterministic stand-in that makes no provider call; `live` (local non-production profile on a loopback host only) calls the real providers for a development playtest ([playtest.md](playtest.md)) |
 | `DIPLOMACY_PLAYTEST_OPPONENTS` | empty; development only: `POWER=luna\|haiku` pairs assigning opponents to a model other than the default |
+| `DIPLOMACY_PLAYTEST_CHAT` | `false`; development only: private chat with opponents, each message answered by a paid model call ([playtest.md](playtest.md)) |
+| `DIPLOMACY_CHAT_MESSAGE_LIMIT` | 30; integer 1–200; messages a player may send per attempt |
 | `DIPLOMACY_DEV_LOGIN` | `false`; development only: a sign-in that needs no identity provider |
 | `DIPLOMACY_MAX_ACTIVE_ATTEMPTS` | 3; integer 1–100 |
 | `DIPLOMACY_MAX_ACTIVE_PER_ACCOUNT` | 1; positive integer no greater than global capacity |

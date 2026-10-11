@@ -8,7 +8,8 @@ export interface ProviderCallIntent {
   power: Power;
   provider: 'OPENAI' | 'ANTHROPIC';
   model: 'gpt-6-luna' | 'claude-haiku-5-5';
-  role: 'ORDERS' | 'RETREATS' | 'BUILDS';
+  /** CHAT is a reply to one player message; its fence's operation id is that message's id. */
+  role: 'ORDERS' | 'RETREATS' | 'BUILDS' | 'CHAT';
   pricingVersion: string;
   requestHash: string;
   maxCostNanousd: number;

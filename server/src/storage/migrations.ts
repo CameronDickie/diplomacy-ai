@@ -225,6 +225,20 @@ CREATE TRIGGER evaluation_phases_identity BEFORE UPDATE ON evaluation_phases
  BEGIN SELECT RAISE(ABORT,'immutable phase timing identity'); END;
 CREATE TRIGGER evaluation_phases_completed BEFORE UPDATE ON evaluation_phases WHEN OLD.completed_at IS NOT NULL
  BEGIN SELECT RAISE(ABORT,'immutable completed phase timing'); END;
+` }, { version: 14, sql: `
+CREATE TABLE chat_messages (
+ id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
+ power TEXT NOT NULL, sender TEXT NOT NULL CHECK(sender IN ('PLAYER','OPPONENT')),
+ request_id TEXT, body TEXT NOT NULL CHECK(length(body) BETWEEN 1 AND 2000),
+ reply_state TEXT CHECK(reply_state IN ('PENDING','COMPLETE','FAILED')),
+ phase_id TEXT NOT NULL, revision INTEGER NOT NULL, created_at INTEGER NOT NULL,
+ CHECK((sender='PLAYER')=(request_id IS NOT NULL)), CHECK((sender='PLAYER')=(reply_state IS NOT NULL))
+) STRICT;
+CREATE UNIQUE INDEX chat_messages_request ON chat_messages(attempt_id,request_id) WHERE request_id IS NOT NULL;
+CREATE INDEX chat_messages_attempt ON chat_messages(attempt_id,created_at);
+CREATE TRIGGER chat_messages_content BEFORE UPDATE ON chat_messages
+ WHEN OLD.id<>NEW.id OR OLD.attempt_id<>NEW.attempt_id OR OLD.power<>NEW.power OR OLD.sender<>NEW.sender OR OLD.body<>NEW.body OR OLD.created_at<>NEW.created_at
+ BEGIN SELECT RAISE(ABORT,'immutable chat message'); END;
 ` }];
 
 export function verifyMigrationHistory(db: DatabaseSync, requireExisting = false): number {

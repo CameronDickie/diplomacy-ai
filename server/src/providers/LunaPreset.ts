@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
-import { OPPONENT_INSTRUCTIONS } from './OpponentInstructions.js';
+import { CHAT_INSTRUCTIONS, OPPONENT_INSTRUCTIONS } from './OpponentInstructions.js';
 
 /** Version the whole contract whenever settings, schema or prices change. */
 export const LUNA_PRESET = Object.freeze({
-  id: 'luna-challenge-v4', model: 'gpt-6-luna', pricingVersion: 'luna-standard-2026-10-07',
+  id: 'luna-challenge-v5', model: 'gpt-6-luna', pricingVersion: 'luna-standard-2026-10-07',
   endpoint: 'https://api.openai.com/v1/responses', serviceTier: 'default',
   reasoningEffort: 'low', maxInputTokens: 32_768, maxOutputTokens: 2_048,
   maxContextBytes: 24_000, maxRequestBytes: 32_768, maxResponseBytes: 256 * 1024,
@@ -17,7 +17,16 @@ export const LUNA_PRESET = Object.freeze({
 const instructions = OPPONENT_INSTRUCTIONS;
 
 /** Only server-built game context enters the request; no model, role, tier or tools overrides. */
-export function buildLunaRequest(input: { context: string }) {
+export function buildLunaRequest(input: { context: string }) { return build(input,instructions,ORDERS_FORMAT); }
+/** The same pinned settings, asking for one short reply to the player instead of a set of choices. */
+export function buildLunaChatRequest(input: { context: string }) { return build(input,CHAT_INSTRUCTIONS,REPLY_FORMAT); }
+const ORDERS_FORMAT = { type: 'json_schema', name: 'diplomacy_choices', strict: true,
+  schema: { type: 'object', properties: { choices: { type: 'array', maxItems: 34,
+    items: { type: 'integer', minimum: 0, maximum: 100_000 } } },
+  required: ['choices'], additionalProperties: false } } as const;
+const REPLY_FORMAT = { type: 'json_schema', name: 'diplomacy_reply', strict: true,
+  schema: { type: 'object', properties: { reply: { type: 'string' } }, required: ['reply'], additionalProperties: false } } as const;
+function build(input: { context: string }, instructions: string, format: typeof ORDERS_FORMAT | typeof REPLY_FORMAT) {
   if (!input || typeof input !== 'object' || Object.keys(input).length !== 1 || !Object.hasOwn(input, 'context')
     || typeof input.context !== 'string' || !input.context.trim()
     || Buffer.byteLength(input.context, 'utf8') > LUNA_PRESET.maxContextBytes) {
@@ -29,10 +38,7 @@ export function buildLunaRequest(input: { context: string }) {
     store: false, background: false, stream: false, truncation: 'disabled',
     tools: [], tool_choice: 'none', instructions,
     input: [{ role: 'user', content: [{ type: 'input_text', text: input.context }] }],
-    text: { format: { type: 'json_schema', name: 'diplomacy_choices', strict: true,
-      schema: { type: 'object', properties: { choices: { type: 'array', maxItems: 34,
-        items: { type: 'integer', minimum: 0, maximum: 100_000 } } },
-      required: ['choices'], additionalProperties: false } } },
+    text: { format },
   });
   // Serialized bytes are immutable, so later mutation cannot invalidate a reserved hash.
   return Object.freeze({ body, requestHash: createHash('sha256').update(body).digest('hex'),

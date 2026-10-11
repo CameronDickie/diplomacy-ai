@@ -10,7 +10,15 @@ export async function playtestLog(store: Store, attemptId: string): Promise<Play
   const calls = (await store.call('providerCallsForAttempt',{ attemptId })).sort((a,b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
   const phases: PlaytestPhase[] = [], byOperation = new Map<string, PlaytestPhase>();
   const models: PlaytestLog['models'] = {};
+  const blank = () => ({ calls: 0, valid: 0, costNanousd: 0, heldNanousd: 0, latencyMsTotal: 0, timedCalls: 0, outputTokens: 0, incoherent: 0, chatCalls: 0, chatCostNanousd: 0 });
   for (const call of calls) {
+    if (call.role === 'CHAT') {
+      // A reply to the player, not a decision: counted and costed on its own so the two can be compared.
+      const total = models[call.model] ??= blank();
+      total.chatCalls++; total.chatCostNanousd += call.usage?.costNanousd ?? 0;
+      if (!call.usage && call.dispatchedAt !== null) total.heldNanousd += call.maxCostNanousd;
+      continue;
+    }
     let phase = byOperation.get(call.fence.operationId);
     if (!phase) {
       const decisions = new Map((await store.call('providerDecisions',{ operationId: call.fence.operationId })).map(d => [d.callId,d.action]));
@@ -25,8 +33,8 @@ export async function playtestLog(store: Store, attemptId: string): Promise<Play
       inputTokens: call.usage?.inputTokens ?? null, outputTokens: call.usage?.outputTokens ?? null, reasoningTokens: call.usage?.reasoningTokens ?? null,
       costNanousd: call.usage?.costNanousd ?? null, heldNanousd: call.usage ? 0 : call.dispatchedAt !== null ? call.maxCostNanousd : 0,
       decision: action ?? null, issues: Array.isArray(action?.orderIds) ? coherenceIssues(action.orderIds) : [] });
-    if (Array.isArray(action?.orderIds) && coherenceIssues(action.orderIds).length) (models[call.model] ??= { calls: 0, valid: 0, costNanousd: 0, heldNanousd: 0, latencyMsTotal: 0, timedCalls: 0, outputTokens: 0, incoherent: 0 }).incoherent++;
-    const total = models[call.model] ??= { calls: 0, valid: 0, costNanousd: 0, heldNanousd: 0, latencyMsTotal: 0, timedCalls: 0, outputTokens: 0, incoherent: 0 };
+    if (Array.isArray(action?.orderIds) && coherenceIssues(action.orderIds).length) (models[call.model] ??= blank()).incoherent++;
+    const total = models[call.model] ??= blank();
     total.calls++; if (call.outcome === 'VALID') total.valid++;
     total.costNanousd += call.usage?.costNanousd ?? 0; total.outputTokens += call.usage?.outputTokens ?? 0;
     if (!call.usage && call.dispatchedAt !== null) total.heldNanousd += call.maxCostNanousd;

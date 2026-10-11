@@ -41,8 +41,10 @@ const province = (place: string) => place.split('/')[0];
  * reach. `contested` holds every territory a foreign unit occupies or could move to this turn.
  * Holds and moves are always kept, so a pruned catalog still admits a fully legal answer.
  */
-function purposeful(id: string, own: ReadonlySet<string>, contested: ReadonlySet<string>): boolean {
+function purposeful(id: string, own: ReadonlySet<string>, contested: ReadonlySet<string>, partners: ReadonlySet<string>): boolean {
   const [, type, first, second] = id.split('|');
+  // Helping the human's unit is possible only after talking with them: an agreement has to be executable.
+  if ((type === 'SUPPORT_HOLD' || type === 'SUPPORT_MOVE' || type === 'CONVOY') && partners.has(province(first))) return true;
   if (type === 'SUPPORT_HOLD') return own.has(province(first)) && contested.has(province(first));
   if (type === 'SUPPORT_MOVE') return own.has(province(first)) && contested.has(province(second ?? ''));
   if (type === 'CONVOY') return own.has(province(first));
@@ -97,10 +99,10 @@ export function coherenceIssues(orderIds: readonly string[]): CoherenceIssue[] {
  * `keepPerUnit` trims each unit's list in a fixed order; a unit's HOLD is always first, so a
  * trimmed catalog still admits a fully legal answer.
  */
-export function orderChoices(board: BoardFixture, power: Power, legal: readonly LegalOption[], keepPerUnit = Number.MAX_SAFE_INTEGER, contested?: ReadonlySet<string>): ChoiceSet | null {
+export function orderChoices(board: BoardFixture, power: Power, legal: readonly LegalOption[], keepPerUnit = Number.MAX_SAFE_INTEGER, contested?: ReadonlySet<string>, partners: ReadonlySet<string> = new Set()): ChoiceSet | null {
   const units = board.units.filter(u => u.power === power && !u.mustRetreat).sort((a,b) => a.territory.localeCompare(b.territory));
   if (!units.length) return null;
-  if (contested) legal = legal.filter(option => purposeful(option.id,new Set(units.map(u => u.territory)),contested));
+  if (contested) legal = legal.filter(option => purposeful(option.id,new Set(units.map(u => u.territory)),contested,partners));
   // Godip lists a move to a place only a convoy can reach twice: as a plain move and as "via convoy".
   // They are the same order, so only the explicit one is offered.
   const explicit = new Set(legal.filter(o => o.id.split('|')[1] === 'MOVE_VIA_CONVOY').map(o => `${o.unitTerritory}>${province(o.id.split('|')[2])}`));

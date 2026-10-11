@@ -4,6 +4,7 @@ import { useChallenge } from '../hooks/useChallenge.js';
 import { MapGraph } from './MapGraph.js';
 import { OperatorPanel } from './OperatorPanel.js';
 import { PlaytestPanel } from './PlaytestPanel.js';
+import { OpponentChatPanel } from './OpponentChatPanel.js';
 import { adjacentTerritories,territoryName } from '../lib/game.js';
 
 export function ChallengeApp(){
@@ -157,6 +158,7 @@ export function ChallengeApp(){
           <button className="primary" disabled={!editable||!complete} onClick={()=>{const action=submission();if(action)void game.submit(action);}}>{game.busy?'Saving…':a.execution!=='ACCEPTING'?'Orders saved':nothingToDo?'Continue':a.board.phase==='RETREATS'?'Submit retreats':a.board.phase==='BUILDS'?'Submit adjustments':'Submit orders'}</button>
           </>}
           {a.lifecycle!=='ACTIVE'&&<p>This attempt has ended. Review its saved phases below.</p>}
+          {game.chat&&a?.mode==='SPONSORED'&&card&&<OpponentChatPanel chat={game.chat} human={card.humanPower} busy={game.busy} onSend={game.sendChat}/>}
           {game.playtest&&a?.mode==='SPONSORED'&&<PlaytestPanel log={game.playtest}/>}
           {game.reports.length>0&&<section><h2>Phase reports</h2>{game.reports.map((r,i)=><button className="attempt-history" key={r.id} onClick={()=>setReplay({reports:game.reports,index:i,after:true,reference:false})}>{r.year} {r.season} · {r.phase}</button>)}</section>}
         </>}

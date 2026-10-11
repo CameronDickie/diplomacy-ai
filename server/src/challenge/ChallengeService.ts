@@ -17,6 +17,8 @@ import { PhaseRules } from '../attempts/PhaseRules.js';
 import { RateLimiter, type RateCategory } from '../limits/RateLimiter.js';
 import { opponentContract, type OpponentContract } from '../providers/OpponentContract.js';
 import { playtestLog } from './PlaytestLog.js';
+import { OpponentChat } from './OpponentChat.js';
+import { ALL_POWERS } from '@diplomacy/shared';
 import { mixedPlan, type OpponentPlan } from '../providers/OpponentPlan.js';
 import { anthropicHaikuTransport } from '../luna/HaikuTransport.js';
 import { LunaDecisionProvider } from '../luna/LunaDecisionProvider.js';
@@ -41,6 +43,8 @@ export class ChallengeService {
   private readonly plan:OpponentPlan;
   /** Development playtest against the real providers. Never true outside the local, non-production profile. */
   private readonly sponsoredLive:boolean;
+  /** Development only: private conversations with opponents. Null everywhere else. */
+  private readonly chat:OpponentChat|null;
   private constructor(private store:Store,private config:RuntimeConfig,private now:()=>number,transport?:LunaTransport,env:NodeJS.ProcessEnv=process.env) {
     // The real provider transport is deliberately not selectable here: paid startup stays refused until the owner authorizes spend.
     if(config.llm.paidEnabled)throw Error('Funded challenge adapter is not integrated.');
@@ -58,6 +62,8 @@ export class ChallengeService {
     const transports=this.sponsoredMock||this.sponsoredLive?Object.fromEntries(this.plan.contracts.map(c=>[c.key,build(c)])) as Partial<Record<OpponentContract['key'],LunaTransport>>:{};
     const luna=transport??(this.sponsoredMock||this.sponsoredLive?build(this.plan.contracts[0]):undefined);
     this.sponsoredOffered=Boolean(luna);
+    // Chat exists only where a development transport does; an injected test transport serves every preset.
+    this.chat=development&&config.playtestChat&&luna?new OpponentChat(store,this.plan,contract=>transports[contract.key]??luna,{limit:config.chatMessageLimit,now}):null;
     this.limits=new RateLimiter(config.trustedProxy,now);
     this.attempts=new AttemptService(store,routedDecisions(store,offlineDecisions(this.rules),practiceBot(this.rules),luna?new LunaDecisionProvider(store,this.rules,luna,{now,plan:this.plan,transports}):null),this.rules,
       {maxRunning:config.maxActiveAttempts,idleExpireMs:config.idleExpireMinutes*60_000,now});
@@ -167,7 +173,7 @@ export class ChallengeService {
       void handler(req,res).catch(error=>{
         if(error instanceof FixtureError){res.status(400).json({code:'INVALID_REQUEST',message:'Choose valid challenge fields and current legal actions.'});return;}
         const code=error instanceof StoreError?error.code:'SERVICE_UNAVAILABLE';
-        const status=code==='STORE_FORBIDDEN'?404:code==='STORE_INVALID'?400:['CAPACITY_FULL','ACTIVE_ATTEMPT_EXISTS','DAILY_LIMIT','STORE_CONFLICT','BUDGET_EXHAUSTED','ATTEMPT_BUDGET_EXHAUSTED','SPONSORED_UNAVAILABLE'].includes(code)?409:503;
+        const status=code==='STORE_FORBIDDEN'?404:code==='STORE_INVALID'?400:['CAPACITY_FULL','ACTIVE_ATTEMPT_EXISTS','DAILY_LIMIT','STORE_CONFLICT','BUDGET_EXHAUSTED','ATTEMPT_BUDGET_EXHAUSTED','SPONSORED_UNAVAILABLE','CHAT_LIMIT'].includes(code)?409:503;
         res.status(status).json({code,message:error instanceof StoreError?error.message:'Challenge play is temporarily unavailable. Retry shortly.'});
       });
     };
@@ -175,7 +181,7 @@ export class ChallengeService {
     router.get('/challenges',this.limits.address('public'),run(async(_req,res)=>{
       const [active,paid]=await Promise.all([this.store.call('activeAttempts',{}),this.store.call('paidState',{})]);
       const {slot,entry}=this.featured();
-      const catalog:ChallengeCatalog={challenges:[entry.card],rotation:{id:this.rotation.id,version:this.rotation.version,label:'DEVELOPMENT_ROTATION',day:slot.day,index:slot.index,size:this.catalog.length,nextChangeAt:slot.nextChangeAt},sponsoredPlay:!this.sponsoredOffered?'NOT_OFFERED':paid.stopped?'PAUSED':'OPEN',sponsoredMock:this.sponsoredMock,...(this.sponsoredLive?{sponsoredLive:true}:{}),
+      const catalog:ChallengeCatalog={challenges:[entry.card],rotation:{id:this.rotation.id,version:this.rotation.version,label:'DEVELOPMENT_ROTATION',day:slot.day,index:slot.index,size:this.catalog.length,nextChangeAt:slot.nextChangeAt},sponsoredPlay:!this.sponsoredOffered?'NOT_OFFERED':paid.stopped?'PAUSED':'OPEN',sponsoredMock:this.sponsoredMock,...(this.sponsoredLive?{sponsoredLive:true}:{}),...(this.chat?{sponsoredChat:true}:{}),
         capacity:active.length>=this.config.maxActiveAttempts?'FULL':'OPEN',limits:{maxActiveAttempts:this.config.maxActiveAttempts,maxActivePerAccount:this.config.maxActivePerAccount,
         dailyStartLimit:this.config.dailyStartLimit,idleWarnMinutes:this.config.idleWarnMinutes,idleExpireMinutes:this.config.idleExpireMinutes,resultRetentionDays:this.config.resultRetentionDays}};
       res.json(catalog);
@@ -254,6 +260,18 @@ export class ChallengeService {
     router.get('/attempts/:id/reports',guarded('read'),run(async(req,res)=>{
       await this.owned(req.params.id,player(res));res.json({reports:await this.store.call('reports',{attemptId:req.params.id})});
     }));
+    // Development only: the player's private conversations with opponents. Not registered anywhere else.
+    const chat=this.chat;
+    if(chat){
+      router.get('/attempts/:id/chat',guarded('read'),run(async(req,res)=>{res.json(await chat.view(await this.owned(req.params.id,player(res))));}));
+      router.post('/attempts/:id/chat',guarded('command'),run(async(req,res)=>{
+        const body=schema.fields(req.body,['power','requestId','body'],'message');
+        if(typeof body.requestId!=='string'||typeof body.body!=='string'||!ALL_POWERS.includes(body.power as never))throw new StoreError('STORE_INVALID','A power, a request ID and a message are required.');
+        const attempt=await this.owned(req.params.id,player(res)),challenge=await this.store.call('challenge',{id:attempt.challengeId,version:attempt.challengeVersion});
+        await chat.send(attempt,challenge!,{power:body.power as never,requestId:body.requestId,body:body.body});
+        res.json(await chat.view(await this.owned(req.params.id,player(res))));
+      }));
+    }
     // Development playtests only: which model decided each power, how long it took and what it cost.
     // Not registered at all outside the local, non-production profile.
     if(this.sponsoredMock||this.sponsoredLive)router.get('/attempts/:id/playtest',guarded('read'),run(async(req,res)=>{

@@ -1542,3 +1542,13 @@ fieldset.order-builder { min-width: 0; margin: 0; border: 0; padding: 0; }
 .challenge-last-orders ul { list-style:none; padding:0; margin:4px 0 10px; font-size:.85rem; display:grid; gap:2px; }
 .challenge-last-orders .failed { color:#e0a35e; }
 .challenge-phase-note { border-left:2px solid #c7a35e; padding-left:10px; }
+
+.challenge-chat .chat-powers { display:flex; flex-wrap:wrap; gap:4px; margin:6px 0; }
+.challenge-chat .chat-powers button { padding:3px 8px; font-size:.8rem; }
+.challenge-chat .chat-powers button.selected { border-color:#c7a35e; color:#f0e2c0; }
+.challenge-chat .chat-thread { max-height:240px; overflow-y:auto; display:grid; gap:6px; padding:6px 0; }
+.challenge-chat .chat-thread p { margin:2px 0; overflow-wrap:anywhere; white-space:pre-wrap; }
+.challenge-chat .chat-mine { border-left:2px solid #c7a35e; padding-left:8px; }
+.challenge-chat .chat-theirs { border-left:2px solid #6f8f8a; padding-left:8px; }
+.challenge-chat .chat-failed { color:#e0a35e; }
+.challenge-chat textarea { width:100%; box-sizing:border-box; resize:vertical; }

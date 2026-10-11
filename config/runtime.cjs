@@ -45,7 +45,7 @@ const SUPPORTED_ENV_NAMES = [
   'DIPLOMACY_DAILY_START_LIMIT', 'DIPLOMACY_IDLE_WARN_MINUTES', 'DIPLOMACY_IDLE_EXPIRE_MINUTES',
   'DIPLOMACY_RESULT_RETENTION_DAYS', 'DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS', 'DIPLOMACY_RECEIPT_RETENTION_DAYS',
   'DIPLOMACY_TRUSTED_PROXY', 'DIPLOMACY_LUNA_TRANSPORT', 'DIPLOMACY_SPONSORED_PRESET',
-  'DIPLOMACY_PLAYTEST_OPPONENTS', 'DIPLOMACY_DEV_LOGIN',
+  'DIPLOMACY_PLAYTEST_OPPONENTS', 'DIPLOMACY_DEV_LOGIN', 'DIPLOMACY_PLAYTEST_CHAT', 'DIPLOMACY_CHAT_MESSAGE_LIMIT',
 ];
 
 function fail(name, requirement) {
@@ -233,6 +233,13 @@ function readRuntimeConfig(env = process.env, options = {}) {
     if (presets.has('luna')) requireValue(env, 'OPENAI_API_KEY');
     if (presets.has('haiku')) requireValue(env, 'ANTHROPIC_API_KEY');
   }
+  // Private messages to opponents, each answered by a paid model call. Development only for now.
+  const playtestChat = bool(env, 'DIPLOMACY_PLAYTEST_CHAT', false);
+  if (playtestChat) {
+    developmentOnly('DIPLOMACY_PLAYTEST_CHAT', 'opponent chat');
+    if (lunaTransport === 'none') fail('DIPLOMACY_PLAYTEST_CHAT', 'requires DIPLOMACY_LUNA_TRANSPORT=mock or live');
+  }
+  const chatMessageLimit = number(env, 'DIPLOMACY_CHAT_MESSAGE_LIMIT', 30, 1, 200, true);
   const devLogin = bool(env, 'DIPLOMACY_DEV_LOGIN', false);
   if (devLogin) {
     developmentOnly('DIPLOMACY_DEV_LOGIN', 'development sign-in');
@@ -253,7 +260,7 @@ function readRuntimeConfig(env = process.env, options = {}) {
     discord: { enabled: discordEnabled, voiceEnabled,
       voiceDebug: bool(env, 'DISCORD_VOICE_DEBUG', false), autoListen: bool(env, 'DISCORD_VOICE_AUTO_LISTEN', true) },
     engine: readEngineConfig(env),
-    notifyMode, admins, trustedProxy, lunaTransport, sponsoredPreset, playtestOpponents, devLogin, idleWarnMinutes, idleExpireMinutes, maxActiveAttempts, maxActivePerAccount,
+    notifyMode, admins, trustedProxy, lunaTransport, sponsoredPreset, playtestOpponents, devLogin, playtestChat, chatMessageLimit, idleWarnMinutes, idleExpireMinutes, maxActiveAttempts, maxActivePerAccount,
     dailyStartLimit: number(env, 'DIPLOMACY_DAILY_START_LIMIT', 3, 1, 100, true),
     resultRetentionDays: number(env, 'DIPLOMACY_RESULT_RETENTION_DAYS', 30, 1, 365, true),
     diagnosticRetentionDays: number(env, 'DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS', 7, 1, 365, true),
