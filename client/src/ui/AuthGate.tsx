@@ -4,7 +4,9 @@ import { useAuth } from '../hooks/useAuth.js';
 export function AuthGate({ children }: { children: ReactNode }) {
   const auth = useAuth();
   const challenge = auth.profile === 'showcase' || window.location.pathname === '/challenge';
-  return <div className={challenge ? 'challenge-root' : undefined}>
+  // The challenge has its own shell, with sign-in in its header.
+  if (challenge) return <>{children}</>;
+  return <div>
     {children}
     {(auth.enabled || auth.status === 'ERROR') && <section className="auth-popover" aria-label="Player account">
       <h2>{auth.authenticated ? 'Player account' : 'Sign in to play'}</h2>
