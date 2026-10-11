@@ -215,7 +215,9 @@ test('retreat and adjustment phases call only the powers that have something to 
     await service.submit({attemptId:attempt.id,playerId:player.id,revision:0,phaseId:attempt.phaseId,requestId:'r',action});await service.wait(attempt.id);
     const after=(await store.call('attempt',{id:attempt.id}))!;
     assert.equal(after.execution,after.lifecycle==='ACTIVE'?'ACCEPTING':'IDLE',name);assert.notEqual(after.phaseId,attempt.phaseId,name);
-    assert.equal(sent.length,expected,`${name}: ${sent.join()}`);
+    // Later phases that also ask nothing of the player follow on their own; this counts the first one only.
+    const first=(await store.call('providerCallsForAttempt',{attemptId:attempt.id})).filter(c=>c.fence.phaseId===attempt.phaseId);
+    assert.equal(first.length,expected,`${name}: ${sent.join()}`);
   }
 });
 

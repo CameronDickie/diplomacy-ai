@@ -163,6 +163,18 @@ player's orders saved, and its view carries a `notice`:
 | `ATTEMPT_BUDGET` | this attempt reached its per-attempt cap | end the attempt and review it |
 | `SPONSORED_RETRY` | an opponent's answer was missing or unusable | try again (a new reserved call, at most three per power per phase) |
 
+### Phases that ask nothing of the player
+
+A player is only asked for input when they have a decision to make. After a
+phase commits, if the next one asks nothing of them (another power's retreat, a
+winter in which their units already match their supply centers, or a turn in
+which they have no units), the server enters it on their behalf with the one
+empty action available and resolves it. Each such phase is an ordinary durable
+phase: its own job, the opponents' decisions, a report in the history. At most
+seven follow one submission, so a player with no units cannot turn one click
+into an unbounded run; past that, or if a followed phase needs recovery, the
+attempt waits and the client shows what the phase is with a Continue button.
+
 ### Where sponsored play can run today
 
 For players, nowhere with a real provider: `DIPLOMACY_PAID_AI_ENABLED=true` is

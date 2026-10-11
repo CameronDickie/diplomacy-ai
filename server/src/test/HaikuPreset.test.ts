@@ -47,8 +47,8 @@ test('the reservation is the worst case: the dearest input rate for every allowe
 });
 
 test('an answer is read by block type, billed from usage, and thinking is counted as output',()=>{
-  const ok=normalizeHaikuResponse(answer());
-  assert.deepEqual(ok,{responseId:String(answer().id),status:'COMPLETED',outputText:'{"choices":[0]}',
+  const sample=answer(),ok=normalizeHaikuResponse(sample);
+  assert.deepEqual(ok,{responseId:String(sample.id),status:'COMPLETED',outputText:'{"choices":[0]}',
     usage:{inputTokens:900,cachedInputTokens:0,cacheWriteTokens:0,outputTokens:60,reasoningTokens:16,costNanousd:900*100+60*500}});
   // `input_tokens` excludes cached tokens here, so the stored total is the sum and each part has its own rate.
   const cached=normalizeHaikuResponse(answer({},{input_tokens:100,cache_read_input_tokens:700,cache_creation_input_tokens:300,cache_creation:{ephemeral_5m_input_tokens:200,ephemeral_1h_input_tokens:100}}));

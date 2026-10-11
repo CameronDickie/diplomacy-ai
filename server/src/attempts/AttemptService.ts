@@ -4,7 +4,7 @@ import { StoreError, type StoredAttempt, type StoredReceipt } from '../storage/c
 import { actionFingerprint } from '../storage/phases.js';
 import { parseAction, parseDecisions } from './actions.js';
 import type { PhaseDecisions, PhaseJob } from './types.js';
-import { PhaseRules } from './PhaseRules.js';
+import { PhaseRules, idleAction } from './PhaseRules.js';
 
 export interface DecisionContext { readonly job: PhaseJob; readonly signal: AbortSignal }
 export interface DecisionProvider {
@@ -79,8 +79,35 @@ export class AttemptService {
     void done.catch(() => {});
     return done;
   }
+  /**
+   * A phase that asks nothing of the player (another power's retreat, a winter with no change for them)
+   * is entered on their behalf, so they are only ever asked for input when they have a decision to make.
+   * Each such phase is an ordinary durable phase with its own job, opponents' decisions and report.
+   */
   private async run(initial: PhaseJob, recovery: boolean, controller: AbortController): Promise<void> {
+    let job: PhaseJob | null = initial;
+    // Bounded: a player with no units at all is asked nothing every phase, and must not turn one
+    // submission into an unbounded run. Past the bound the attempt simply waits for a Continue.
+    for (let chained = 0; job; chained++) {
+      const committed = await this.runOne(job,recovery && chained === 0,controller);
+      job = committed && chained < 7 && !controller.signal.aborted && !this.closed ? await this.enterIdlePhase(initial).catch(() => null) : null;
+    }
+  }
+  private async enterIdlePhase(previous: PhaseJob): Promise<PhaseJob | null> {
+    const attempt = await this.store.call('attempt',{id:previous.attemptId,playerId:previous.playerId});
+    if (!attempt || attempt.lifecycle !== 'ACTIVE' || attempt.execution !== 'ACCEPTING') return null;
+    const action = idleAction(attempt.board,previous.definition.humanPower);
+    if (!action) return null;
+    const accepted = await this.store.call('beginPhase',{id:attempt.id,playerId:previous.playerId,expectedRevision:attempt.revision,phaseId:attempt.phaseId,
+      requestId:`auto-${attempt.revision}`,operationId:randomUUID(),action,measuredAt:this.options.measurementClock?.(),now:this.now()});
+    return accepted.duplicate ? null : accepted.job;
+  }
+  /** Runs one phase to its commit. Returns whether it committed. */
+  private async runOne(initial: PhaseJob, recovery: boolean, outer: AbortController): Promise<boolean> {
     let job = initial;
+    // Each phase gets its own deadline; stopping the attempt still cancels whichever one is running.
+    const controller = new AbortController(), forward = () => controller.abort();
+    outer.signal.addEventListener('abort',forward,{once:true}); if (outer.signal.aborted) forward();
     const timer = setTimeout(() => controller.abort(new Error('Phase deadline exceeded.')),this.options.timeoutMs ?? 30_000);
     const signal = controller.signal;
     const bounded = async <T>(work: Promise<T>): Promise<T> => {
@@ -107,10 +134,12 @@ export class AttemptService {
       signal.throwIfAborted();
       await this.store.call('commitPhase',{fence:job,...result,measuredAt:this.options.measurementClock?.(),now:this.now()});
       await this.options.boundary?.('committed',job);
+      return true;
     } catch {
       // A stale/terminal fence or uncertain store failure must never be retried as a new command.
       await this.store.call('recoverPhase',{fence:job,now:this.now()}).catch(() => {});
-    } finally { clearTimeout(timer); controller.abort(); }
+      return false;
+    } finally { clearTimeout(timer); outer.signal.removeEventListener('abort',forward); controller.abort(); }
   }
   async recover(attemptId?:string): Promise<void> {
     const jobs = (await this.store.call('pendingPhaseJobs',{})).filter(job=>!attemptId||job.attemptId===attemptId);

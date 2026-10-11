@@ -288,11 +288,24 @@ export function MapGraph({
     if (!container) return;
 
     const handleNativeWheel = (event: WheelEvent) => {
-      if (event.deltaY === 0) return;
       event.preventDefault();
+      // A trackpad's two-finger scroll and a mouse wheel both arrive as wheel events. A pinch sets
+      // ctrlKey; a mouse wheel moves in whole notches on one axis. Anything else is a two-finger
+      // scroll, which should move the map rather than zoom it.
+      const notches = (event as WheelEvent & { wheelDeltaY?: number }).wheelDeltaY;
+      const mouseWheel = event.deltaMode !== 0 || (event.deltaX === 0 && notches !== undefined && notches !== 0 && Math.abs(notches) % 120 === 0);
+      if (!event.ctrlKey && !event.metaKey && !mouseWheel) {
+        container.scrollLeft += event.deltaX;
+        container.scrollTop += event.deltaY;
+        return;
+      }
+      if (event.deltaY === 0) return;
 
       const nextZoom = clampZoom(
-        zoom + (event.deltaY < 0 ? WHEEL_ZOOM_STEP : -WHEEL_ZOOM_STEP)
+        mouseWheel && !event.ctrlKey
+          ? zoom + (event.deltaY < 0 ? WHEEL_ZOOM_STEP : -WHEEL_ZOOM_STEP)
+          // A pinch reports many small steps; scale smoothly with how far the fingers moved.
+          : zoom * Math.exp(-event.deltaY * 0.01)
       );
       if (nextZoom === zoom) return;
 
@@ -353,29 +366,30 @@ export function MapGraph({
       moved: false,
       clickTerritory,
     };
-    if (orderTargeting) return;
-    container.setPointerCapture(event.pointerId);
   }
 
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
     const container = containerRef.current;
     if (!container) return;
-    if (orderTargeting) {
-      setHoveredTerritory(
-        territoryFromClientPoint(event.clientX, event.clientY) ??
-        nearestTerritoryFromClientPoint(container, event.clientX, event.clientY)
-      );
-      return;
-    }
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    const dx = event.clientX - drag.x;
-    const dy = event.clientY - drag.y;
-    if (!drag.moved && Math.hypot(dx, dy) > 4) {
+    const drag = dragRef.current?.pointerId === event.pointerId ? dragRef.current : null;
+    const dx = drag ? event.clientX - drag.x : 0;
+    const dy = drag ? event.clientY - drag.y : 0;
+    // Dragging pans the map whether or not a unit is selected; the pointer is captured only once it
+    // has really moved, so a plain click still reaches the territory under it.
+    if (drag && !drag.moved && Math.hypot(dx, dy) > 4) {
       drag.moved = true;
       container.classList.add('dragging');
+      container.setPointerCapture(event.pointerId);
     }
-    if (!drag.moved) return;
+    if (!drag?.moved) {
+      if (orderTargeting) {
+        setHoveredTerritory(
+          territoryFromClientPoint(event.clientX, event.clientY) ??
+          nearestTerritoryFromClientPoint(container, event.clientX, event.clientY)
+        );
+      }
+      return;
+    }
     container.scrollLeft = drag.scrollLeft - dx;
     container.scrollTop = drag.scrollTop - dy;
   }
@@ -814,14 +828,16 @@ function centerMapOnPoint(
   const viewBox = svg.viewBox.baseVal;
   if (!viewBox || viewBox.width === 0 || viewBox.height === 0) return;
 
+  // Wait for the new zoom to be laid out, then ask the browser where the point really is on screen.
+  // The drawing is letterboxed inside its box, so a share of the scroll size lands off-centre.
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      const contentWidth = container.scrollWidth;
-      const contentHeight = container.scrollHeight;
-      const xRatio = (point.x - viewBox.x) / viewBox.width;
-      const yRatio = (point.y - viewBox.y) / viewBox.height;
-      container.scrollLeft = contentWidth * xRatio - container.clientWidth / 2;
-      container.scrollTop = contentHeight * yRatio - container.clientHeight / 2;
+      const matrix = svg.getScreenCTM();
+      if (!matrix) return;
+      const onScreen = new DOMPoint(point.x, point.y).matrixTransform(matrix);
+      const bounds = container.getBoundingClientRect();
+      container.scrollLeft += onScreen.x - (bounds.left + container.clientWidth / 2);
+      container.scrollTop += onScreen.y - (bounds.top + container.clientHeight / 2);
     });
   });
 }

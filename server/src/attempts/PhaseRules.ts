@@ -33,6 +33,15 @@ async function validate(room: GameRoom, power: Power, input: PhaseAction): Promi
   if (error) invalid(error);
   return [];
 }
+/**
+ * The only action a power can take when a phase asks nothing of it, or null when it has a real
+ * decision to make. Derived from the committed board alone.
+ */
+export function idleAction(board: BoardFixture, power: Power): PhaseAction | null {
+  if (board.phase === 'ORDERS') return board.units.some(u => u.power === power && !u.mustRetreat) ? null : {phase:'ORDERS',orderIds:[]};
+  if (board.phase === 'RETREATS') return board.units.some(u => u.power === power && u.mustRetreat) ? null : {phase:'RETREATS',retreats:{}};
+  return delta(board,power) === 0 ? {phase:'BUILDS',builds:[],disbands:[]} : null;
+}
 export class PhaseRules {
   async validate(board: BoardFixture, power: Power, action: PhaseAction, signal: AbortSignal): Promise<void> {
     const room = await roomFor(board,signal);

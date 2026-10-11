@@ -205,3 +205,31 @@ test('a live playtest asks each power\'s own provider, with only that provider\'
   assert.deepEqual([totals.settledNanousd,totals.reservedNanousd,totals.unknownLiabilityNanousd],[0,0,0]);
   assert.equal(f.sql(db=>Number(db.prepare('SELECT count(*) n FROM provider_calls WHERE dispatched_at IS NOT NULL').get()!.n)),0);
 });
+
+test('a phase that asks nothing of the player is entered for them, as an ordinary recorded phase; one that needs them waits',async t=>{
+  const { idleAction } = await import('../attempts/PhaseRules.js');
+  const { readFile } = await import('node:fs/promises');
+  const load=async(name:string)=>JSON.parse(await readFile(new URL(`../../fixtures/development/${name}.v1.json`,import.meta.url),'utf8')).board;
+  const opening=await load('tunis-expedition'),retreat=await load('retreat-position'),winter=await load('winter-build');
+  // Derived from the committed board alone: a power with units to order, a dislodged unit or a build owed is never skipped.
+  for(const power of ['TURKEY','FRANCE','RUSSIA'] as const)assert.equal(idleAction(opening,power),null,power);
+  const dislodged=retreat.units.find((u:{mustRetreat?:boolean})=>u.mustRetreat).power;
+  assert.equal(idleAction(retreat,dislodged),null);
+  assert.deepEqual(idleAction(retreat,dislodged==='TURKEY'?'ENGLAND':'TURKEY'),{phase:'RETREATS',retreats:{}});
+  assert.equal(winter.phase,'BUILDS');
+  // End to end: play practice turns and confirm the player is only ever stopped on a phase that needs a decision.
+  const f=await setup(t,{...local,DIPLOMACY_DEV_LOGIN:'true',DIPLOMACY_LUNA_TRANSPORT:'mock'});
+  const {cookie}=await f.signIn();
+  let view=await (await f.request('/attempts',cookie,f.start('idle-1'))).json() as ChallengeAttemptView;
+  const human=view.challenge.humanPower;
+  for(let turn=0;turn<6&&view.lifecycle==='ACTIVE';turn++){
+    assert.equal(view.execution,'ACCEPTING');
+    assert.equal(idleAction(view.board as never,human),null,`stopped on ${view.board.season} ${view.board.year} ${view.board.phase} with nothing to decide`);
+    if(view.board.phase!=='ORDERS')break;
+    view=await f.turn(cookie,view.id);
+  }
+  // Skipped phases are still in the record: every phase the board passed through has a report.
+  const reports=(await (await f.request(`/attempts/${view.id}/reports`,cookie)).json() as {reports:Array<{phase:string;season:string;year:number}>}).reports;
+  assert.ok(reports.length>=2);
+  assert.equal(new Set(reports.map(r=>`${r.year}-${r.season}-${r.phase}`)).size,reports.length);
+});
