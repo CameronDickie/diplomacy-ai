@@ -16,6 +16,12 @@ their own styling.
 | Playtest log | `#/log` | which model decided each power, timing and cost; the game record download (development playtests) |
 | Operator | `#/operator` | the operator controls, for the allowlisted account |
 
+Players are given the day's challenge. The operator, and any signed-in account
+on a local development server, also get **Choose a challenge** on Setup: every
+challenge in the rotation, any of which can be selected and started. The server
+decides who may (`GET /api/challenges/library` is refused for anyone else, and
+so is starting a challenge that is not the day's).
+
 The view is in the address bar's hash, so Back and reload work. A view that
 needs something you do not have (no game, no chat) falls back to the nearest
 one that makes sense. Starting or opening a game takes you to Play.

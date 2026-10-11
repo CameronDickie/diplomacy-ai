@@ -16,7 +16,7 @@ export function SetupView({ game, clock, map, onContinue, onWatchReference, onWa
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   useEffect(() => setConfirmDelete(false), [game.auth.user?.id]);
-  const card = game.cards[0], active = game.attempt?.lifecycle === 'ACTIVE' ? game.attempt : null;
+  const card = game.selected, today = game.cards[0], chosenOther = Boolean(card && today && card.id !== today.id), active = game.attempt?.lifecycle === 'ACTIVE' ? game.attempt : null;
   const canStart = game.auth.authenticated && !game.busy && !!card && !active;
   const start = (mode: ChallengeMode) => { if (card) void game.start(card, mode); };
   const sponsoredName = game.sponsoredMock ? 'Mock model opponents' : game.sponsoredLive ? 'Live model opponents' : 'Luna opponents';
@@ -25,7 +25,7 @@ export function SetupView({ game, clock, map, onContinue, onWatchReference, onWa
     <div className="dip-setup">
       <div>
         <div className="dip-heading">
-          <p className="dip-meta">{game.rotation ? `Development pilot · challenge ${game.rotation.index + 1} of ${game.rotation.size}` : 'Development pilot'}</p>
+          <p className="dip-meta">{chosenOther ? 'Development pilot · chosen from the library' : game.rotation ? `Development pilot · today’s challenge, ${game.rotation.index + 1} of ${game.rotation.size}` : 'Development pilot'}</p>
           <h1>{card ? <>{card.title.split(' ').slice(0, -1).join(' ')} <span>{card.title.split(' ').slice(-1)[0]}</span></> : 'Diplomacy challenges'}</h1>
           {card && <p>As {title(card.humanPower)}, own {territoryName(card.targetTerritory)} after Fall {card.deadlineYear} or sooner. Seven powers, one objective, and every order counts.</p>}
         </div>
@@ -36,7 +36,7 @@ export function SetupView({ game, clock, map, onContinue, onWatchReference, onWa
           <div><dt>Early capture</dt><dd>By Fall {card.earlyAchievementYear}</dd></div>
         </dl>}
         <p className="dip-muted dip-small" style={{ marginTop: 20 }}>Ownership changes only after a Fall turn has fully settled. Moving in during Spring is not enough.</p>
-        {game.rotation && <p className="dip-muted dip-small">The challenge changes at midnight UTC, in {untilChange(game.rotation.nextChangeAt, clock)}. A game keeps the challenge it started with.</p>}
+        {game.rotation && <p className="dip-muted dip-small">Today’s challenge changes at midnight UTC, in {untilChange(game.rotation.nextChangeAt, clock)}. A game keeps the challenge it started with.</p>}
       </div>
       <div className="dip-map" style={{ height: 'min(56dvh, 520px)', marginTop: 40 }}>{map}<a className="dip-map-credit" href="/legal.html">Map: Godip contributors · GPL-3.0</a></div>
     </div>
@@ -47,6 +47,16 @@ export function SetupView({ game, clock, map, onContinue, onWatchReference, onWa
     {game.capacity === 'FULL' && !active && <p className="dip-notice" role="status">All {game.limits?.maxActiveAttempts} game slots are in use right now. There is no queue: try again in a few minutes, or watch the reference replay meanwhile.</p>}
     {game.sponsoredPlay === 'PAUSED' && <div className="dip-notice" role="status"><strong>Sponsored play against GPT-6 Luna is paused</strong><p>Practice and the replay still work.</p>
       {game.auth.authenticated && <button disabled={game.busy || game.creditRequested} onClick={() => void game.requestCredit()}>{game.creditRequested ? 'Request sent to the owner' : 'Ask the owner to resume it'}</button>}</div>}
+
+    {game.library && <section className="dip-section" role="region" aria-labelledby="dip-library">
+      <h2 id="dip-library">Choose a challenge</h2>
+      <p className="dip-muted">Players are given today’s challenge. You can pick any of them because {game.auth.operator ? 'you are the operator' : 'this is a local development server'}.</p>
+      <ul className="dip-list">{game.library.challenges.map(item => <li key={item.id} aria-current={item.id === card?.id ? 'true' : undefined}>
+        <span>{item.title}{item.id === game.library!.featuredId ? ' · today' : ''}
+          <small>As {title(item.humanPower)}, own {territoryName(item.targetTerritory)} by Fall {item.deadlineYear}</small></span>
+        {item.id === card?.id ? <strong className="dip-small" style={{ color: 'var(--folio-accent)' }}>Selected</strong>
+          : <button className="dip-link" onClick={() => game.choose(item.id)} disabled={game.busy}>Select<span className="dip-sr"> {item.title}</span></button>}</li>)}</ul>
+    </section>}
 
     <section className="dip-section" aria-labelledby="dip-ways">
       <h2 id="dip-ways">Choose how to play</h2>
@@ -69,7 +79,7 @@ export function SetupView({ game, clock, map, onContinue, onWatchReference, onWa
             : 'Opponents that plan for themselves. Play runs on a fixed budget: if it is paused or runs out you are told and your game waits with your orders saved. Model opponents are never silently swapped for practice ones.'}</p>
           <ArrowFillButton disabled={!canStart} onClick={() => start('SPONSORED')}>{sponsoredButton}</ArrowFillButton></li>}
       </ol>
-      <p><button className="dip-link" onClick={onWatchReference} disabled={!game.demo}>Watch reference replay</button> <span className="dip-muted dip-small">— a recorded example run of this challenge. No account needed.</span></p>
+      <p><button className="dip-link" onClick={onWatchReference} disabled={!game.demo}>Watch reference replay</button> <span className="dip-muted dip-small">— a recorded example run of today’s challenge. No account needed.</span></p>
     </section>
 
     {card && <Guide card={card} limits={game.limits} />}

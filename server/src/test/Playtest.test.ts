@@ -169,6 +169,12 @@ test('the playtest log route does not exist unless a development transport is on
   assert.equal((await (await f.request('/challenges')).json() as ChallengeCatalog).sponsoredPlay,'NOT_OFFERED');
   assert.equal((await f.request('/attempts/anything/playtest',cookie)).status,404);
   assert.equal((await f.request('/attempts/anything/export',cookie)).status,404);
+  // On a local development server the developer account, which is never an operator, may still choose any challenge.
+  const library=await (await f.request('/challenges/library',cookie)).json() as {featuredId:string;challenges:Array<{id:string;version:number}>};
+  assert.ok(library.challenges.length>=6);
+  const other=library.challenges.find(c=>c.id!==library.featuredId)!;
+  const chosen=await f.request('/attempts',cookie,{requestId:'library-1',challengeId:other.id,challengeVersion:other.version});
+  assert.equal(chosen.status,200);assert.equal((await chosen.json() as ChallengeAttemptView).challenge.id,other.id);
   assert.equal((await f.request('/attempts',cookie,f.start('none-1'))).status,409);
 });
 

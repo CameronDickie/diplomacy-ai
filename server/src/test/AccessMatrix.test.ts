@@ -24,6 +24,7 @@ type Access = 'public' | 'player' | 'owner' | 'operator';
 const MATRIX: Record<string,{access:Access;valid?:unknown;probe?:{body?:unknown;status:number}}> = {
   'GET /challenges': {access:'public'},
   'GET /challenges/demo': {access:'public'},
+  'GET /challenges/library': {access:'operator',probe:{status:200}},
   'GET /attempts': {access:'player',probe:{status:200}},
   'POST /attempts': {access:'player',valid:{requestId:'matrix',challengeId:'tunis-expedition',challengeVersion:1},probe:{body:{},status:400}},
   'POST /account/delete': {access:'player',valid:{confirm:'DELETE'},probe:{body:{confirm:'no'},status:400}},

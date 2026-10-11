@@ -25,6 +25,8 @@ test('a visitor without an account can read the challenge and step through the r
   await expect(content(page)).toContainText('Legal is not successful');
   await expect(content(page)).toContainText(/starts? per account per UTC day/);
   await expect(page.getByRole('button', { name: 'Start practice' })).toBeDisabled();
+  // A visitor is shown today's challenge only.
+  await expect(page.getByRole('heading', { name: 'Choose a challenge' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Watch reference replay' }).click();
   const controls = page.getByLabel('Replay controls');
   await expect(controls).toContainText('Reference replay');
@@ -86,7 +88,17 @@ test('a signed-in player plays a practice turn, keeps a chosen order through the
 test('the practice bot is the main free way to play: labelled, and its opponents move', async ({ page, context }) => {
   await signIn(context, 'bot');
   await page.goto('/challenge');
+  // On a development server any signed-in account may pick a challenge other than today's; the page follows the choice.
+  const library = page.getByRole('region', { name: 'Choose a challenge' });
+  const todays = await page.getByRole('heading', { level: 1 }).innerText();
+  const pick = library.getByRole('button', { name: /^Select/ }).first();
+  const picked = (await pick.innerText()).replace(/^Select\s*/, '').trim();
+  await pick.click();
+  await expect(page.getByRole('heading', { level: 1 })).not.toHaveText(todays);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(picked);
+  await expect(content(page)).toContainText('chosen from the library');
   await page.getByRole('button', { name: 'Play against the practice bot' }).click();
+  expect(await page.evaluate(async () => (await (await fetch('/api/attempts', { credentials: 'include' })).json()).attempts[0].challenge.title)).toBe(picked);
   await expect(page.getByLabel('Opponents')).toContainText('Practice bot');
   await expect(content(page)).toContainText('free scripted opponents, no AI model');
   await expect(page.getByRole('button', { name: 'Submit orders' })).toBeEnabled();

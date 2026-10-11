@@ -1,5 +1,5 @@
 import { useEffect,useRef,useState } from 'react';
-import type { ExhibitionReplay,ExhibitionSummary,ChallengeAction,ChallengeAttemptView,ChallengeCard,ChallengeMode,ChallengeCatalog,ChallengeHistoryPage,ChallengeLegalCatalog,ChallengeReplay,ChatView,GameRecord,PlaytestLog,Power,PublicPhaseReport,SubmissionState } from '@diplomacy/shared';
+import type { ExhibitionReplay,ExhibitionSummary,ChallengeAction,ChallengeAttemptView,ChallengeCard,ChallengeMode,ChallengeCatalog,ChallengeHistoryPage,ChallengeLegalCatalog,ChallengeLibrary,ChallengeReplay,ChatView,GameRecord,PlaytestLog,Power,PublicPhaseReport,SubmissionState } from '@diplomacy/shared';
 import { useAuth } from './useAuth.js';
 const base=import.meta.env.VITE_SERVER_URL||'';
 export async function challengeRequest<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
@@ -17,11 +17,13 @@ export function useChallenge(){
   const [legal,setLegal]=useState<ChallengeLegalCatalog|null>(null),[reports,setReports]=useState<PublicPhaseReport[]>([]);
   const [playtest,setPlaytest]=useState<PlaytestLog|null>(null);
   const [chat,setChat]=useState<ChatView|null>(null);
+  // The operator, and anyone on a local development server, may choose among every challenge; everyone else gets the day's.
+  const [library,setLibrary]=useState<ChallengeLibrary|null>(null),[chosenId,setChosenId]=useState<string|null>(null);
   const [exhibitions,setExhibitions]=useState<ExhibitionSummary[]>([]);
   const [older,setOlder]=useState<string|null>(null),[creditRequested,setCreditRequested]=useState(false);
   const [error,setError]=useState(''),[busy,setBusy]=useState(false),[loaded,setLoaded]=useState(false);
   const current=useRef(attempt);current.current=attempt;
-  const startMode=useRef<ChallengeMode|null>(null),startId=useRef<string|null>(null),pending=useRef<{phaseId:string;requestId:string;action:ChallengeAction}|null>(null);
+  const startMode=useRef<string|null>(null),startId=useRef<string|null>(null),pending=useRef<{phaseId:string;requestId:string;action:ChallengeAction}|null>(null);
   const lastActivity=useRef(0),mutation=useRef(false);
   useEffect(()=>{
     const controller=new AbortController();
@@ -34,6 +36,14 @@ export function useChallenge(){
     const load=()=>{void challengeRequest<{exhibitions:ExhibitionSummary[]}>('/exhibitions').then(r=>setExhibitions(r.exhibitions)).catch(()=>{});};
     load();const timer=setInterval(load,15_000);return()=>clearInterval(timer);
   },[]);
+  // Whether this account may choose a challenge is the server's decision; a refusal simply means there is no library.
+  useEffect(()=>{
+    setLibrary(null);setChosenId(null);
+    if(!identity)return;
+    const controller=new AbortController();
+    challengeRequest<ChallengeLibrary>('/challenges/library',undefined,controller.signal).then(r=>{if(identityRef.current===identity)setLibrary(r);}).catch(()=>{});
+    return()=>controller.abort();
+  },[identity]);
   // When the featured challenge rotates at midnight UTC, load the new card and its replay without a page reload.
   useEffect(()=>{
     const at=catalog?.rotation.nextChangeAt;if(!at)return;
@@ -95,6 +105,9 @@ export function useChallenge(){
     if(identityRef.current===owner){setHistory(list.attempts);setOlder(list.next);}
   }
   return {auth,older,exhibitions,loadExhibition:(id:string)=>challengeRequest<ExhibitionReplay>(`/exhibitions/${id}`),cards:catalog?.challenges??[],limits:catalog?.limits??null,rotation:catalog?.rotation??null,sponsoredPlay:catalog?.sponsoredPlay??null,sponsoredMock:catalog?.sponsoredMock??false,sponsoredLive:catalog?.sponsoredLive??false,sponsoredChat:catalog?.sponsoredChat??false,playtest,chat,
+    library,choose:setChosenId,
+    // The challenge Setup is showing: the one picked from the library, otherwise the day's.
+    selected:library?.challenges.find(c=>c.id===chosenId)??catalog?.challenges[0],
     // Development only: every phase, call, conversation and failure for this attempt, saved as one JSON file.
     exportRecord:async()=>{if(!attempt)return;try{const record=await challengeRequest<GameRecord>(`/attempts/${attempt.id}/export`);
       const url=URL.createObjectURL(new Blob([JSON.stringify(record,null,2)],{type:'application/json'})),link=document.createElement('a');
@@ -103,8 +116,9 @@ export function useChallenge(){
     sendChat:(power:Power,body:string)=>mutate(async owner=>{if(!attempt)return;const next=await challengeRequest<ChatView>(`/attempts/${attempt.id}/chat`,{power,requestId:crypto.randomUUID(),body});if(identityRef.current===owner)setChat(next);}),capacity:catalog?.capacity??null,creditRequested,demo,attempt,history,legal,reports,error,busy,loaded,clearError:()=>setError(''),
     start:(card:ChallengeCard,mode:ChallengeMode='PRACTICE')=>mutate(async owner=>{
       startId.current??=crypto.randomUUID();
-      // The start ID is tied to the chosen mode, so switching mode after an uncertain response is a new request.
-      if(startMode.current!==mode){startId.current=crypto.randomUUID();startMode.current=mode;}
+      // The start ID is tied to the chosen mode and challenge, so changing either after an uncertain response is a new request.
+      const wanted=`${mode}:${card.id}@${card.version}`;
+      if(startMode.current!==wanted){startId.current=crypto.randomUUID();startMode.current=wanted;}
       const result=await challengeRequest<ChallengeAttemptView>('/attempts',{requestId:startId.current,challengeId:card.id,challengeVersion:card.version,...(mode==='PRACTICE'?{}:{mode})});
       if(identityRef.current===owner){startId.current=null;setAttempt(result);await refresh(result.id,owner);}
       // A refused start usually means capacity or availability changed since the page loaded.

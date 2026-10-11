@@ -184,3 +184,6 @@ body:has(.dip) { background: var(--folio-paper); }
 .dip .operator-list { color: var(--folio-ink); }
 .dip .operator-map { border-color: var(--folio-line); }
 .dip .challenge-alert { background: transparent; color: var(--folio-ink); border: 1px solid var(--folio-warning); border-radius: 10px; font-size: 14px; }
+
+.dip-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.dip-list li[aria-current='true'] > span { font-weight: 600; }

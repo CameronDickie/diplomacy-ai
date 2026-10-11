@@ -84,6 +84,13 @@ Start with `mock` to see the flow for free, then switch the one line to `live`
 and restart the API. An attempt keeps the assignment it started with: after
 changing models, start a new attempt.
 
+## Choosing a challenge
+
+On a local development server, Setup lists every challenge in the rotation
+under **Choose a challenge**; select one and start it in any mode. The
+operator gets the same list on any server. Ordinary players only ever get the
+day's challenge.
+
 ## Reading a game
 
 - **Your orders** from the last turn, and whether each succeeded, are listed

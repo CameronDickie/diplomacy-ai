@@ -2,7 +2,7 @@ import express, { type Request, type Response } from 'express';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { RuntimeConfig } from '../../../config/runtime.cjs';
-import type { ChallengeCard, ChallengeAttemptView, ChallengeCatalog, ChallengeMode, ChallengeReplay } from '@diplomacy/shared';
+import type { ChallengeCard, ChallengeAttemptView, ChallengeCatalog, ChallengeLibrary, ChallengeMode, ChallengeReplay } from '@diplomacy/shared';
 import { featuredSlot, parseRotation, type RotationManifest } from './Catalog.js';
 import { AuthService, type Principal } from '../auth.js';
 import { Store } from '../storage/Store.js';
@@ -46,12 +46,14 @@ export class ChallengeService {
   private readonly sponsoredLive:boolean;
   /** Development only: private conversations with opponents. Null everywhere else. */
   private readonly chat:OpponentChat|null;
+  /** A local, non-production server: development conveniences are allowed. */
+  private readonly development:boolean;
   /** Development only, in memory: why phases had to wait. Lost on restart by design. */
   private readonly failures=new Map<string,Array<{at:number;phaseId:string;reason:string}>>();
   private constructor(private store:Store,private config:RuntimeConfig,private now:()=>number,transport?:LunaTransport,env:NodeJS.ProcessEnv=process.env) {
     // The real provider transport is deliberately not selectable here: paid startup stays refused until the owner authorizes spend.
     if(config.llm.paidEnabled)throw Error('Funded challenge adapter is not integrated.');
-    const development=config.profile==='local'&&!config.production;
+    const development=this.development=config.profile==='local'&&!config.production;
     // Checked here as well as in the configuration contract: a hand-built config must not reach a provider either.
     if(!development&&(config.lunaTransport!=='none'||Object.keys(config.playtestOpponents).length))throw Error('Development opponent transports are not available in this profile.');
     this.plan=mixedPlan(config.playtestOpponents,opponentContract(config.sponsoredPreset));
@@ -183,6 +185,8 @@ export class ChallengeService {
   router(auth:AuthService):express.Router {
     const router=express.Router();
     const player=(res:Response)=>(res.locals.principal as Principal).player.id;
+    // Ordinary players get the day's challenge. The operator, and anyone on a local development server, may pick any of them.
+    const mayChoose=(res:Response)=>(res.locals.principal as Principal).operator||this.development;
     // Address bucket first so unauthenticated floods are bounded, then the account bucket.
     const guarded=(category:Exclude<RateCategory,'public'>)=>[this.limits.address(category),auth.requirePlayer(),this.limits.identity(category)];
     const run=(handler:(req:Request,res:Response)=>Promise<void>)=>(req:Request,res:Response)=>{
@@ -207,6 +211,12 @@ export class ChallengeService {
       schema.fields(req.body,[],'credit request');
       if(!this.sponsoredOffered)throw new StoreError('STORE_CONFLICT','Sponsored play is not offered yet, so there is nothing to request.');
       res.json(await this.store.call('requestCredit',{playerId:player(res),now:this.now()}));
+    }));
+    // Every challenge in the rotation, for those allowed to choose one. Players are refused, not shown an empty list.
+    router.get('/challenges/library',guarded('read'),run(async(_req,res)=>{
+      if(!mayChoose(res)){res.status(403).json({code:'OPERATOR_REQUIRED',message:'Only the operator can choose a challenge.'});return;}
+      const library:ChallengeLibrary={featuredId:this.featured().entry.card.id,challenges:this.catalog.map(e=>e.card)};
+      res.json(library);
     }));
     router.get('/challenges/demo',this.limits.address('public'),run(async(_req,res)=>{res.json(await this.replay(this.featured().entry));}));
     router.get('/attempts',guarded('read'),run(async(req,res)=>{
@@ -235,7 +245,7 @@ export class ChallengeService {
       if(!selected)throw new StoreError('STORE_INVALID','Choose a challenge from the current catalog.');
       await this.sweep();
       const attempt=await this.store.call('admitAttempt',{id:randomUUID(),playerId:player(res),requestId:body.requestId,challengeId:selected.id,challengeVersion:selected.version,
-        now:this.now(),maxActive:this.config.maxActiveAttempts,maxPerAccount:this.config.maxActivePerAccount,dailyLimit:this.config.dailyStartLimit,replayOnly:selected!==featured,
+        now:this.now(),maxActive:this.config.maxActiveAttempts,maxPerAccount:this.config.maxActivePerAccount,dailyLimit:this.config.dailyStartLimit,replayOnly:selected!==featured&&!mayChoose(res),
         // The preset and its price list are pinned to the attempt; the pool must cover at least one worst-case call.
         ...(mode==='BOT'?{bot:true}:{}),
         ...(mode==='SPONSORED'?{sponsored:{preset:{id:this.plan.id,pricingVersion:this.plan.pricingVersion},minimumAvailableNanousd:this.plan.reservationNanousd}}:{})});

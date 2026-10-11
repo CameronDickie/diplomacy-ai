@@ -198,3 +198,25 @@ test('the mock transport setting is local-only, labels itself, and plays a spons
   assert.equal((await store.call('fundingTotals',{})).settledNanousd>0,true);
   assert.deepEqual(outbound,[]);
 });
+
+test('players get the day\'s challenge; the operator can browse every challenge and start any of them',async t=>{
+  const f=await setup(t),player=await f.user('picker'),owner=await f.user('4242');
+  const today=(await f.catalog()).challenges[0];
+  // A player is refused the library outright, and cannot start anything but today's challenge.
+  const refused=await f.request('/challenges/library',player.cookie);
+  assert.deepEqual([refused.status,(await refused.json()).code],[403,'OPERATOR_REQUIRED']);
+  assert.equal((await f.request('/challenges/library')).status,401);
+  const library=await (await f.request('/challenges/library',owner.cookie)).json() as {featuredId:string;challenges:Array<{id:string;version:number;title:string;humanPower:string}>};
+  assert.equal(library.featuredId,today.id);assert.ok(library.challenges.length>=6);
+  assert.equal(new Set(library.challenges.map(c=>c.id)).size,library.challenges.length);
+  const other=library.challenges.find(c=>c.id!==today.id)!;
+  const blocked=await f.request('/attempts',player.cookie,{requestId:'pick-1',challengeId:other.id,challengeVersion:other.version});
+  assert.equal(blocked.status,409);assert.equal(f.count('attempts'),0);
+  // The operator starts a challenge that is not today's, and it is pinned to that challenge like any other game.
+  const started=await f.request('/attempts',owner.cookie,{requestId:'pick-2',challengeId:other.id,challengeVersion:other.version});
+  assert.equal(started.status,200);
+  const attempt=await started.json() as ChallengeAttemptView;
+  assert.deepEqual([attempt.challenge.id,attempt.challenge.humanPower,attempt.lifecycle],[other.id,other.humanPower,'ACTIVE']);
+  // An unknown challenge is refused for everyone.
+  assert.equal((await f.request('/attempts',owner.cookie,{requestId:'pick-3',challengeId:'no-such-challenge',challengeVersion:1})).status,400);
+});

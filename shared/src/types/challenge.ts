@@ -39,6 +39,8 @@ export interface ChallengeLimits { maxActiveAttempts:number; maxActivePerAccount
  */
 /** Which pinned scenario is featured for the current UTC day. A development rotation is not a public daily schedule. */
 export interface ChallengeRotation { id:string; version:number; label:'DEVELOPMENT_ROTATION'; day:string; index:number; size:number; nextChangeAt:number }
+/** Every challenge in the rotation, for the operator and for local development. `featuredId` is the day's challenge. */
+export interface ChallengeLibrary { featuredId:string; challenges:ChallengeCard[] }
 export interface ChallengeCatalog { challenges:ChallengeCard[]; rotation:ChallengeRotation; limits:ChallengeLimits; sponsoredPlay:'NOT_OFFERED'|'PAUSED'|'OPEN'; sponsoredMock:boolean; /** Development playtest against real providers; never set by a production server. */ sponsoredLive?:boolean; /** Development only: opponents can be messaged. */ sponsoredChat?:boolean; capacity:'OPEN'|'FULL' }
 /** `REFERENCE` is the packaged public run; a player's own phase history is never served under this type. */
 export interface ChallengeReplay { kind:'REFERENCE'; challenge:ChallengeCard; reports:PublicPhaseReport[] }

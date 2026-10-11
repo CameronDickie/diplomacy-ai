@@ -23,7 +23,7 @@ const fromHash = (): View | null => { const v = window.location.hash.replace(/^#
  * development, the Playtest log. The address bar's hash names the place, so Back works.
  */
 export function ChallengeApp() {
-  const game = useChallenge(), a = game.attempt, card = a?.challenge ?? game.cards[0];
+  const game = useChallenge(), a = game.attempt, card = a?.challenge ?? game.selected;
   const entry = useOrderEntry(a, card, game.legal, game.busy, game.auth.user?.id);
   const [view, setView] = useState<View | null>(fromHash);
   const [replay, setReplay] = useState<Replay | null>(null);
@@ -52,7 +52,7 @@ export function ChallengeApp() {
   const current: View = nav.some(item => item.id === wanted) ? wanted : a && wanted !== 'operator' ? 'play' : 'setup';
 
   const report = replay?.reports[replay.index];
-  const shown = report ? (replay!.after ? report.after : report.before) : current === 'setup' ? (game.cards[0]?.board ?? a?.board) : entry.board;
+  const shown = report ? (replay!.after ? report.after : report.before) : current === 'setup' ? (game.selected?.board ?? a?.board) : entry.board;
   const mapState = useMemo(() => shown ? { units: shown.units, territories: Object.fromEntries(TERRITORIES.map(t => [t.id, { id: t.id, isSupplyCenter: t.isSupplyCenter, owner: shown.territoryOwners[t.id] }])) } : null, [shown]);
   const playing = current === 'play' && !replay;
   const map = <MapGraph gameState={mapState} selectedTerritory={playing ? entry.selected : null} selectedUnit={playing ? entry.selectedUnit : null}
