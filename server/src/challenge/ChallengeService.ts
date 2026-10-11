@@ -16,7 +16,8 @@ import { practiceBot } from '../attempts/PracticeBot.js';
 import { PhaseRules } from '../attempts/PhaseRules.js';
 import { RateLimiter, type RateCategory } from '../limits/RateLimiter.js';
 import { opponentContract, type OpponentContract } from '../providers/OpponentContract.js';
-import { playtestLog } from './PlaytestLog.js';
+import { gameRecord, playtestLog } from './PlaytestLog.js';
+import { LunaDecisionError } from '../luna/LunaDecisionProvider.js';
 import { OpponentChat } from './OpponentChat.js';
 import { ALL_POWERS } from '@diplomacy/shared';
 import { mixedPlan, type OpponentPlan } from '../providers/OpponentPlan.js';
@@ -45,6 +46,8 @@ export class ChallengeService {
   private readonly sponsoredLive:boolean;
   /** Development only: private conversations with opponents. Null everywhere else. */
   private readonly chat:OpponentChat|null;
+  /** Development only, in memory: why phases had to wait. Lost on restart by design. */
+  private readonly failures=new Map<string,Array<{at:number;phaseId:string;reason:string}>>();
   private constructor(private store:Store,private config:RuntimeConfig,private now:()=>number,transport?:LunaTransport,env:NodeJS.ProcessEnv=process.env) {
     // The real provider transport is deliberately not selectable here: paid startup stays refused until the owner authorizes spend.
     if(config.llm.paidEnabled)throw Error('Funded challenge adapter is not integrated.');
@@ -66,7 +69,13 @@ export class ChallengeService {
     this.chat=development&&config.playtestChat&&luna?new OpponentChat(store,this.plan,contract=>transports[contract.key]??luna,{limit:config.chatMessageLimit,now}):null;
     this.limits=new RateLimiter(config.trustedProxy,now);
     this.attempts=new AttemptService(store,routedDecisions(store,offlineDecisions(this.rules),practiceBot(this.rules),luna?new LunaDecisionProvider(store,this.rules,luna,{now,plan:this.plan,transports}):null),this.rules,
-      {maxRunning:config.maxActiveAttempts,idleExpireMs:config.idleExpireMinutes*60_000,now});
+      {maxRunning:config.maxActiveAttempts,idleExpireMs:config.idleExpireMinutes*60_000,now,
+        // Development only: say why a phase is waiting, on the console and to the playtester. Nothing is recorded elsewhere.
+        ...(development&&(this.sponsoredMock||this.sponsoredLive)?{onPhaseFailure:(job,error)=>{
+          const reason=error instanceof LunaDecisionError?`${error.power} could not decide (${error.code})`:error instanceof Error?error.message:'unknown failure';
+          const list=this.failures.get(job.attemptId)??[];list.push({at:now(),phaseId:job.phaseId,reason});this.failures.set(job.attemptId,list.slice(-50));
+          console.warn(`[playtest] ${job.phaseId} is waiting: ${reason}`);
+        }}:{})});
   }
   static async open(store:Store,config:RuntimeConfig,now=Date.now,options:{lunaTransport?:LunaTransport;env?:NodeJS.ProcessEnv}={}):Promise<ChallengeService> {
     const service=new ChallengeService(store,config,now,options.lunaTransport,options.env);
@@ -129,7 +138,14 @@ export class ChallengeService {
       const [paid,funding,own]=await Promise.all([this.store.call('paidState',{}),this.store.call('fundingTotals',{}),this.store.call('attemptFunding',{attemptId:attempt.id})]);
       notice=paid.stopped?'SPONSORED_PAUSED':own.settledNanousd+own.heldNanousd+this.plan.reservationNanousd>funding.attemptCapNanousd?'ATTEMPT_BUDGET':'SPONSORED_RETRY';
     }
-    return {id:attempt.id,revision:attempt.revision,phaseId:attempt.phaseId,challenge:this.card(challenge.definition,challenge.board,attempt.mode),mode:attempt.mode,notice,
+    // Development playtests only: the facts behind a waiting phase, from the call records and the last failure.
+    let noticeDetail:string[]|undefined;
+    if((this.sponsoredMock||this.sponsoredLive)&&attempt.mode==='SPONSORED'&&attempt.execution==='RECOVERING'){
+      const calls=(await this.store.call('providerCallsForAttempt',{attemptId:attempt.id})).filter(c=>c.fence.phaseId===attempt.phaseId&&c.role!=='CHAT'&&c.outcome!=='VALID');
+      noticeDetail=[...(this.failures.get(attempt.id)??[]).filter(f=>f.phaseId===attempt.phaseId).slice(-1).map(f=>f.reason),
+        ...calls.map(c=>`${c.power} · ${c.model}: ${c.outcome??`${c.state.toLowerCase()}, no answer recorded`}${c.dispatchedAt!==null&&(c.finishedAt??c.receivedAt)!==null?` after ${(((c.finishedAt??c.receivedAt)!-c.dispatchedAt)/1000).toFixed(1)} s`:''}`)];
+    }
+    return {id:attempt.id,revision:attempt.revision,phaseId:attempt.phaseId,challenge:this.card(challenge.definition,challenge.board,attempt.mode),mode:attempt.mode,notice,...(noticeDetail?.length?{noticeDetail}:{}),
       lifecycle:attempt.lifecycle,execution:attempt.execution,board:{...publicBoard(attempt.board),year:attempt.board.year,season:attempt.board.season,phase:attempt.board.phase},
       score:attempt.score,receipt:submission?.receipt.state??null,acceptedAction:submission?.action??null,lastActivityAt:attempt.lastActivityAt,
       idleWarnAt:attempt.lastActivityAt+this.config.idleWarnMinutes*60_000,expiresAt:attempt.lastActivityAt+this.config.idleExpireMinutes*60_000};
@@ -277,6 +293,11 @@ export class ChallengeService {
     if(this.sponsoredMock||this.sponsoredLive)router.get('/attempts/:id/playtest',guarded('read'),run(async(req,res)=>{
       const attempt=await this.owned(req.params.id,player(res));
       res.json(await playtestLog(this.store,attempt.id));
+    }));
+    // Development playtests only: the whole recorded game in one document, for review after the fact.
+    if(this.sponsoredMock||this.sponsoredLive)router.get('/attempts/:id/export',guarded('read'),run(async(req,res)=>{
+      const attempt=await this.owned(req.params.id,player(res)),challenge=(await this.store.call('challenge',{id:attempt.challengeId,version:attempt.challengeVersion}))!;
+      res.json(await gameRecord(this.store,attempt,challenge,Object.fromEntries(challenge.definition.opponentPowers.map(p=>[p,this.plan.contractFor(p).preset.model])),this.failures.get(attempt.id)??[],this.now()));
     }));
     return router;
   }

@@ -1,5 +1,5 @@
 import { useEffect,useRef,useState } from 'react';
-import type { ExhibitionReplay,ExhibitionSummary,ChallengeAction,ChallengeAttemptView,ChallengeCard,ChallengeMode,ChallengeCatalog,ChallengeHistoryPage,ChallengeLegalCatalog,ChallengeReplay,ChatView,PlaytestLog,Power,PublicPhaseReport,SubmissionState } from '@diplomacy/shared';
+import type { ExhibitionReplay,ExhibitionSummary,ChallengeAction,ChallengeAttemptView,ChallengeCard,ChallengeMode,ChallengeCatalog,ChallengeHistoryPage,ChallengeLegalCatalog,ChallengeReplay,ChatView,GameRecord,PlaytestLog,Power,PublicPhaseReport,SubmissionState } from '@diplomacy/shared';
 import { useAuth } from './useAuth.js';
 const base=import.meta.env.VITE_SERVER_URL||'';
 export async function challengeRequest<T>(path:string,body?:unknown,signal?:AbortSignal):Promise<T>{
@@ -95,6 +95,10 @@ export function useChallenge(){
     if(identityRef.current===owner){setHistory(list.attempts);setOlder(list.next);}
   }
   return {auth,older,exhibitions,loadExhibition:(id:string)=>challengeRequest<ExhibitionReplay>(`/exhibitions/${id}`),cards:catalog?.challenges??[],limits:catalog?.limits??null,rotation:catalog?.rotation??null,sponsoredPlay:catalog?.sponsoredPlay??null,sponsoredMock:catalog?.sponsoredMock??false,sponsoredLive:catalog?.sponsoredLive??false,playtest,chat,
+    // Development only: every phase, call, conversation and failure for this attempt, saved as one JSON file.
+    exportRecord:async()=>{if(!attempt)return;try{const record=await challengeRequest<GameRecord>(`/attempts/${attempt.id}/export`);
+      const url=URL.createObjectURL(new Blob([JSON.stringify(record,null,2)],{type:'application/json'})),link=document.createElement('a');
+      link.href=url;link.download=`diplomacy-${record.attempt.challengeId}-${attempt.id.slice(0,8)}.json`;link.click();URL.revokeObjectURL(url);}catch(e){setError((e as Error).message);}},
     // One request id per message, so a retried send can never store it or pay for a reply twice.
     sendChat:(power:Power,body:string)=>mutate(async owner=>{if(!attempt)return;const next=await challengeRequest<ChatView>(`/attempts/${attempt.id}/chat`,{power,requestId:crypto.randomUUID(),body});if(identityRef.current===owner)setChat(next);}),capacity:catalog?.capacity??null,creditRequested,demo,attempt,history,legal,reports,error,busy,loaded,clearError:()=>setError(''),
     start:(card:ChallengeCard,mode:ChallengeMode='PRACTICE')=>mutate(async owner=>{

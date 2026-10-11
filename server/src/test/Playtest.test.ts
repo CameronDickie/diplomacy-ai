@@ -13,7 +13,7 @@ import { AuthService } from '../auth.js';
 import { ChallengeService } from '../challenge/ChallengeService.js';
 import { HAIKU_CONTRACT,LUNA_CONTRACT } from '../providers/OpponentContract.js';
 import { mixedPlan,singlePlan } from '../providers/OpponentPlan.js';
-import type { ChallengeAttemptView,ChallengeCatalog,ChallengeLegalCatalog,PlayerSession,PlaytestLog } from '@diplomacy/shared';
+import type { ChallengeAttemptView,ChallengeCatalog,ChallengeLegalCatalog,GameRecord,PlayerSession,PlaytestLog } from '@diplomacy/shared';
 
 const SECRET='playtest-secret-'.repeat(3);
 const local={DIPLOMACY_PROFILE:'local',DIPLOMACY_AUTH_SESSION_SECRET:SECRET};
@@ -149,6 +149,17 @@ test('one mock game can mix models per power; each call is recorded under its ow
   // Nothing private is in the log, and it belongs to the attempt's owner only.
   assert.equal(/You are |legal choices|Board text/.test(JSON.stringify(log)),false);
   assert.equal((await f.request(`/attempts/${started.id}/playtest`)).status,401);
+  // The whole recorded game in one document: every phase's report with the calls that decided it.
+  const record=await (await f.request(`/attempts/${started.id}/export`,cookie)).json() as GameRecord;
+  assert.equal(record.attempt.id,started.id);assert.equal(record.attempt.humanPower,started.challenge.humanPower);
+  assert.deepEqual(record.attempt.preset,{id:plan.id,pricingVersion:plan.pricingVersion});
+  assert.equal(record.opponents.AUSTRIA,'claude-haiku-5-5');assert.equal(record.opponents.RUSSIA,'gpt-6-luna');
+  assert.equal(record.phases.length,log.phases.length);
+  assert.ok(record.phases.every(p=>p.report!==null&&p.calls.length>0&&p.phaseId.endsWith(`:${p.report!.year}:${p.report!.season}:${p.report!.phase}`)));
+  assert.equal(record.phases.flatMap(p=>p.calls).length,calls.length);
+  assert.deepEqual([record.chat,record.failures],[[],[]]);assert.match(record.note,/not stored/);
+  assert.equal(/You are |legal choices|Board text|synthetic|secret/i.test(JSON.stringify(record)),false);
+  assert.equal((await f.request(`/attempts/${started.id}/export`)).status,401);
   assert.deepEqual(outbound,[]);
 });
 
@@ -157,6 +168,7 @@ test('the playtest log route does not exist unless a development transport is on
   const {cookie}=await f.signIn();
   assert.equal((await (await f.request('/challenges')).json() as ChallengeCatalog).sponsoredPlay,'NOT_OFFERED');
   assert.equal((await f.request('/attempts/anything/playtest',cookie)).status,404);
+  assert.equal((await f.request('/attempts/anything/export',cookie)).status,404);
   assert.equal((await f.request('/attempts',cookie,f.start('none-1'))).status,409);
 });
 
@@ -203,6 +215,12 @@ test('a live playtest asks each power\'s own provider, with only that provider\'
   assert.deepEqual([...new Set((outbound as Outbound[]).map(c=>c.host))].sort(),['api.anthropic.com','api.openai.com']);
   const totals=await f.store.call('fundingTotals',{});
   assert.deepEqual([totals.settledNanousd,totals.reservedNanousd,totals.unknownLiabilityNanousd],[0,0,0]);
+  // In development the waiting turn says what actually happened, instead of a bare "try again".
+  assert.equal(after.notice,'SPONSORED_RETRY');
+  assert.ok(after.noticeDetail&&after.noticeDetail.length>=1,JSON.stringify(after.noticeDetail));
+  assert.match(after.noticeDetail![0],/^[A-Z]+ could not decide \(PREFLIGHT\)$/);
+  const record=await (await f.request(`/attempts/${started.id}/export`,cookie)).json() as GameRecord;
+  assert.deepEqual(record.failures.map(x=>x.phaseId),[started.phaseId]);assert.match(record.failures[0].reason,/could not decide/);
   assert.equal(f.sql(db=>Number(db.prepare('SELECT count(*) n FROM provider_calls WHERE dispatched_at IS NOT NULL').get()!.n)),0);
 });
 

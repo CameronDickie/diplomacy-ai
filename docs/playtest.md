@@ -101,6 +101,15 @@ changing models, start a new attempt.
   that was not ordered) is flagged in the log, with a count per model.
 - The log is built from the accounting records. Prompts and raw answers are
   not stored anywhere.
+- **Download the full game record** in the playtest log saves one JSON file
+  with every phase's public report, each opponent call (model, decision,
+  outcome, time, tokens including reasoning tokens, cost, self-defeating flags),
+  your conversations with timestamps, and why any turn had to wait. Prompts and
+  the models' reasoning text are not stored, so they are not in it.
+- When a turn is waiting on an opponent, the notice beside your orders lists
+  what happened (which power, which model, which outcome, after how long), and
+  the API console prints the same line. This detail exists only in development
+  and is kept in memory, so it does not survive a restart.
 - `npm run storage -- funding "$PWD/data/playtest.sqlite"` shows what is left.
 
 ## Talking to the opponents

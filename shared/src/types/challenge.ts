@@ -22,6 +22,8 @@ export interface ChallengeAttemptView {
   mode: ChallengeMode;
   /** Why a sponsored phase is waiting, when it is: paid play paused, this attempt's budget used, or a retry is possible. */
   notice: 'SPONSORED_PAUSED' | 'ATTEMPT_BUDGET' | 'SPONSORED_RETRY' | null;
+  /** Development playtests only: what actually went wrong in the waiting phase, one line per fact. */
+  noticeDetail?: string[];
   board: ChallengeCard['board'];
   score: {outcome:'INCOMPLETE'|'SUCCESS'|'FAILURE'|'ABANDONED';reason:string;completedYear:number|null;achievementIds:readonly string[]}|null;
   receipt: SubmissionState | null; acceptedAction: ChallengeAction | null;
@@ -57,3 +59,14 @@ export interface PlaytestLog { attemptId:string; phases:PlaytestPhase[]; models:
 /** One message in the player's private conversation with an opponent power. */
 export interface ChatMessageView { id:string; power:Power; from:'PLAYER'|'OPPONENT'; body:string; at:number; /** For a player's message. */ reply:'PENDING'|'COMPLETE'|'FAILED'|null }
 export interface ChatView { messages:ChatMessageView[]; used:number; limit:number; canSend:boolean; maxLength:number }
+
+/** Development only: everything recorded about one attempt, for reviewing a game after the fact. */
+export interface GameRecord {
+  exportedAt:string; note:string;
+  attempt:{id:string;mode:ChallengeMode;lifecycle:string;execution:string;challengeId:string;challengeVersion:number;humanPower:Power;objective:string;preset:{id:string;pricingVersion:string}|null;score:unknown};
+  opponents:Record<string,string>;
+  phases:Array<{phaseId:string;report:PublicPhaseReport|null;calls:PlaytestCall[]}>;
+  chat:Array<{at:string;power:Power;from:'PLAYER'|'OPPONENT';body:string;reply:string|null;phaseId:string}>;
+  failures:Array<{at:string;phaseId:string;reason:string}>;
+  models:Record<string,PlaytestModelTotals>;
+}

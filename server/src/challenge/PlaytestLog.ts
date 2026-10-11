@@ -1,4 +1,5 @@
-import type { PlaytestLog, PlaytestPhase } from '@diplomacy/shared';
+import type { GameRecord, PlaytestLog, PlaytestPhase, PublicPhaseReport } from '@diplomacy/shared';
+import type { StoredAttempt, StoredChallenge } from '../storage/contracts.js';
 import { coherenceIssues } from '../luna/Choices.js';
 import type { Store } from '../storage/Store.js';
 
@@ -42,4 +43,26 @@ export async function playtestLog(store: Store, attemptId: string): Promise<Play
   }
   for (const phase of phases) delete (phase as PlaytestPhase & { decisions?: unknown }).decisions;
   return { attemptId, phases, models };
+}
+
+/**
+ * Everything recorded about one attempt: each phase's public report, every opponent call with its
+ * model, decision, timing, tokens and cost, the player's conversations, and why any phase waited.
+ * Prompts and model reasoning are not in it because they are never stored.
+ */
+export async function gameRecord(store: Store, attempt: StoredAttempt, challenge: StoredChallenge, opponents: Record<string, string>,
+    failures: ReadonlyArray<{ at: number; phaseId: string; reason: string }>, now: number): Promise<GameRecord> {
+  const [log, reports, chat] = await Promise.all([playtestLog(store,attempt.id),store.call('reports',{ attemptId: attempt.id }),store.call('chatMessages',{ attemptId: attempt.id })]);
+  const iso = (ms: number) => new Date(ms).toISOString(), calls = new Map(log.phases.map(p => [p.phaseId,p.calls]));
+  // Reports are in play order; a phase's calls are matched by its place in the game.
+  const key = (r: PublicPhaseReport) => `:${r.year}:${r.season}:${r.phase}`;
+  const phases: GameRecord['phases'] = reports.map(report => { const id = [...calls.keys()].find(k => k.endsWith(key(report))) ?? key(report).slice(1); const found = calls.get(id) ?? []; calls.delete(id); return { phaseId: id, report, calls: found }; });
+  // A phase still waiting has calls but no report yet.
+  for (const [phaseId, rest] of calls) phases.push({ phaseId, report: null, calls: rest });
+  return { exportedAt: iso(now), note: 'Prompts and model reasoning are not stored, so they are not here. Each call lists the tokens the model spent reasoning.',
+    attempt: { id: attempt.id, mode: attempt.mode, lifecycle: attempt.lifecycle, execution: attempt.execution, challengeId: attempt.challengeId, challengeVersion: attempt.challengeVersion,
+      humanPower: challenge.definition.humanPower, objective: challenge.definition.objectiveText, preset: attempt.preset, score: attempt.score },
+    opponents, phases,
+    chat: chat.map(m => ({ at: iso(m.createdAt), power: m.power, from: m.sender, body: m.body, reply: m.replyState, phaseId: m.phaseId })),
+    failures: failures.map(f => ({ at: iso(f.at), phaseId: f.phaseId, reason: f.reason })), models: log.models };
 }

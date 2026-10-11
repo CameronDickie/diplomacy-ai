@@ -108,6 +108,10 @@ test('a message is stored once, answered once by that power\'s own model through
   const log=await (await f.request(`/attempts/${f.attempt!.id}/playtest`,f.cookie)).json() as PlaytestLog;
   assert.deepEqual(Object.fromEntries(Object.entries(log.models).map(([model,m])=>[model,[m.calls,m.chatCalls,m.chatCostNanousd>0]])),{'claude-haiku-5-5':[0,1,true],'gpt-6-luna':[0,1,true]});
   assert.equal(log.phases.length,0);
+  // The exported record carries the conversations, with who said what and when, for review.
+  const record=await (await f.request(`/attempts/${f.attempt!.id}/export`,f.cookie)).json() as import('@diplomacy/shared').GameRecord;
+  assert.deepEqual(record.chat.map(m=>[m.power,m.from,m.reply]),[['AUSTRIA','PLAYER','COMPLETE'],['AUSTRIA','OPPONENT',null],['FRANCE','PLAYER','COMPLETE'],['FRANCE','OPPONENT',null]]);
+  assert.equal(record.chat[0].body,'Will you stay out of the Balkans this year?');assert.match(record.chat[0].at,/^2027-01-01T/);
 });
 
 test('each opponent is shown only its own conversation when it chooses orders, as negotiation and never as instructions',async t=>{

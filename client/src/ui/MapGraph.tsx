@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Coast, GameState, Order, TerritoryId, Unit } from '@diplomacy/shared';
 import { POWER_COLORS, TERRITORY_BY_ID, territoryName } from '../lib/game.js';
 
@@ -58,6 +58,8 @@ export function MapGraph({
   } | null>(null);
   const consumedAnimationKeyRef = useRef<string | null>(null);
   const centeredUnitIdRef = useRef<string | null>(null);
+  const pendingCenterRef = useRef<Point | null>(null);
+  const [centerRequest, setCenterRequest] = useState(0);
   const [markup, setMarkup] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -272,16 +274,34 @@ export function MapGraph({
   useEffect(() => {
     const container = containerRef.current;
     const svg = container?.querySelector('svg');
-    if (!container || !(svg instanceof SVGSVGElement) || !selectedUnit || !markup) return;
+    if (!container || !(svg instanceof SVGSVGElement) || !markup) return;
+    if (!selectedUnit) {
+      // Letting go of a unit returns to the whole map, and lets the same unit be centred again later.
+      if (centeredUnitIdRef.current !== null) {
+        centeredUnitIdRef.current = null;
+        setZoom(1);
+      }
+      return;
+    }
     if (centeredUnitIdRef.current === selectedUnit.id) return;
 
     const center = territoryCenter(svg, selectedUnit.territory, selectedUnit.coast);
     if (!center) return;
     centeredUnitIdRef.current = selectedUnit.id;
-    const nextZoom = Math.max(zoom, SELECTED_UNIT_ZOOM);
-    setZoom(nextZoom);
+    // The scroll is applied by the layout effect below, once the zoomed map has actually been laid out.
+    pendingCenterRef.current = center;
+    setZoom(current => Math.max(current, SELECTED_UNIT_ZOOM));
+    setCenterRequest(request => request + 1);
+  }, [markup, selectedUnit]);
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const svg = container?.querySelector('svg');
+    const center = pendingCenterRef.current;
+    if (!container || !(svg instanceof SVGSVGElement) || !center) return;
+    pendingCenterRef.current = null;
     centerMapOnPoint(container, svg, center);
-  }, [markup, selectedUnit, zoom]);
+  }, [zoom, centerRequest]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -827,19 +847,15 @@ function centerMapOnPoint(
 ): void {
   const viewBox = svg.viewBox.baseVal;
   if (!viewBox || viewBox.width === 0 || viewBox.height === 0) return;
-
-  // Wait for the new zoom to be laid out, then ask the browser where the point really is on screen.
-  // The drawing is letterboxed inside its box, so a share of the scroll size lands off-centre.
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      const matrix = svg.getScreenCTM();
-      if (!matrix) return;
-      const onScreen = new DOMPoint(point.x, point.y).matrixTransform(matrix);
-      const bounds = container.getBoundingClientRect();
-      container.scrollLeft += onScreen.x - (bounds.left + container.clientWidth / 2);
-      container.scrollTop += onScreen.y - (bounds.top + container.clientHeight / 2);
-    });
-  });
+  // Called after layout, so these rectangles already reflect the new zoom. The drawing keeps its
+  // aspect ratio and is centred inside its box, so work out where the point is from that.
+  const box = svg.getBoundingClientRect();
+  const frame = container.getBoundingClientRect();
+  const scale = Math.min(box.width / viewBox.width, box.height / viewBox.height);
+  const x = box.left + (box.width - viewBox.width * scale) / 2 + (point.x - viewBox.x) * scale;
+  const y = box.top + (box.height - viewBox.height * scale) / 2 + (point.y - viewBox.y) * scale;
+  container.scrollLeft += x - (frame.left + container.clientWidth / 2);
+  container.scrollTop += y - (frame.top + container.clientHeight / 2);
 }
 
 function shortenLine(

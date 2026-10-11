@@ -94,9 +94,9 @@ export function ChallengeApp(){
           <p role="status">{a.execution==='ACCEPTING'?'Your move':a.execution!=='RECOVERING'?(a.mode==='SPONSORED'?'Your orders are saved. The opponents are deciding…':'Your orders are saved. Resolving this phase…')
             :a.notice==='SPONSORED_PAUSED'?'Your orders are saved. Sponsored play is paused, so the opponents cannot move yet. Nothing is lost: continue when it resumes, or end the attempt.'
             :a.notice==='ATTEMPT_BUDGET'?'Your orders are saved, but this attempt has used its sponsored budget and cannot continue. You can end it and review what happened.'
-            :a.notice==='SPONSORED_RETRY'?'Your orders are saved. An opponent did not answer in time. Try again to continue.'
+            :a.notice==='SPONSORED_RETRY'?'Your orders are saved. An opponent’s answer was missing or unusable, so the turn is waiting. Use Try again beside your orders.'
             :'Your orders are saved. Processing needs recovery.'}</p>
-          {a.execution==='RECOVERING'&&a.notice!=='ATTEMPT_BUDGET'&&<button onClick={()=>void game.recover()} disabled={game.busy||a.notice==='SPONSORED_PAUSED'&&game.sponsoredPlay==='PAUSED'}>{a.notice==='SPONSORED_RETRY'?'Try again':a.notice==='SPONSORED_PAUSED'?'Continue when resumed':'Recover saved phase'}</button>}
+
           {clock>=a.idleWarnAt&&<div className="challenge-alert">Your attempt expires after inactivity. <button onClick={()=>void game.activity(true)}>I’m still here</button></div>}
           {confirmAbandon?<div><p>End this attempt? Its saved result will remain available.</p><button onClick={()=>void game.abandon()} disabled={game.busy}>End attempt</button><button onClick={()=>setConfirmAbandon(false)}>Keep playing</button></div>:<button className="subtle" onClick={()=>setConfirmAbandon(true)}>Abandon attempt</button>}
         </>}
@@ -122,7 +122,7 @@ export function ChallengeApp(){
         <MapGraph gameState={mapState} selectedTerritory={replay?null:selected} selectedUnit={replay?null:selectedUnit}
           validTargets={selectedUnit?options.filter(o=>o.unitTerritory===selectedUnit.territory&&o.order.type==='MOVE').map(o=>o.order.targetTerritory!):[]}
           pendingOrders={report?.phase==='ORDERS'?report.resolvedOrders:replay?[]:chosenOrders}
-          onSelectTerritory={territory=>{if(!replay&&own.some(u=>u.territory===territory)){setSelected(territory);activity();}}} onClearSelection={()=>setSelected(null)}/>
+          onSelectTerritory={territory=>{if(!replay&&own.some(u=>u.territory===territory)){setSelected(current=>current===territory?null:territory);activity();}}} onClearSelection={()=>setSelected(null)}/>
         {replay&&report&&<div className="challenge-replay" aria-label="Replay controls"><strong>{replay.exhibition?`Exhibition · ${replay.exhibition}`:replay.reference?'Reference replay':'Your attempt'} · {report.year} {report.season} {report.phase.toLowerCase()} · {replay.after?'Result':'Before'}</strong>
           <button disabled={replay.index===0&&!replay.after} onClick={()=>setReplay(r=>r&&({...r,...(r.after?{after:false}:{index:r.index-1,after:true})}))}>Previous</button>
           <button disabled={replay.index===replay.reports.length-1&&replay.after} onClick={()=>setReplay(r=>r&&({...r,...(!r.after?{after:true}:{index:r.index+1,after:false})}))}>Next</button>
@@ -145,7 +145,7 @@ export function ChallengeApp(){
           {convoyHint&&editable&&<p className="muted">No convoy is possible this turn. A convoy needs one of your fleets in a sea space next to the army; move a fleet out to sea first, and the convoy orders will appear here next turn.</p>}
           {a.acceptedAction&&a.execution!=='ACCEPTING'&&<div><p>Your submission is locked while this phase resolves.</p>{a.acceptedAction.phase==='ORDERS'&&<ul>{a.acceptedAction.orderIds.map(id=><li key={id}>{describeOrder(id)}</li>)}</ul>}</div>}
           {a.board.phase==='ORDERS'&&own.filter(u=>!u.mustRetreat).map(u=><label key={u.id} className={selected===u.territory?'selected-order':''}>
-            <button className="unit-selector" onClick={()=>{setSelected(u.territory);activity();}}>{u.type} · {territoryName(u.territory)}</button>
+            <button className="unit-selector" aria-pressed={selected===u.territory} onClick={()=>{setSelected(current=>current===u.territory?null:u.territory);activity();}}>{u.type} · {territoryName(u.territory)}</button>
             <select aria-label={`Order for ${u.territory}`} disabled={!editable||!game.legal} value={choices[u.id]??defaultOrder(u)} onChange={e=>{choose(u,e.target.value);activity();}}>
               {!game.legal&&<option value="">{a.execution==='ACCEPTING'?'Loading legal choices…':'Orders saved'}</option>}
               {options.filter(o=>o.unitTerritory===u.territory).map(o=><option key={o.id} value={o.id}>{o.description}</option>)}
@@ -155,11 +155,17 @@ export function ChallengeApp(){
           {a.board.phase==='BUILDS'&&<><p>{buildDelta>=0?`Up to ${buildDelta} builds. Unused builds are waived.`:`Choose ${-buildDelta} units to disband.`}</p>
             {buildDelta>0?homes.map(h=><label key={h.id}>Build in {h.name}<select disabled={!editable} value={builds[h.id]??''} onChange={e=>{setBuilds(v=>({...v,[h.id]:e.target.value}));activity();}}><option value="">No build</option><option value="ARMY">Army</option>{h.type!=='LAND'&&(h.coasts.length?h.coasts.map(c=><option key={c} value={`FLEET/${c}`}>Fleet · {c} coast</option>):<option value="FLEET">Fleet</option>)}</select></label>):own.map(u=><label className="disband-choice" key={u.id}><input type="checkbox" disabled={!editable||buildDelta===0} checked={disbands.includes(u.id)} onChange={e=>{setDisbands(v=>e.target.checked?[...v,u.id]:v.filter(id=>id!==u.id));activity();}}/>{u.type} {u.territory}</label>)}</>}
           {editable&&convoyWarnings.map(w=><div className="challenge-alert" role="status" key={w}>{w}</div>)}
+          {a.execution==='RECOVERING'&&<div className="challenge-alert" role="alert">
+            <strong>{a.notice==='SPONSORED_PAUSED'?'Sponsored play is paused':a.notice==='ATTEMPT_BUDGET'?'This attempt has used its sponsored budget':a.notice==='SPONSORED_RETRY'?'The turn is waiting on an opponent':'This turn needs recovery'}</strong>
+            <p>Your orders are saved. {a.notice==='ATTEMPT_BUDGET'?'It cannot continue; you can end it and review what happened.':a.notice==='SPONSORED_PAUSED'?'It continues when play resumes.':'Nothing is lost; trying again asks only for what is missing.'}</p>
+            {a.noticeDetail&&<ul className="challenge-notice-detail">{a.noticeDetail.map(line=><li key={line}>{line}</li>)}</ul>}
+            {a.notice!=='ATTEMPT_BUDGET'&&<button className="primary" onClick={()=>void game.recover()} disabled={game.busy||a.notice==='SPONSORED_PAUSED'&&game.sponsoredPlay==='PAUSED'}>{a.notice==='SPONSORED_RETRY'?'Try again':a.notice==='SPONSORED_PAUSED'?'Continue when resumed':'Recover saved phase'}</button>}
+          </div>}
           <button className="primary" disabled={!editable||!complete} onClick={()=>{const action=submission();if(action)void game.submit(action);}}>{game.busy?'Saving…':a.execution!=='ACCEPTING'?'Orders saved':nothingToDo?'Continue':a.board.phase==='RETREATS'?'Submit retreats':a.board.phase==='BUILDS'?'Submit adjustments':'Submit orders'}</button>
           </>}
           {a.lifecycle!=='ACTIVE'&&<p>This attempt has ended. Review its saved phases below.</p>}
           {game.chat&&a?.mode==='SPONSORED'&&card&&<OpponentChatPanel chat={game.chat} human={card.humanPower} busy={game.busy} onSend={game.sendChat}/>}
-          {game.playtest&&a?.mode==='SPONSORED'&&<PlaytestPanel log={game.playtest}/>}
+          {game.playtest&&a?.mode==='SPONSORED'&&<PlaytestPanel log={game.playtest} onExport={game.exportRecord}/>}
           {game.reports.length>0&&<section><h2>Phase reports</h2>{game.reports.map((r,i)=><button className="attempt-history" key={r.id} onClick={()=>setReplay({reports:game.reports,index:i,after:true,reference:false})}>{r.year} {r.season} · {r.phase}</button>)}</section>}
         </>}
       </aside>

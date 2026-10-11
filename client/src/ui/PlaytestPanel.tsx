@@ -18,12 +18,13 @@ function decisionText(decision: unknown): string {
 }
 
 /** Development playtests only: which model decided each power, what it chose, how long it took and what it cost. */
-export function PlaytestPanel({ log }: { log: PlaytestLog }) {
+export function PlaytestPanel({ log, onExport }: { log: PlaytestLog; onExport: () => Promise<void> }) {
   const models = Object.entries(log.models);
   if (!models.length) return null;
   return <section className="challenge-playtest" aria-label="Playtest log">
     <h2>Playtest log</h2>
     <p className="muted">Development only. Built from the accounting records; prompts and raw answers are not stored.</p>
+    <button onClick={() => void onExport()}>Download the full game record</button>
     <table><thead><tr><th>Model</th><th>Calls</th><th>Valid</th><th>Self-defeating</th><th>Avg time</th><th>Orders cost</th><th>Replies</th><th>Replies cost</th></tr></thead>
       <tbody>{models.map(([model, t]) => <tr key={model}>
         <td>{model}</td><td>{t.calls}</td><td>{t.valid}</td><td>{t.incoherent}</td>

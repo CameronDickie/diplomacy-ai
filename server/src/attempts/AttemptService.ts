@@ -21,7 +21,9 @@ const freeze = <T>(value: T): T => {
   return value;
 };
 type HookStage = 'intent' | 'decisions' | 'resolved' | 'committed';
-type Options = { maxRunning?: number; idleExpireMs?:number; timeoutMs?: number; now?: () => number; measurementClock?: () => number; boundary?: (stage: HookStage, job: PhaseJob) => Promise<void> };
+type Options = { maxRunning?: number; idleExpireMs?:number; timeoutMs?: number; now?: () => number; measurementClock?: () => number; boundary?: (stage: HookStage, job: PhaseJob) => Promise<void>;
+  /** Told why a phase could not complete. For diagnostics only: the durable RECOVERING state is what matters. */
+  onPhaseFailure?: (job: PhaseJob, error: unknown) => void };
 
 /** SQLite is authority. In-memory promises only coalesce work and deliver cancellation. */
 export class AttemptService {
@@ -135,7 +137,8 @@ export class AttemptService {
       await this.store.call('commitPhase',{fence:job,...result,measuredAt:this.options.measurementClock?.(),now:this.now()});
       await this.options.boundary?.('committed',job);
       return true;
-    } catch {
+    } catch (error) {
+      try { this.options.onPhaseFailure?.(job,error); } catch { /* a diagnostic hook must never affect recovery */ }
       // A stale/terminal fence or uncertain store failure must never be retried as a new command.
       await this.store.call('recoverPhase',{fence:job,now:this.now()}).catch(() => {});
       return false;
