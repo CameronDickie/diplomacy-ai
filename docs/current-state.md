@@ -25,6 +25,7 @@ listed in [README.md](README.md).
 | Local playtest mode (development only) | Browser play against real or stand-in models, mixed per power, with a development sign-in and a per-power model, move, time and cost log. Refused outside the local, non-production profile on a loopback host | [playtest.md](playtest.md) |
 | Provider accounting | Every provider call recorded before its output is interpreted; late bills reconcile | [provider-accounting.md](provider-accounting.md) |
 | Funding ledger | Explicit grants, atomic worst-case reservations, exactly-once settlement, typed exhaustion that pauses paid play | [funding.md](funding.md) |
+| Autoplay (development only) | A full game with a model on every power, run from a CLI on a local database through the challenge harness and ledger; powers exchange one message and one reply per pair per turn; resumable; exports the whole game record. Exercised with stand-in models only: no live run has been made, so the new request shapes are not yet confirmed against either provider | [autoplay.md](autoplay.md) |
 | Local AI for hosted rooms | Optional Ollama opponents for clone owners: server-configured endpoint, model allowlist, capability check, no key or paid switch; refused in showcase. Contract-tested against a stand-in server only, not against a real model | [local-ai.md](local-ai.md) |
 | Packaging | Non-root container with source and notices; CI on Linux and macOS | [deployment.md](deployment.md), [build-baseline.md](build-baseline.md) |
 

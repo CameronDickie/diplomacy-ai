@@ -8,8 +8,12 @@ export interface ProviderCallIntent {
   power: Power;
   provider: 'OPENAI' | 'ANTHROPIC';
   model: 'gpt-6-luna' | 'claude-haiku-5-5';
-  /** CHAT is a reply to one player message; its fence's operation id is that message's id. */
-  role: 'ORDERS' | 'RETREATS' | 'BUILDS' | 'CHAT';
+  /**
+   * CHAT is a reply to one player message; its fence's operation id is that message's id.
+   * ASK and REPLY are one power's messages to other powers before an orders phase of a model-only
+   * full game; they are fenced to that phase like its decisions.
+   */
+  role: 'ORDERS' | 'RETREATS' | 'BUILDS' | 'CHAT' | 'ASK' | 'REPLY';
   pricingVersion: string;
   requestHash: string;
   maxCostNanousd: number;

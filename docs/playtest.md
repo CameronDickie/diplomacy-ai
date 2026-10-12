@@ -30,6 +30,9 @@ is not used by this mode.
 A live playtest needs the key of each model in use: `OPENAI_API_KEY` for Luna,
 `ANTHROPIC_API_KEY` for Haiku. Each transport is given only its own key.
 
+To watch a whole game with no human in it, with the models writing to each
+other, see [autoplay.md](autoplay.md).
+
 ## Set up
 
 1. Create an env file that git ignores, for example `playtest.env` (`*.env`

@@ -11,6 +11,7 @@ const invalid = (): never => { throw new StoreError('STORE_INVALID','Invalid pro
 const conflict = (): never => { throw new StoreError('STORE_CONFLICT','Provider call already exists or changed; reconcile its durable record.'); };
 const integer = (n:number,max=Number.MAX_SAFE_INTEGER) => { if(!Number.isSafeInteger(n)||n<0||n>max)invalid(); };
 const identifier = (s:string) => { if(typeof s!=='string'||!/^[A-Za-z0-9:_-]{1,100}$/.test(s))invalid(); };
+const talk = (role:string) => role==='ASK'||role==='REPLY';
 const fields = (v:object,keys:string[]) => { if(!v||typeof v!=='object'||Object.keys(v).some(k=>!keys.includes(k))||keys.some(k=>!(k in v)))invalid(); };
 function intent(v:ProviderCallIntent):ProviderCallIntent {
   fields(v,['id','fence','power','provider','model','role','pricingVersion','requestHash','maxCostNanousd']);
@@ -18,7 +19,7 @@ function intent(v:ProviderCallIntent):ProviderCallIntent {
   identifier(v.id); identifier(v.fence.operationId); identifier(v.fence.attemptId);
   if(typeof v.fence.phaseId!=='string'||v.fence.phaseId.length>200)invalid();
   integer(v.fence.revision);identifier(v.pricingVersion);integer(v.maxCostNanousd,15_000_000_000);
-  if(!v.maxCostNanousd||!(v.provider==='OPENAI'&&v.model==='gpt-6-luna'||v.provider==='ANTHROPIC'&&v.model==='claude-haiku-5-5')||!['ORDERS','RETREATS','BUILDS','CHAT'].includes(v.role)||!ALL_POWERS.includes(v.power)||!/^[a-f0-9]{64}$/.test(v.requestHash))invalid();
+  if(!v.maxCostNanousd||!(v.provider==='OPENAI'&&v.model==='gpt-6-luna'||v.provider==='ANTHROPIC'&&v.model==='claude-haiku-5-5')||!['ORDERS','RETREATS','BUILDS','CHAT','ASK','REPLY'].includes(v.role)||!ALL_POWERS.includes(v.power)||!/^[a-f0-9]{64}$/.test(v.requestHash))invalid();
   return v;
 }
 function usage(v:ProviderUsage):ProviderUsage {
@@ -53,8 +54,8 @@ export class ProviderCallRepository {
     }
     const row=this.db.prepare(`SELECT j.id FROM phase_jobs j JOIN attempts a ON a.id=j.attempt_id JOIN players p ON p.id=a.player_id
       WHERE j.id=? AND j.attempt_id=? AND j.phase_id=? AND j.revision=? AND a.revision=j.revision AND a.phase_id=j.phase_id
-      AND json_extract(j.definition_json,'$.humanPower')<>? AND json_extract(j.board_json,'$.phase')=?
-      AND a.lifecycle='ACTIVE' AND p.banned_at IS NULL AND j.status IN ('DECIDING','RECOVERING')`).get(f.operationId,f.attemptId,f.phaseId,f.revision,v.power,v.role);
+      AND EXISTS(SELECT 1 FROM json_each(j.definition_json,'$.opponentPowers') o WHERE o.value=?) AND json_extract(j.board_json,'$.phase')=?
+      AND a.lifecycle='ACTIVE' AND p.banned_at IS NULL AND j.status IN ('DECIDING','RECOVERING')`).get(f.operationId,f.attemptId,f.phaseId,f.revision,v.power,talk(v.role)?'ORDERS':v.role);
     if(!row)conflict();
   }
   /** Reserves the worst-case cost in the same transaction; a refusal leaves no call record behind. */
@@ -136,8 +137,8 @@ export class ProviderCallRepository {
   }
   forAttempt(attemptId:string):ProviderCallRecord[] {
     identifier(attemptId);
-    const rows=this.db.prepare('SELECT id FROM provider_calls WHERE attempt_id=? ORDER BY created_at,id LIMIT 2001').all(attemptId);
-    if(rows.length>2000)throw new StoreError('STORE_UNAVAILABLE','Provider record count for this attempt exceeds its bound.');
+    const rows=this.db.prepare('SELECT id FROM provider_calls WHERE attempt_id=? ORDER BY created_at,id LIMIT 6001').all(attemptId);
+    if(rows.length>6000)throw new StoreError('STORE_UNAVAILABLE','Provider record count for this attempt exceeds its bound.');
     return rows.map(r=>this.required(String(r.id)));
   }
   totals(input:StoreOperations['providerCallTotals']['input']):StoreOperations['providerCallTotals']['output'] {

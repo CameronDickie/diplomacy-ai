@@ -53,8 +53,10 @@ export interface PlaytestCall {
   /** Ways this power's own orders worked against each other (for example a support for a move it did not order). */
   issues:string[];
 }
-export interface PlaytestPhase { phaseId:string; kind:'ORDERS'|'RETREATS'|'BUILDS'; calls:PlaytestCall[] }
-export interface PlaytestModelTotals { calls:number; valid:number; costNanousd:number; heldNanousd:number; latencyMsTotal:number; timedCalls:number; outputTokens:number; /** Order sets with at least one self-defeating order. */ incoherent:number; /** Replies to the player's messages, and what they cost. */ chatCalls:number; chatCostNanousd:number }
+/** One call made to write messages to other powers before orders (a model-only full game). */
+export interface PlaytestTalkCall { power:Power; model:string; round:'ASK'|'REPLY'; outcome:string|null; latencyMs:number|null; inputTokens:number|null; outputTokens:number|null; reasoningTokens:number|null; costNanousd:number|null; heldNanousd:number; messages:Array<{to:Power;body:string}> }
+export interface PlaytestPhase { phaseId:string; kind:'ORDERS'|'RETREATS'|'BUILDS'; calls:PlaytestCall[]; talk?:PlaytestTalkCall[] }
+export interface PlaytestModelTotals { calls:number; valid:number; costNanousd:number; heldNanousd:number; latencyMsTotal:number; timedCalls:number; outputTokens:number; /** Order sets with at least one self-defeating order. */ incoherent:number; /** Replies to the player's messages, and what they cost. */ chatCalls:number; chatCostNanousd:number; /** Messages to other powers in a model-only full game, and what they cost. */ talkCalls:number; talkValid:number; talkCostNanousd:number }
 /** Development only: which model decided each power, what it chose, how long it took and what it cost. */
 export interface PlaytestLog { attemptId:string; phases:PlaytestPhase[]; models:Record<string,PlaytestModelTotals> }
 
@@ -67,7 +69,7 @@ export interface GameRecord {
   exportedAt:string; note:string;
   attempt:{id:string;mode:ChallengeMode;lifecycle:string;execution:string;challengeId:string;challengeVersion:number;humanPower:Power;objective:string;preset:{id:string;pricingVersion:string}|null;score:unknown};
   opponents:Record<string,string>;
-  phases:Array<{phaseId:string;report:PublicPhaseReport|null;calls:PlaytestCall[]}>;
+  phases:Array<{phaseId:string;report:PublicPhaseReport|null;calls:PlaytestCall[];talk?:PlaytestTalkCall[]}>;
   chat:Array<{at:string;power:Power;from:'PLAYER'|'OPPONENT';body:string;reply:string|null;phaseId:string}>;
   failures:Array<{at:string;phaseId:string;reason:string}>;
   models:Record<string,PlaytestModelTotals>;

@@ -9,6 +9,7 @@ import { gamePhaseId } from '@diplomacy/shared';
 import type { PublicPhaseReport, SubmissionState } from '@diplomacy/shared';
 import { canonicalJson, parseBoard } from '../fixtures/BoardFixture.js';
 import { scoreChallenge } from '../challenge/TunisPilot.js';
+import { TalkRepository } from './talks.js';
 import { migrate, verifyMigrationHistory } from './migrations.js';
 import { PhaseRepository } from './phases.js';
 import { RetentionRepository } from './retention.js';
@@ -198,6 +199,8 @@ async function handle(request: StoreRequest): Promise<unknown> {
     case 'chatSend': return transaction(() => new ChatRepository(db).send(input));
     case 'chatReply': return transaction(() => new ChatRepository(db).reply(input));
     case 'chatFail': return transaction(() => new ChatRepository(db).fail(input));
+    case 'savePowerTalk': return transaction(() => new TalkRepository(db).save(input));
+    case 'powerTalks': return new TalkRepository(db).list(input.attemptId);
     case 'chatMessages': return new ChatRepository(db).list(input.attemptId);
     case 'providerDecisions': return new ProviderCallRepository(db).decisions(input.operationId);
     case 'createExhibition': return transaction(() => new ExhibitionRepository(db).create(input));

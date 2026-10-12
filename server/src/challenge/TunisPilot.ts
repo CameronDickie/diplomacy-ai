@@ -19,6 +19,13 @@ export interface ChallengeDefinition {
   earlyAchievementYear: number;
   rotation: 'PILOT_ONLY';
   tiePolicy: 'NOT_POSSIBLE_SINGLE_OWNER';
+  /**
+   * Development only: a full game with no human player. Every power, including the nominal
+   * `humanPower` seat, is listed in `opponentPowers` and decided by a model; the objective's
+   * territory is ignored and the game runs to the deadline year or a solo win. Registered only by
+   * the autoplay CLI, never by the challenge catalog.
+   */
+  autoplay?: true;
 }
 
 /** An authored pilot, not yet a daily rotation or a validated difficulty level. */
@@ -77,6 +84,11 @@ export function scoreChallenge(
 
   for (const report of settledFalls) {
     if (report.year > definition.objective.deadlineYear) break;
+    // A full game has nothing to capture: it simply ends once its last Fall has settled.
+    if (definition.autoplay) {
+      if (report.year === definition.objective.deadlineYear) return { outcome: 'SUCCESS', reason: 'DEADLINE', completedYear: report.year, achievementIds: [], tie: 'NOT_POSSIBLE' };
+      continue;
+    }
     if (report.after.territoryOwners[definition.objective.territory] === definition.humanPower) {
       return {
         outcome: 'SUCCESS',

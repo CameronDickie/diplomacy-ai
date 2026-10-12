@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { HAIKU_PRESET, buildHaikuChatRequest, buildHaikuRequest, haikuContextOf } from '../providers/HaikuPreset.js';
+import { HAIKU_PRESET, haikuContextOf, haikuRequestBodies } from '../providers/HaikuPreset.js';
 import type { LunaTransport } from './Transport.js';
 
 /**
@@ -19,7 +19,7 @@ export function anthropicHaikuTransport(apiKey: string, fetchImpl?: typeof fetch
     let params: Anthropic.MessageCreateParamsNonStreaming;
     try {
       const context = { context: haikuContextOf(body) };
-      if ((body !== buildHaikuRequest(context).body && body !== buildHaikuChatRequest(context).body)
+      if (!haikuRequestBodies(context).includes(body)
         || Buffer.byteLength(body,'utf8') > HAIKU_PRESET.maxRequestBytes) throw new Error();
       params = JSON.parse(body) as Anthropic.MessageCreateParamsNonStreaming;
     } catch { throw new Error('Invalid Haiku request contract.'); }

@@ -79,7 +79,7 @@ export class PhaseRepository {
     const {job} = this.current(input.fence);
     if (job.decisions !== null) conflict();
     const decisions = parseDecisions(input.decisions);
-    if (Object.keys(decisions).length !== 6 || job.definition.opponentPowers.some(p => !decisions[p]) ||
+    if (Object.keys(decisions).length !== job.definition.opponentPowers.length || job.definition.opponentPowers.some(p => !decisions[p]) ||
       Object.values(decisions).some(a => a!.phase !== job.board.phase)) invalid();
     this.db.prepare("UPDATE phase_jobs SET decisions_json=?,status='RESOLVING',revision=revision+1 WHERE id=?").run(canonicalJson(decisions),job.operationId);
     this.db.prepare("UPDATE attempts SET execution='RESOLVING',revision=revision+1,updated_at=? WHERE id=?").run(input.now,job.attemptId);

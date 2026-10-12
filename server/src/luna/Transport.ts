@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { LUNA_PRESET, buildLunaChatRequest, buildLunaRequest } from '../providers/LunaPreset.js';
+import { LUNA_PRESET, lunaRequestBodies } from '../providers/LunaPreset.js';
 import { LUNA_CONTRACT, type OpponentContract } from '../providers/OpponentContract.js';
 
 export interface LunaResponse { status: number; body: unknown }
@@ -55,7 +55,7 @@ export function httpLunaTransport(apiKey: string, request: typeof fetch = fetch)
     try {
       parsed = JSON.parse(body);
       const context = { context: parsed.input[0].content[0].text };
-      if ((body !== buildLunaRequest(context).body && body !== buildLunaChatRequest(context).body)
+      if (!lunaRequestBodies(context).includes(body)
         || Buffer.byteLength(body,'utf8') > LUNA_PRESET.maxRequestBytes) throw new Error();
     } catch { throw new Error('Invalid Luna request contract.'); }
     const countBody = JSON.stringify({ model: parsed.model, input: parsed.input, instructions: parsed.instructions,
@@ -112,6 +112,15 @@ export function mockOpponentTransport(contract: OpponentContract, options: MockO
     if (body === contract.buildChatRequest({ context: text }).body) {
       const speaker = /\nYou are ([A-Z]+)\./.exec(text)?.[1] ?? 'This power', reply = JSON.stringify({ reply: `(stand-in reply, no model was asked) ${speaker} has read your message.` });
       return { status: 200, body: contract.mockEnvelope({ serial: ++serial, text: reply, inputTokens: Math.ceil(Buffer.byteLength(body) / 4), outputTokens: Math.ceil(reply.length / 3) + 16 }) };
+    }
+    for (const kind of ['ASK','REPLY'] as const) if (body === contract.buildFullGameRequest({ context: text },kind).body) {
+      // A stand-in diplomat: it writes to the first powers it may (or a seeded few), and answers everyone who wrote.
+      const speaker = /\nYou are ([A-Z]+)\./.exec(text)?.[1] ?? 'This power';
+      const line = kind === 'ASK' ? /\nYou may write to up to (\d+) of: ([A-Z, ]+)\./.exec(text) : /\nReply to: ([A-Z, ]+)\./.exec(text);
+      const names = (line?.at(-1) ?? '').split(', ').filter(Boolean), count = kind === 'ASK' ? Math.min(Number(line?.[1] ?? 0),options.pick === 'seeded' ? 1 + Math.floor(random() * 3) : 2) : names.length;
+      const picked = options.pick === 'seeded' && kind === 'ASK' ? [...names].sort(() => random() - 0.5).slice(0,count) : names.slice(0,count);
+      const answer = JSON.stringify({ messages: picked.map(to => ({ to, text: `(stand-in, no model was asked) ${speaker} ${kind === 'ASK' ? 'asks what' : 'has read the message from'} ${to}${kind === 'ASK' ? ' intends this turn.' : '.'}` })) });
+      return { status: 200, body: contract.mockEnvelope({ serial: ++serial, text: answer, inputTokens: Math.ceil(Buffer.byteLength(body) / 4), outputTokens: Math.ceil(answer.length / 3) + 16 }) };
     }
     // Choices begin at the rule line; a conversation shown before it is not a list of choices.
     const section = text.slice(text.lastIndexOf('\nYou are ')), own = section.slice(Math.max(0,section.search(/\nPick /)));

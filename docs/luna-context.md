@@ -48,8 +48,13 @@ a new preset id (currently `luna-challenge-v5`, `haiku-challenge-v4`).
 
 A second pinned request per model, with its own instructions
 (`CHAT_INSTRUCTIONS`), asks for one short reply to the player's latest message.
-It uses the same model, limits and prices, and the transports accept only these
-two request shapes.
+It uses the same model, limits and prices.
+
+A model-only full game ([autoplay.md](autoplay.md), development only) adds three
+more pinned requests per model, with their own instructions: its orders, its
+opening messages to other powers, and its replies. The transports accept exactly
+these five request shapes and refuse anything else. The two challenge requests
+are byte-for-byte what they were, so the preset ids did not change.
 
 ## Choices
 

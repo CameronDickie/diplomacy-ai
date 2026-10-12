@@ -1,0 +1,168 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { ALL_POWERS, type Power } from '@diplomacy/shared';
+import { DEFAULT_ASSIGNMENT, autoplay, fullGameDefinition, type ModelKey } from '../autoplay/Autoplay.js';
+import { assertDevelopment, parseAssignment } from '../autoplay/cli.js';
+import { parseMessages, talkLines, type PowerMessage } from '../luna/Context.js';
+import { mockOpponentTransport, type LunaTransport } from '../luna/Transport.js';
+import { OPPONENT_CONTRACTS, opponentContract } from '../providers/OpponentContract.js';
+import { parseChallenge } from '../storage/publicData.js';
+import { Store } from '../storage/Store.js';
+import { TUNIS_PILOT_V1 } from '../challenge/TunisPilot.js';
+
+async function setup(t: test.TestContext, granted = 5_000_000_000) {
+  const dir = await mkdtemp(join(tmpdir(),'diplomacy-autoplay-')), store = await Store.open(join(dir,'game.sqlite'));
+  await store.call('grantFunding',{ amountNanousd: granted, authorizationRef: 'owner-auto-0001', grantedBy: 'test', now: 1 });
+  await store.call('setFundingPolicy',{ attemptCapNanousd: 5_000_000_000, ceilingLimitNanousd: null, now: 1 });
+  t.after(async () => { await store.close(); await rm(dir,{ recursive: true, force: true }); });
+  /** Stand-in models that also record every request each model was sent. */
+  const sent: Array<{ key: ModelKey; context: string; kind: 'ORDERS' | 'ASK' | 'REPLY' }> = [];
+  const transports = (wrap: (key: ModelKey, inner: LunaTransport) => LunaTransport = (_key,inner) => inner) => Object.fromEntries((['luna','haiku'] as const).map(key => {
+    const contract = opponentContract(key), inner = mockOpponentTransport(contract,{ pick: 'seeded', seed: 3 });
+    const recording: LunaTransport = async request => {
+      const context = contract.contextOf(request.body);
+      sent.push({ key, context, kind: (['ORDERS','ASK','REPLY'] as const).find(kind => contract.buildFullGameRequest({ context },kind).body === request.body)! });
+      return inner(request);
+    };
+    return [key,wrap(key,recording)];
+  })) as Record<ModelKey, LunaTransport>;
+  const run = (extra: Partial<Parameters<typeof autoplay>[0]> = {}) => autoplay({ store, runId: 'game-a', lastYear: 1902, transports: transports(), transportKind: 'mock', now: () => 1_800_000_000_000, ...extra });
+  return { store, sent, transports, run };
+}
+const player = (_attemptId: string) => 'test-operator';
+const speaker = (context: string) => /\nYou are ([A-Z]+)\./.exec(context)![1] as Power;
+
+test('a full game with a model on every power plays to its last year through the ledger, with both models and messages between powers',async t => {
+  const f = await setup(t), result = await f.run();
+  assert.equal(result.status,'FINISHED'); assert.equal(result.waitingOn,null);
+  assert.equal(result.record.attempt.lifecycle,'COMPLETED');
+  assert.deepEqual([result.summary.year,result.summary.season],[1902,'WINTER']);
+  // Seven supply-center counts that add up to what is owned on the board.
+  assert.equal(Object.keys(result.summary.centers).length,7);
+  assert.deepEqual(result.run.assignment,Object.fromEntries(ALL_POWERS.map(p => [p,OPPONENT_CONTRACTS[DEFAULT_ASSIGNMENT[p]].preset.model])));
+  const orders = result.record.phases.filter(p => p.report?.phase === 'ORDERS');
+  assert.equal(orders.length,4);
+  for (const phase of orders) {
+    // All seven powers were decided by a call, including the nominal seat that opens each phase.
+    assert.deepEqual(phase.calls.map(c => c.power).sort(),[...ALL_POWERS].sort());
+    assert.ok(phase.calls.every(c => c.outcome === 'VALID'));
+    const austria = phase.calls.find(c => c.power === 'AUSTRIA')!.decision as { orderIds: string[] };
+    assert.deepEqual(phase.report!.phase === 'ORDERS' ? phase.report!.resolvedOrders.filter(o => o.power === 'AUSTRIA').map(o => o.id).sort() : [],[...austria.orderIds].sort());
+    // Each power wrote at most once and answered at most once, to at most three others.
+    const asks = phase.talk!.filter(c => c.round === 'ASK'), replies = phase.talk!.filter(c => c.round === 'REPLY');
+    assert.equal(asks.length,7); assert.ok(asks.every(c => c.messages.length >= 1 && c.messages.length <= 3 && c.messages.every(m => m.to !== c.power)));
+    assert.equal(new Set(replies.map(c => c.power)).size,replies.length);
+    for (const reply of replies) assert.deepEqual(reply.messages.map(m => m.to).sort(),asks.filter(a => a.messages.some(m => m.to === reply.power)).map(a => a.power).sort());
+  }
+  // Both models were used, each only for its own powers.
+  for (const { key, context } of f.sent) assert.equal(DEFAULT_ASSIGNMENT[speaker(context)],key);
+  assert.ok(result.record.models['gpt-6-luna'].calls > 0 && result.record.models['claude-haiku-5-5'].calls > 0);
+  assert.equal(result.summary.messages,result.record.phases.flatMap(p => p.talk ?? []).reduce((n,c) => n + c.messages.length,0));
+  // Every bill is on the ledger and nothing is left held.
+  const funding = await f.store.call('attemptFunding',{ attemptId: result.run.attemptId }), totals = await f.store.call('fundingTotals',{});
+  assert.equal(funding.heldNanousd,0); assert.equal(funding.settledNanousd,result.summary.settledNanousd); assert.equal(totals.settledNanousd,funding.settledNanousd);
+  assert.equal(funding.settledNanousd,Object.values(result.record.models).reduce((n,m) => n + m.costNanousd + m.talkCostNanousd,0));
+});
+
+test('what powers said reaches their own later requests and nobody else\'s',async t => {
+  const f = await setup(t); await f.run();
+  const orders = f.sent.filter(s => s.kind === 'ORDERS'), full = orders.filter(s => s.context.includes('Your private messages with other powers'));
+  assert.ok(full.length > 0);
+  // The full game is described as one: no human, no scenario objective.
+  assert.ok(f.sent.every(s => s.context.includes('Full game: each of the seven powers is played separately') && !s.context.includes('played by a human')));
+  for (const { context } of f.sent) {
+    const me = speaker(context);
+    // A request only ever shows messages this power sent or received.
+    for (const line of context.split('\n').filter(l => /^\[[A-Z]+ \d{4}\] /.test(l))) assert.match(line,/^\[[A-Z]+ \d{4}\] (You to [A-Z]+|[A-Z]+ to you): /,`${me}: ${line}`);
+  }
+  // A reply request shows the message it answers; an opening request of the first turn has none to show.
+  const firstAsk = f.sent.find(s => s.kind === 'ASK')!, firstReply = f.sent.find(s => s.kind === 'REPLY')!;
+  assert.ok(!firstAsk.context.includes(' to you: ')); assert.match(firstAsk.context,/\nYou may write to up to 3 of: /);
+  assert.ok(firstReply.context.includes(' to you: ')); assert.match(firstReply.context,/\nReply to: /);
+});
+
+test('continuing a run buys nothing twice, and a run cannot be continued with other models or another last year',async t => {
+  const f = await setup(t), partial = await f.run({ maxPhases: 2 });
+  assert.equal(partial.status,'PAUSED'); assert.match(partial.waitingOn!,/same run ID/);
+  const afterPause = f.sent.length, done = await f.run();
+  assert.equal(done.status,'FINISHED');
+  const total = f.sent.length, again = await f.run();
+  assert.equal(again.status,'FINISHED'); assert.equal(f.sent.length,total);
+  assert.ok(afterPause < total);
+  // No power was asked twice for the same thing in the same phase.
+  const seen = new Set<string>();
+  for (const phase of done.record.phases) {
+    for (const call of phase.calls) { const key = `${phase.phaseId}:${call.power}:D`; assert.ok(!seen.has(key),key); seen.add(key); }
+    for (const call of phase.talk ?? []) { const key = `${phase.phaseId}:${call.power}:${call.round}`; assert.ok(!seen.has(key),key); seen.add(key); }
+  }
+  await assert.rejects(f.run({ assignment: { ...DEFAULT_ASSIGNMENT, AUSTRIA: 'haiku' } }),/different models or prices/);
+  await assert.rejects(f.run({ lastYear: 1903 }),/different last year/);
+});
+
+test('a message call that fails costs that power its say for the turn and nothing else: it is not repeated and the game goes on',async t => {
+  const f = await setup(t);
+  // Germany's model answers every message request with something unusable.
+  const transports = f.transports((key,inner) => async request => {
+    const contract = opponentContract(key), context = contract.contextOf(request.body);
+    if (speaker(context) === 'GERMANY' && contract.buildFullGameRequest({ context },'ASK').body === request.body)
+      return { status: 200, body: contract.mockEnvelope({ serial: 9_000 + Math.floor(Math.random() * 1e6), text: 'not json', inputTokens: 100, outputTokens: 40 }) };
+    return inner(request);
+  });
+  const result = await f.run({ transports });
+  assert.equal(result.status,'FINISHED');
+  for (const phase of result.record.phases.filter(p => p.report?.phase === 'ORDERS')) {
+    const germany = phase.talk!.filter(c => c.power === 'GERMANY' && c.round === 'ASK');
+    assert.equal(germany.length,1); assert.equal(germany[0].outcome,'INVALID_JSON'); assert.deepEqual(germany[0].messages,[]);
+    // Its orders were still decided by its own model.
+    assert.equal(phase.calls.find(c => c.power === 'GERMANY')!.outcome,'VALID');
+  }
+  // The failed calls were billed and are counted.
+  assert.ok(result.record.models['claude-haiku-5-5'].talkCalls > result.record.models['claude-haiku-5-5'].talkValid);
+});
+
+test('running out of funds leaves the game waiting, with every decision already bought kept for the continuation',async t => {
+  const f = await setup(t,10_000_000), result = await f.run({ maxRecoveries: 1 });
+  assert.equal(result.status,'WAITING'); assert.match(result.waitingOn!,/funding grant is used up/);
+  assert.equal(result.record.attempt.lifecycle,'ACTIVE');
+  await f.store.call('grantFunding',{ amountNanousd: 5_000_000_000, authorizationRef: 'owner-auto-0002', grantedBy: 'test', now: 2 });
+  const bought = (await f.store.call('providerCallsForAttempt',{ attemptId: result.run.attemptId })).filter(c => c.outcome === 'VALID').map(c => c.id);
+  assert.ok(bought.length > 0);
+  await f.store.call('setPaidStopped',{ stopped: false, operatorId: player(result.run.attemptId), now: 3 });
+  const done = await f.run();
+  assert.equal(done.status,'FINISHED');
+  const after = await f.store.call('providerCallsForAttempt',{ attemptId: result.run.attemptId });
+  // Everything bought before the stop is still there, once.
+  assert.ok(bought.every(id => after.filter(c => c.id === id).length === 1));
+});
+
+test('messages are read strictly and only a power\'s own are ever shown to it',() => {
+  const allowed: Power[] = ['FRANCE','ITALY','RUSSIA'];
+  assert.deepEqual(parseMessages({ messages: [{ to: 'france', text: '  Hello   there ' },{ to: 'TURKEY', text: 'not allowed' },{ to: 'FRANCE', text: 'again' },{ to: 'ITALY', text: '   ' },{ to: 'RUSSIA', text: 'x'.repeat(900) }] },allowed,3),
+    [{ to: 'FRANCE', body: 'Hello there' },{ to: 'RUSSIA', body: 'x'.repeat(500) }]);
+  assert.deepEqual(parseMessages({ messages: [{ to: 'FRANCE', text: 'a' },{ to: 'ITALY', text: 'b' },{ to: 'RUSSIA', text: 'c' }] },allowed,2).map(m => m.to),['FRANCE','ITALY']);
+  assert.deepEqual(parseMessages({ messages: [] },allowed,3),[]);
+  for (const bad of [null,[],{ messages: 'x' },{ messages: [], extra: 1 },{ messages: [{ to: 'FRANCE' }] },{ messages: [{ to: 1, text: 'a' }] },{ messages: Array.from({ length: 13 },() => ({ to: 'FRANCE', text: 'a' })) }])
+    assert.throws(() => parseMessages(bad,allowed,3),/Expected/);
+  const messages: PowerMessage[] = [{ when: 'SPRING 1901', from: 'FRANCE', to: 'ITALY', body: 'between others' },{ when: 'SPRING 1901', from: 'AUSTRIA', to: 'ITALY', body: 'mine,\nsent' },{ when: 'FALL 1901', from: 'RUSSIA', to: 'AUSTRIA', body: 'mine, received' }];
+  assert.deepEqual(talkLines('AUSTRIA',messages),['[SPRING 1901] You to ITALY: mine, sent','[FALL 1901] RUSSIA to you: mine, received']);
+  // A long history keeps its most recent messages.
+  const long = Array.from({ length: 200 },(_,i): PowerMessage => ({ when: 'SPRING 1901', from: 'AUSTRIA', to: 'ITALY', body: `message ${i} ${'x'.repeat(100)}` }));
+  const kept = talkLines('AUSTRIA',long);
+  assert.ok(kept.length < 200 && kept.at(-1)!.includes('message 199 ') && Buffer.byteLength(kept.join('\n')) <= 6_000);
+});
+
+test('only a scenario marked as a model-only full game may list all seven powers, and the tool refuses to run outside development',() => {
+  const full = fullGameDefinition(1905);
+  assert.deepEqual(parseChallenge(full),full);
+  assert.throws(() => parseChallenge({ ...TUNIS_PILOT_V1, opponentPowers: [...ALL_POWERS] }),/six other powers/);
+  assert.throws(() => parseChallenge({ ...full, opponentPowers: full.opponentPowers.slice(1) }),/all seven powers/);
+  assert.throws(() => parseChallenge({ ...TUNIS_PILOT_V1, autoplay: false }),/expected true/);
+  assert.doesNotThrow(() => assertDevelopment({})); assert.doesNotThrow(() => assertDevelopment({ NODE_ENV: 'production', DIPLOMACY_PROFILE: 'local' }));
+  assert.throws(() => assertDevelopment({ NODE_ENV: 'production' }),/development tool/);
+  assert.throws(() => assertDevelopment({ DIPLOMACY_PROFILE: 'showcase' }),/development tool/);
+  assert.equal(parseAssignment('austria=haiku, TURKEY=haiku').AUSTRIA,'haiku'); assert.equal(parseAssignment(undefined).ENGLAND,'haiku');
+  assert.throws(() => parseAssignment('SPAIN=luna'),/Cannot read/); assert.throws(() => parseAssignment('AUSTRIA=gpt'),/Cannot read/);
+});

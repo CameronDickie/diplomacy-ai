@@ -54,7 +54,7 @@ export class PhaseRules {
     finally { room.dispose(); }
   }
   async validateDecisions(job: PhaseJob, decisions: PhaseDecisions, signal: AbortSignal): Promise<void> {
-    if (Object.keys(decisions).length !== 6 || job.definition.opponentPowers.some(p => !decisions[p])) invalid('Expected one decision per opponent.');
+    if (Object.keys(decisions).length !== job.definition.opponentPowers.length || job.definition.opponentPowers.some(p => !decisions[p])) invalid('Expected one decision per opponent.');
     const room = await roomFor(job.board,signal);
     try {
       for (const power of job.definition.opponentPowers) { signal.throwIfAborted(); await validate(room,power,decisions[power]!); }
@@ -78,7 +78,9 @@ export class PhaseRules {
     if (!job.decisions) invalid('Opponent decisions are not saved.');
     const room = await roomFor(job.board,signal);
     try {
-      const actions = {...job.decisions,[job.definition.humanPower]:job.humanAction};
+      // In a model-only full game the nominal human seat is decided like every other power; the
+      // submitted action only opens the phase. Anywhere else the human's own action is what counts.
+      const actions = job.definition.autoplay ? {[job.definition.humanPower]:job.humanAction,...job.decisions} : {...job.decisions,[job.definition.humanPower]:job.humanAction};
       const orders = new Map<Power,Order[]>();
       for (const power of ALL_POWERS) orders.set(power,await validate(room,power,actions[power]!));
       signal.throwIfAborted();

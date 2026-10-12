@@ -32,15 +32,17 @@ export function publicReplay(challenge: ChallengeCard, reports: readonly PublicP
 }
 
 export function parseChallenge(value: unknown): ChallengeDefinition {
-  const d=s.fields(value,['id','version','title','objectiveText','variant','startingPosition','rulesEngine','humanPower','opponentPowers','opponentPolicy','objective','earlyAchievementYear','rotation','tiePolicy'],'challenge');
+  const d=s.fields(value,['id','version','title','objectiveText','variant','startingPosition','rulesEngine','humanPower','opponentPowers','opponentPolicy','objective','earlyAchievementYear','rotation','tiePolicy',...(value&&typeof value==='object'&&Object.hasOwn(value,'autoplay')?['autoplay']:[])],'challenge');
+  if(Object.hasOwn(d,'autoplay') && d.autoplay!==true) s.fail('challenge.autoplay','expected true when present');
   for(const field of ['id','title','objectiveText']) if(typeof d[field]!=='string' || !(d[field] as string).trim() || (d[field] as string).length>500) s.fail(`challenge.${field}`,'invalid text');
   if(!Number.isSafeInteger(d.version) || Number(d.version)<1) s.fail('challenge.version','invalid version');
   s.member(d.variant,['CLASSICAL'],'challenge.variant'); s.member(d.rulesEngine,['godip@v0.6.5'],'challenge.rulesEngine');
   s.member(d.opponentPolicy,['SPONSORED_LUNA_UNRANKED'],'challenge.opponentPolicy'); s.member(d.rotation,['PILOT_ONLY'],'challenge.rotation'); s.member(d.tiePolicy,['NOT_POSSIBLE_SINGLE_OWNER'],'challenge.tiePolicy');
   const human=s.member(d.humanPower,ALL_POWERS,'challenge.humanPower');
-  const opponents=s.array(d.opponentPowers,'challenge.opponentPowers',6).map(p=>s.member(p,ALL_POWERS,'challenge.opponentPowers'));
+  const opponents=s.array(d.opponentPowers,'challenge.opponentPowers',7).map(p=>s.member(p,ALL_POWERS,'challenge.opponentPowers'));
   s.unique(opponents,'challenge.opponentPowers');
-  if(opponents.length!==6 || opponents.includes(human)) s.fail('challenge.opponentPowers','expected the six other powers');
+  // A model-only full game lists all seven; every other scenario lists exactly the six that are not the human.
+  if(d.autoplay===true ? opponents.length!==7 : opponents.length!==6 || opponents.includes(human)) s.fail('challenge.opponentPowers',d.autoplay===true?'expected all seven powers':'expected the six other powers');
   const start=s.fields(d.startingPosition,['fixtureId','version'],'challenge.startingPosition');
   if(start.fixtureId!==d.id || start.version!==d.version) s.fail('challenge.startingPosition','fixture id/version must match challenge');
   const objective=s.fields(d.objective,['kind','territory','deadlineYear'],'challenge.objective');

@@ -96,6 +96,9 @@ export interface StoreOperations {
   chatSend: { input: { id:string; attemptId:string; playerId:string; power:Power; requestId:string; body:string; limit:number; now:number }; output: { message:import('./chat.js').StoredChatMessage; duplicate:boolean; used:number } };
   chatReply: { input: { messageId:string; body:string; now:number }; output: import('./chat.js').StoredChatMessage };
   chatFail: { input: { messageId:string; now:number }; output: void };
+  /** One power's messages to other powers before an orders phase, kept with the call that produced them. */
+  savePowerTalk: { input: { callId:string; messages:Array<{ to:Power; body:string }>; now:number }; output: null };
+  powerTalks: { input: { attemptId:string }; output: Array<import('./talks.js').StoredPowerTalk> };
   chatMessages: { input: { attemptId:string }; output: Array<import('./chat.js').StoredChatMessage> };
   providerDecisions: { input: { operationId:string }; output: Array<{ callId:string; power:Power; action:PhaseAction }> };
   fundingTotals: { input: {}; output: FundingTotals };

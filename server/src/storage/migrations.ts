@@ -239,6 +239,15 @@ CREATE INDEX chat_messages_attempt ON chat_messages(attempt_id,created_at);
 CREATE TRIGGER chat_messages_content BEFORE UPDATE ON chat_messages
  WHEN OLD.id<>NEW.id OR OLD.attempt_id<>NEW.attempt_id OR OLD.power<>NEW.power OR OLD.sender<>NEW.sender OR OLD.body<>NEW.body OR OLD.created_at<>NEW.created_at
  BEGIN SELECT RAISE(ABORT,'immutable chat message'); END;
+` }, { version: 15, sql: `
+CREATE TABLE power_talks (
+ call_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
+ operation_id TEXT NOT NULL, phase_id TEXT NOT NULL,
+ kind TEXT NOT NULL CHECK(kind IN ('ASK','REPLY')), power TEXT NOT NULL,
+ messages_json TEXT NOT NULL CHECK(json_valid(messages_json)), created_at INTEGER NOT NULL
+) STRICT;
+CREATE INDEX power_talks_attempt ON power_talks(attempt_id,created_at);
+CREATE TRIGGER power_talks_immutable BEFORE UPDATE ON power_talks BEGIN SELECT RAISE(ABORT,'immutable power talk'); END;
 ` }];
 
 export function verifyMigrationHistory(db: DatabaseSync, requireExisting = false): number {
