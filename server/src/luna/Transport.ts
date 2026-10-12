@@ -9,6 +9,13 @@ export type LunaTransport = ((request: { body: string; signal: AbortSignal }) =>
   preflight?: (request: { body: string; signal: AbortSignal }) => Promise<{ inputTokens: number; send: LunaTransport }>;
 };
 
+/**
+ * A token count that could not be obtained, so nothing was sent or billed. `detail` is a category
+ * safe to log: an HTTP status, a timeout, or a malformed count. Never a provider's error text.
+ */
+export class PreflightError extends Error {
+  constructor(message: string, readonly detail: string) { super(message); this.name = 'PreflightError'; }
+}
 /** Read a bounded body. Raw errors and bodies are never logged. */
 async function readJson(response: Response, maxBytes: number): Promise<unknown> {
   const reader = response.body?.getReader(), chunks: Uint8Array[] = [];
@@ -66,15 +73,17 @@ export function httpLunaTransport(apiKey: string, request: typeof fetch = fetch)
       count = await abortable((async () => {
         const response = await request(LUNA_PRESET.countEndpoint,{ method: 'POST', signal: deadline, redirect: 'error', headers, body: countBody });
         const value = await readJson(response,LUNA_PRESET.maxCountResponseBytes);
-        if (response.status !== 200) throw new Error();
+        if (response.status !== 200) throw new PreflightError('',`HTTP ${response.status}`);
         return value;
       })(),deadline);
-    } catch { throw new Error('Luna input-token preflight unavailable.'); }
+    } catch (error) {
+      throw new PreflightError('Luna input-token preflight unavailable.',error instanceof PreflightError ? error.detail : signal.aborted ? 'cancelled' : deadline.aborted ? 'no answer in time' : 'no connection');
+    }
     const tokens = (count as { input_tokens?: unknown } | null)?.input_tokens;
     if (!count || typeof count !== 'object' || Array.isArray(count) || Object.keys(count).sort().join(',') !== 'input_tokens,object'
       || (count as { object?: unknown }).object !== 'response.input_tokens'
       || !Number.isSafeInteger(tokens) || (tokens as number) < 1 || (tokens as number) > LUNA_PRESET.maxInputTokens)
-      throw new Error('Luna input-token preflight exceeds its limit or is invalid.');
+      throw new PreflightError('Luna input-token preflight exceeds its limit or is invalid.','count over the limit or malformed');
     signal.throwIfAborted();
     let used = false;
     const send: LunaTransport = async ({ body: exact, signal: sendSignal }) => {

@@ -9,7 +9,7 @@ import { OPPONENT_CONTRACTS, opponentContract } from '../providers/OpponentContr
 import { Store } from '../storage/Store.js';
 import { DEFAULT_ASSIGNMENT, autoplay, type AutoplayResult, type ModelKey } from './Autoplay.js';
 
-const USAGE = `Usage: autoplay --db DATABASE --run RUN_ID [--until 1908] [--models AUSTRIA=luna,ENGLAND=haiku,...] [--messages 3] [--message-retries 2] [--order-calls 3] [--max-phases N] [--attempt-cap USD] [--resume-paid] [--seed 1] [--out FILE]
+const USAGE = `Usage: autoplay --db DATABASE --run RUN_ID [--until 1908] [--models AUSTRIA=luna,ENGLAND=haiku,...] [--messages 3] [--message-retries 2] [--order-calls 6] [--max-phases N] [--attempt-cap USD] [--resume-paid] [--seed 1] [--out FILE]
        Plays one full game with a model on every power. Free stand-in models unless --live is given.
        add --live --authorization-ref REFERENCE to call the real providers (see docs/autoplay.md)`;
 
@@ -49,7 +49,7 @@ export function format(result: AutoplayResult): string {
 
 async function main() {
   assertDevelopment(process.env);
-  const { values } = parseArgs({ options: { db: { type: 'string' }, run: { type: 'string' }, until: { type: 'string', default: '1908' }, models: { type: 'string' }, messages: { type: 'string', default: '3' }, 'message-retries': { type: 'string', default: '2' }, 'order-calls': { type: 'string', default: '3' },
+  const { values } = parseArgs({ options: { db: { type: 'string' }, run: { type: 'string' }, until: { type: 'string', default: '1908' }, models: { type: 'string' }, messages: { type: 'string', default: '3' }, 'message-retries': { type: 'string', default: '2' }, 'order-calls': { type: 'string', default: '6' },
     'max-phases': { type: 'string' }, 'attempt-cap': { type: 'string' }, seed: { type: 'string', default: '1' }, out: { type: 'string' }, live: { type: 'boolean', default: false }, 'resume-paid': { type: 'boolean', default: false }, 'authorization-ref': { type: 'string' } }, strict: true });
   if (!values.db || !values.run) throw new Error(USAGE);
   const db = resolve(values.db), lastYear = Number(values.until), talkRecipients = Number(values.messages), messageRetries = Number(values['message-retries']), orderCalls = Number(values['order-calls']), seed = Number(values.seed);

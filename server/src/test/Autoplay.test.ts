@@ -7,7 +7,7 @@ import { ALL_POWERS, type Power } from '@diplomacy/shared';
 import { DEFAULT_ASSIGNMENT, autoplay, fullGameDefinition, type ModelKey } from '../autoplay/Autoplay.js';
 import { assertDevelopment, parseAssignment } from '../autoplay/cli.js';
 import { parseMessages, talkLines, type PowerMessage } from '../luna/Context.js';
-import { mockOpponentTransport, type LunaTransport } from '../luna/Transport.js';
+import { PreflightError, mockOpponentTransport, type LunaTransport } from '../luna/Transport.js';
 import { OPPONENT_CONTRACTS, opponentContract } from '../providers/OpponentContract.js';
 import { parseChallenge } from '../storage/publicData.js';
 import { Store } from '../storage/Store.js';
@@ -203,22 +203,30 @@ test('only a scenario marked as a model-only full game may list all seven powers
 test('an orders answer that cannot be used is explained, and a game stuck on them continues once more orders calls are allowed',async t => {
   const f = await setup(t);
   let broken = true;
+  const asked: string[] = [];
   // Turkey's model leaves one unit without an order whenever it is asked for orders.
   const transports = f.transports((key,inner) => async request => {
     const contract = opponentContract(key), context = contract.contextOf(request.body);
+    if (broken && speaker(context) === 'TURKEY' && contract.buildFullGameRequest({ context },'ORDERS').body === request.body && context.includes('ORDERS phase')) asked.push(context);
     if (broken && speaker(context) === 'TURKEY' && contract.buildFullGameRequest({ context },'ORDERS').body === request.body && context.includes('ORDERS phase'))
       return { status: 200, body: contract.mockEnvelope({ serial: 9_000 + Math.floor(Math.random() * 1e9), text: '{"choices":[0,1]}', inputTokens: 100, outputTokens: 40 }) };
     return inner(request);
   });
-  const stuck = await f.run({ transports, lastYear: 1901 });
+  const stuck = await f.run({ transports, lastYear: 1901, orderCalls: 3, maxRecoveries: 2 });
   assert.equal(stuck.status,'WAITING');
   const reasons = stuck.record.failures.map(x => x.reason);
   // Each rejected answer says what was wrong with it, in terms of the units, without quoting it.
   assert.equal(reasons.filter(r => /^TURKEY orders call, try \d: answer not usable — 2 numbers for 3 units; nothing for /.test(r)).length,3);
   assert.ok(reasons.some(r => r.includes('more than one for')));
   assert.equal(stuck.record.phases[0].calls.filter(c => c.power === 'TURKEY' && c.outcome === 'INVALID_ACTION').length,3);
+  // The first try is the plain request. Each later try tells the model what was wrong with the answer it replaces,
+  // in the server's words, and names the units it must cover.
+  assert.equal(asked.length,3); assert.ok(!asked[0].includes('could not be used'));
+  for (const retry of asked.slice(1)) assert.match(retry,/\nYour previous answer for this turn could not be used: 2 numbers for 3 units; nothing for [^.]+; more than one for [^.]+\. Go through the 3 headings above in order and take exactly one number from under each: [^.]+\.\nAnswer with/);
+  // No other power's request carries a correction.
+  assert.ok(f.sent.filter(x => speaker(x.context) !== 'TURKEY').every(x => !x.context.includes('could not be used')));
   // The limit holds across runs: another run with the same limit buys nothing more and says how to go on.
-  const before = f.sent.length, again = await f.run({ transports, lastYear: 1901 });
+  const before = f.sent.length, again = await f.run({ transports, lastYear: 1901, orderCalls: 3, maxRecoveries: 2 });
   assert.equal(again.status,'WAITING'); assert.match(again.waitingOn!,/higher --order-calls/); assert.equal(f.sent.length,before);
   broken = false;
   const done = await f.run({ transports, lastYear: 1901, orderCalls: 5 });
@@ -227,4 +235,27 @@ test('an orders answer that cannot be used is explained, and a game stuck on the
   assert.deepEqual(done.record.phases[0].calls.filter(c => c.outcome === 'VALID').map(c => c.power).sort(),[...ALL_POWERS].sort());
   assert.equal(done.record.phases[0].calls.length,7 + 3);
   await assert.rejects(f.run({ orderCalls: 11, lastYear: 1901 }),/between 3 and 10/);
+});
+
+test('a provider that refuses requests before they are sent is reported with its status, costs nothing, and is retried with a growing pause',async t => {
+  const f = await setup(t);
+  // OpenAI's token count answers 429 for every request; Anthropic works.
+  const transports = f.transports((key,inner) => {
+    if (key !== 'luna') return inner;
+    const refused: LunaTransport = async () => { throw new Error('unreachable'); };
+    refused.preflight = async () => { throw new PreflightError('Luna input-token preflight unavailable.','HTTP 429'); };
+    return refused;
+  });
+  const waits: number[] = [], lines: string[] = [];
+  const result = await f.run({ transports, lastYear: 1901, maxRecoveries: 3, sleep: async ms => { waits.push(ms); }, log: line => lines.push(line) });
+  assert.equal(result.status,'WAITING'); assert.match(result.waitingOn!,/PREFLIGHT \(HTTP 429\)/);
+  const reasons = result.record.failures.map(x => x.reason);
+  assert.ok(reasons.some(r => /^AUSTRIA message call, try 1: PREFLIGHT \(HTTP 429\) — trying again$/.test(r)));
+  assert.ok(reasons.some(r => /^[A-Z]+: PREFLIGHT \(HTTP 429\)$/.test(r)));
+  // Each recovery waited longer than the one before, and said so.
+  assert.deepEqual(waits,[5_000,10_000,20_000]);
+  assert.ok(lines.some(line => line.includes('waiting 5 s before trying again')));
+  // Nothing reached the model for those powers, so nothing was billed for them.
+  assert.equal(result.record.models['gpt-6-luna']?.costNanousd ?? 0,0);
+  assert.equal((await f.store.call('attemptFunding',{ attemptId: result.run.attemptId })).heldNanousd,0);
 });

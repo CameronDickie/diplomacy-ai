@@ -12,12 +12,13 @@ import { ProviderCallError, recordedCall } from '../providers/RecordedCall.js';
 import { forcedAction, parseChoices } from './Choices.js';
 import { lunaPrompt, parseMessages, talkPrompt, type PowerMessage } from './Context.js';
 import type { StoredPowerTalk } from '../storage/talks.js';
-import type { LunaTransport } from './Transport.js';
+import { PreflightError, type LunaTransport } from './Transport.js';
 
 export type LunaFailure = 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED' | 'PAUSED_OR_CLOSED' | 'CALL_LIMIT' | 'PREFLIGHT' | 'PROVIDER' | 'PRESET_MISMATCH';
 /** Why a sponsored phase could not be decided. The phase is left recoverable; opponents are never swapped for holds. */
 export class LunaDecisionError extends Error {
-  constructor(readonly code: LunaFailure, readonly power: Power) { super(`Sponsored decision unavailable (${code}).`); this.name = 'LunaDecisionError'; }
+  /** `detail` narrows a PREFLIGHT failure to a loggable category, such as an HTTP status. */
+  constructor(readonly code: LunaFailure, readonly power: Power, readonly detail?: string) { super(`Sponsored decision unavailable (${code}).`); this.name = 'LunaDecisionError'; }
 }
 export interface TalkFailure { phaseId: string; power: Power; round: 'ASK' | 'REPLY'; attempt: number;
   /** The recorded outcome of the call (INVALID_JSON, TIMEOUT, PROVIDER_ERROR…), or PREFLIGHT when the token count failed and nothing was sent. */
@@ -65,6 +66,8 @@ export class LunaDecisionProvider implements DecisionProvider {
   private readonly now: () => number;
   /** What this provider serves; an attempt pinned to anything else is refused before any call. */
   private readonly plan: OpponentPlan;
+  /** Why a power's last orders answer for a phase was rejected, by operation and power. Lost on restart, when a general reminder is used instead. */
+  private readonly rejections = new Map<string, string>();
   constructor(private store: Store, private rules: PhaseRules, private transport: LunaTransport, private options: Options = {}) {
     this.now = options.now ?? Date.now;
     this.plan = options.plan ?? singlePlan(options.contract ?? LUNA_CONTRACT);
@@ -131,7 +134,10 @@ export class LunaDecisionProvider implements DecisionProvider {
     await lanes.each(job.definition.opponentPowers,async power => {
       const legal = await legalOf(power), contested = job.board.phase === 'ORDERS' ? await contestedFor(power) : undefined;
       signal.throwIfAborted();
-      const prompt = lunaPrompt(job,power,legal,last,this.plan.contractFor(power),contested,talk.filter(m => m.power === power),full?.(power));
+      // A full game's retry tells the model what was wrong with the answer it is replacing.
+      const rejected = calls.some(c => c.power === power && c.role === job.board.phase && c.outcome === 'INVALID_ACTION') || this.rejections.has(`${job.operationId}:${power}`);
+      const correction = full && rejected ? this.rejections.get(`${job.operationId}:${power}`) ?? (job.board.phase === 'BUILDS' ? 'it did not follow the rule for how many to pick' : 'it did not give exactly one number for each unit: some unit had more than one and another had none') : undefined;
+      const prompt = lunaPrompt(job,power,legal,last,this.plan.contractFor(power),contested,talk.filter(m => m.power === power),full ? { ...full(power), correction } : undefined);
       if (!prompt) { decisions[power] = forcedAction(job.board); return; }
       const kept = saved.get(power);
       if (kept) {
@@ -215,7 +221,7 @@ export class LunaDecisionProvider implements DecisionProvider {
             earlier = (await this.store.call('providerCallsForOperation',{ operationId: job.operationId })).filter(c => c.power === power && c.role === kind);
             const attempt = Math.max(sentCalls(),tries + 1), final = attempt >= limit || error.code === 'CALL_LIMIT';
             // The recorded outcome says why; raw provider errors are never kept.
-            const reason = error.code === 'PREFLIGHT' ? 'PREFLIGHT' : earlier.filter(c => c.dispatchedAt !== null).at(-1)?.outcome ?? error.code;
+            const reason = error.code === 'PREFLIGHT' ? `PREFLIGHT${error.detail ? ` (${error.detail})` : ''}` : earlier.filter(c => c.dispatchedAt !== null).at(-1)?.outcome ?? error.code;
             try { this.options.talk!.onFailure?.({ phaseId: job.phaseId, power, round: kind, attempt, reason, final }); } catch { /* a diagnostic hook must never affect play */ }
             if (final) return;
           }
@@ -248,8 +254,10 @@ export class LunaDecisionProvider implements DecisionProvider {
           action = prompt.set.toAction(parseChoices(parsed));
           await this.rules.validate(job.board,power,action,callSignal);
         } catch (error) {
+          const reason = callSignal.aborted ? null : describeRejection(parsed,prompt.set);
+          if (reason) this.rejections.set(`${job.operationId}:${power}`,reason);
           try { this.options.onRejectedDecision?.({ phaseId: job.phaseId, power, attempt: earlier.filter(c => c.dispatchedAt !== null).length + 1,
-            reason: callSignal.aborted ? 'the phase was stopped before the answer could be checked' : describeRejection(parsed,prompt.set) }); } catch { /* diagnostics never affect play */ }
+            reason: reason ?? 'the phase was stopped before the answer could be checked' }); } catch { /* diagnostics never affect play */ }
           throw error;
         }
         callSignal.throwIfAborted();
@@ -309,10 +317,11 @@ export class LunaDecisionProvider implements DecisionProvider {
     let transport = this.options.transports?.[contract.key] ?? this.transport;
     if (transport.preflight) {
       try { transport = (await transport.preflight({ body: prompt.request.body, signal })).send; }
-      catch {
+      catch (error) {
         // No generation sender was obtained: no model response was created and the hold is still PREPARED.
         await this.store.call('releaseProviderCall',{ id, now: this.now() }).catch(() => {});
-        fail(signal.aborted ? 'PAUSED_OR_CLOSED' : 'PREFLIGHT');
+        if (signal.aborted) fail('PAUSED_OR_CLOSED');
+        throw new LunaDecisionError('PREFLIGHT',power,error instanceof PreflightError ? error.detail : undefined);
       }
     }
     try {
@@ -340,7 +349,11 @@ export function describeRejection(parsed: unknown, set: NonNullable<ReturnType<t
   const parts = [`${numbers.length} number${numbers.length === 1 ? '' : 's'} for ${set.groups.length} ${set.phase === 'ORDERS' ? 'unit' : 'slot'}${set.groups.length === 1 ? '' : 's'}`];
   if (outside) parts.push(`${outside} not on the list`);
   if (repeated) parts.push(`${repeated} repeated`);
-  if (set.phase !== 'BUILDS') {
+  if (set.phase === 'BUILDS') {
+    const doubled = set.groups.filter(g => (perGroup.get(g.id) ?? 0) > 1 && set.groups.length > 1).map(g => g.label.replace(/^Build in /,''));
+    if (doubled.length) parts.push(`more than one build in ${doubled.join(', ')}`);
+    else if (!outside && !repeated) parts.push('not the number of choices the rule asks for');
+  } else {
     const missed = set.groups.filter(g => !perGroup.has(g.id)).map(g => g.label), doubled = set.groups.filter(g => (perGroup.get(g.id) ?? 0) > 1).map(g => g.label);
     if (missed.length) parts.push(`nothing for ${missed.join(', ')}`);
     if (doubled.length) parts.push(`more than one for ${doubled.join(', ')}`);

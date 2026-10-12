@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { HAIKU_PRESET, haikuContextOf, haikuRequestBodies } from '../providers/HaikuPreset.js';
-import type { LunaTransport } from './Transport.js';
+import { PreflightError, type LunaTransport } from './Transport.js';
 
 /**
  * Sends one pinned Claude Haiku 5.5 request through the official SDK. As with the Luna transport, the
@@ -28,9 +28,11 @@ export function anthropicHaikuTransport(apiKey: string, fetchImpl?: typeof fetch
       // Every input-affecting field is counted, including the schema and the thinking setting.
       tokens = (await client.messages.countTokens({ model: params.model, system: params.system, messages: params.messages,
         thinking: params.thinking, output_config: params.output_config },{ signal, timeout: HAIKU_PRESET.countTimeoutMs })).input_tokens;
-    } catch { throw new Error('Haiku input-token preflight unavailable.'); }
+    } catch (error) {
+      throw new PreflightError('Haiku input-token preflight unavailable.',error instanceof Anthropic.APIError && typeof error.status === 'number' ? `HTTP ${error.status}` : signal.aborted ? 'cancelled' : 'no answer in time or no connection');
+    }
     if (!Number.isSafeInteger(tokens) || (tokens as number) < 1 || (tokens as number) > HAIKU_PRESET.maxInputTokens)
-      throw new Error('Haiku input-token preflight exceeds its limit or is invalid.');
+      throw new PreflightError('Haiku input-token preflight exceeds its limit or is invalid.','count over the limit or malformed');
     signal.throwIfAborted();
     let used = false;
     const send: LunaTransport = async ({ body: exact, signal: sendSignal }) => {

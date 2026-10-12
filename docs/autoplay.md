@@ -66,6 +66,20 @@ An orders answer that cannot be used (outcome `INVALID_ACTION`) is explained the
 same way, for example "7 numbers for 8 units; nothing for A SIL": how many
 numbers came back, which units got none or more than one, and whether any were
 not on the list. The answer itself is not kept.
+
+The next try for that power is not the same request again: it ends with one
+server-written line saying what was wrong ("Your previous answer for this turn
+could not be used: 16 numbers for 16 units; nothing for A TUN; more than one for
+F BRE") and listing the units it must cover. After a restart the exact reason is
+gone, so the line says only that some unit had more than one number and another
+none. A power gets up to six orders calls for a phase by default
+(`--order-calls`), all of them within one run.
+A `PREFLIGHT` failure carries the reason the token count could not be had, for
+example `PREFLIGHT (HTTP 429)` (rate limit or quota), `HTTP 401` (key refused)
+or `no answer in time`. Nothing was sent, so nothing was billed. When a phase
+fails this way the tool waits before trying again (5, 10, 20 … up to 60
+seconds), because a provider that is refusing requests is not helped by asking
+faster.
 Running out of funds or a stop still halts the phase, as for a decision. An
 orders call that fails leaves the phase waiting and is recovered, up to the
 usual three calls per power; no power is ever given a default in place of its
@@ -128,7 +142,7 @@ is 15). With stand-in models both are only numbers.
 | `--models AUSTRIA=luna,ENGLAND=haiku` | per-power models. Default: Austria, France, Italy, Turkey on Luna; England, Germany, Russia on Haiku |
 | `--messages N` | how many powers each power may write to per turn (0–6, default 3) |
 | `--message-retries N` | further tries for a failed message or reply call (0–3, default 2) |
-| `--order-calls N` | orders calls one power may use for one phase, counted across every run (3–10, default 3). A game stuck because a power's answers were unusable continues when run again with a higher number |
+| `--order-calls N` | orders calls one power may use for one phase, counted across every run (3–10, default 6). A game stuck because a power's answers were unusable continues when run again with a higher number |
 | `--resume-paid` | lift the pause the ledger sets when a grant runs out, after you have recorded a new grant |
 | `--max-phases N` | stop cleanly after N phases; continue later with the same run id |
 | `--attempt-cap USD` | per-game spending cap |

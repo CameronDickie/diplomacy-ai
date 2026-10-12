@@ -36,12 +36,14 @@ export interface AutoplayOptions {
   talkRecipients?: number;
   /** Further tries for a message call that failed, before that power stays silent for the turn (0–3, default 2). */
   messageRetries?: number;
-  /** Orders calls one power may use for one phase, across every run (3–10, default 3). Raise it to continue a game stuck on unusable answers. */
+  /** Orders calls one power may use for one phase, across every run (3–10, default 6). Raise it to continue a game stuck on unusable answers. */
   orderCalls?: number;
   /** Explicit recoveries allowed for one phase in this run before the game is left waiting. */
   maxRecoveries?: number;
   /** Stop cleanly after this many phases in this run (the game stays resumable). */
   maxPhases?: number;
+  /** Test seam for the pause between tries when a provider refuses requests before they are sent. */
+  sleep?: (ms: number) => Promise<void>;
   now?: () => number;
   log?: (line: string) => void;
   signal?: AbortSignal;
@@ -88,7 +90,7 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   const { store, runId } = options, now = options.now ?? Date.now, log = options.log ?? (() => {});
   if (!/^[a-z0-9-]{3,40}$/.test(runId)) throw new Error('Run ID must be 3–40 lowercase letters, digits or dashes.');
   if (!Number.isSafeInteger(options.lastYear) || options.lastYear < FIRST_YEAR || options.lastYear > LATEST_LAST_YEAR) throw new Error(`The last year must be between ${FIRST_YEAR} and ${LATEST_LAST_YEAR}.`);
-  const talkRecipients = options.talkRecipients ?? 3, maxRecoveries = options.maxRecoveries ?? 2;
+  const talkRecipients = options.talkRecipients ?? 3, maxRecoveries = options.maxRecoveries ?? 5;
   if (!Number.isSafeInteger(talkRecipients) || talkRecipients < 0 || talkRecipients > 6) throw new Error('Powers may write to between 0 and 6 others.');
   if (!Number.isSafeInteger(maxRecoveries) || maxRecoveries < 0 || maxRecoveries > 10) throw new Error('Recovery limit must be between 0 and 10.');
   const assignment = options.assignment ?? DEFAULT_ASSIGNMENT;
@@ -120,7 +122,7 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
 
   const rules = new PhaseRules(), failures: Array<{ at: number; phaseId: string; reason: string }> = [];
   const main = options.transports[plan.contracts[0].key]!;
-  const orderCalls = options.orderCalls ?? 3;
+  const orderCalls = options.orderCalls ?? 6;
   if (!Number.isSafeInteger(orderCalls) || orderCalls < 3 || orderCalls > 10) throw new Error('A power may have between 3 and 10 orders calls for a phase.');
   const turn = (phaseId: string) => phaseId.split(':').slice(-3,-1).reverse().join(' ');
   const provider = new LunaDecisionProvider(store,rules,main,{ now, plan, transports: options.transports, maxCallsPerPower: orderCalls,
@@ -136,7 +138,7 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   const service = new AttemptService(store,provider,rules,{ now, maxRunning: 1, timeoutMs: 120_000,
     onPhaseFailure: (job,error) => failures.push({ at: now(), phaseId: job.phaseId,
       // Never the raw error: it may carry request content.
-      reason: error instanceof LunaDecisionError ? `${error.power}: ${error.code}` : error instanceof Error && /deadline/i.test(error.message) ? 'The phase ran past its two-minute deadline.' : 'The phase was interrupted.' }) });
+      reason: error instanceof LunaDecisionError ? `${error.power}: ${error.code}${error.detail ? ` (${error.detail})` : ''}` : error instanceof Error && /deadline/i.test(error.message) ? 'The phase ran past its two-minute deadline.' : 'The phase was interrupted.' }) });
   const recoveries = new Map<string, number>();
   let seen = (await store.call('reports',{ attemptId: id })).length;
   let status: AutoplayResult['status'] = 'FINISHED', waitingOn: string | null = null, played = 0;
@@ -158,6 +160,12 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
             : `${before.phaseId.split(':').slice(-3).join(' ')} could not be decided after ${used} recover${used === 1 ? 'y' : 'ies'}: ${failures.at(-1)?.reason ?? 'no reason recorded'}. ${
               /CALL_LIMIT/.test(failures.at(-1)?.reason ?? '') ? `That power has used all ${orderCalls} of its orders calls for this phase; run again with the same run ID and a higher --order-calls to give it more.` : 'Run again with the same run ID to try again.'}`;
           break;
+        }
+        // A provider that is refusing requests before they are sent (rate limit, quota, outage) is not helped by asking faster.
+        if (/PREFLIGHT/.test(failures.at(-1)?.reason ?? '')) {
+          const seconds = Math.min(60,5 * 2 ** used);
+          log(`  … the provider refused the request before it was sent (${failures.at(-1)!.reason}); waiting ${seconds} s before trying again`);
+          await (options.sleep ?? (ms => new Promise<void>(done => setTimeout(done,ms))))(seconds * 1000);
         }
         recoveries.set(before.phaseId,used + 1);
         await service.recover(id);
