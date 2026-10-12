@@ -49,7 +49,9 @@ Retreat and build phases have only the decision round.
 
 What a power is shown:
 
-- the public board and last phase's public results, the same for everyone;
+- the public board and last phase's public results, the same for everyone,
+  with the standings said outright (each power's supply-center count, and how
+  far the leader is from 18);
 - only messages it sent or received, never what two other powers said to each
   other, newest kept within a 6,000-byte budget;
 - its own numbered legal choices. Having exchanged messages with a power this

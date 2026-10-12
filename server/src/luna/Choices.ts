@@ -50,9 +50,19 @@ function purposeful(id: string, own: ReadonlySet<string>, contested: ReadonlySet
   if (type === 'CONVOY') return own.has(province(first));
   return true;
 }
-/** What a move would reach: whose supply center it is, and whether another power's unit is there now. Public board facts only. */
-function destinationNote(board: BoardFixture, power: Power, id: string): string {
-  const [, type, target] = id.split('|');
+/**
+ * What an order touches, from public board facts only. For a move: whose supply center the
+ * destination is, whether a unit is there now, and which other unit of yours could also be sent
+ * there (two units sent to one place both fail, which models did repeatedly). For a support or
+ * convoy of another power's unit: whose unit it is, so it is not mistaken for one of your own.
+ */
+function destinationNote(board: BoardFixture, power: Power, id: string, rivals: ReadonlyMap<string, readonly string[]> | null = null): string {
+  const [unit, type, target] = id.split('|');
+  if (type === 'SUPPORT_HOLD' || type === 'SUPPORT_MOVE' || type === 'CONVOY') {
+    if (!rivals) return '';
+    const helped = board.units.find(u => u.territory === province(target) && !u.mustRetreat);
+    return helped && helped.power !== power ? ` (${helped.power}'s unit)` : '';
+  }
   if (type !== 'MOVE' && type !== 'MOVE_VIA_CONVOY') return '';
   const place = province(target), notes: string[] = [];
   if (TERRITORY_MAP[place]?.isSupplyCenter) {
@@ -61,6 +71,9 @@ function destinationNote(board: BoardFixture, power: Power, id: string): string 
   }
   const occupant = board.units.find(u => u.territory === place && !u.mustRetreat);
   if (occupant) notes.push(occupant.power === power ? 'your own unit is there' : `${occupant.power} unit there`);
+  const others = (rivals?.get(place) ?? []).filter(label => label.split(' ')[1] !== province(unit));
+  // Kept short: a large power has many overlapping moves and the list must still fit its request.
+  if (others.length && type === 'MOVE') notes.push(`shared with ${others.slice(0,3).join(', ')}`);
   return notes.length ? ` (${notes.join(', ')})` : '';
 }
 export type CoherenceIssue = 'SELF_BLOCKED_MOVE' | 'SAME_DESTINATION' | 'UNMATCHED_SUPPORT' | 'FOREIGN_SUPPORT' | 'UNMATCHED_CONVOY';
@@ -99,7 +112,7 @@ export function coherenceIssues(orderIds: readonly string[]): CoherenceIssue[] {
  * `keepPerUnit` trims each unit's list in a fixed order; a unit's HOLD is always first, so a
  * trimmed catalog still admits a fully legal answer.
  */
-export function orderChoices(board: BoardFixture, power: Power, legal: readonly LegalOption[], keepPerUnit = Number.MAX_SAFE_INTEGER, contested?: ReadonlySet<string>, partners: ReadonlySet<string> = new Set()): ChoiceSet | null {
+export function orderChoices(board: BoardFixture, power: Power, legal: readonly LegalOption[], keepPerUnit = Number.MAX_SAFE_INTEGER, contested?: ReadonlySet<string>, partners: ReadonlySet<string> = new Set(), shareNotes = true): ChoiceSet | null {
   const units = board.units.filter(u => u.power === power && !u.mustRetreat).sort((a,b) => a.territory.localeCompare(b.territory));
   if (!units.length) return null;
   if (contested) legal = legal.filter(option => purposeful(option.id,new Set(units.map(u => u.territory)),contested,partners));
@@ -109,16 +122,25 @@ export function orderChoices(board: BoardFixture, power: Power, legal: readonly 
   legal = legal.filter(o => { const [unit, type, target] = o.id.split('|');
     return !(type === 'MOVE' && explicit.has(`${o.unitTerritory}>${province(target)}`) && !(ADJACENCY[province(unit) as keyof typeof ADJACENCY]?.army ?? []).includes(province(target) as never)); });
   const choices: Choice[] = [], ids: string[] = [], groups: ChoiceSet['groups'] = [];
+  // Which of this power's units could each be ordered to a given territory.
+  const rivals = new Map<string, string[]>();
+  for (const option of legal) {
+    const [, type, target] = option.id.split('|'), mover = units.find(u => u.territory === option.unitTerritory);
+    if (!shareNotes || type !== 'MOVE' || !mover || option.order.power !== power) continue;
+    const label = `${mover.type === 'ARMY' ? 'A' : 'F'} ${mover.territory}`, list = rivals.get(province(target)) ?? [];
+    if (!list.includes(label)) rivals.set(province(target),[...list,label]);
+  }
   for (const unit of units) {
     const own = legal.filter(o => o.unitTerritory === unit.territory && o.order.power === power)
       .sort((a,b) => rank(a.order) - rank(b.order) || a.id.localeCompare(b.id));
     if (!own.some(o => o.order.type === 'HOLD')) throw new ChoiceError(`No legal HOLD for ${unit.territory}.`);
     // Trimming keeps the hold; the list then shows it last, so standing still is not the first thing offered.
     const listed = own.slice(0,Math.max(1,keepPerUnit)).sort((a,b) => Number(a.order.type === 'HOLD') - Number(b.order.type === 'HOLD')), group = { id: unit.territory, label: unitLabel(unit.type,unit.territory,unit.coast), choices: [] as number[] };
-    for (const option of listed) { group.choices.push(choices.length); choices.push({ group: unit.territory, label: `${option.description || option.id}${destinationNote(board,power,option.id)}` }); ids.push(option.id); }
+    for (const option of listed) { group.choices.push(choices.length); choices.push({ group: unit.territory, label: `${option.description || option.id}${destinationNote(board,power,option.id,shareNotes ? rivals : null)}` }); ids.push(option.id); }
     groups.push(group);
   }
-  return { power, phase: 'ORDERS', rule: `Pick exactly one number for each of your ${units.length} unit${units.length === 1 ? '' : 's'}.`, groups, choices,
+  const shared = choices.some(c => c.label.includes('shared with ')) ? ' "Shared with" names other units of yours that can move to the same place: send only one of them there, or both fail.' : '';
+  return { power, phase: 'ORDERS', rule: `Pick exactly one number for each of your ${units.length} unit${units.length === 1 ? '' : 's'}.${shared}`, groups, choices,
     coverage: { listed: choices.length, total: legal.filter(o => o.order.power === power && units.some(u => u.territory === o.unitTerritory)).length },
     toAction(indices) {
       const picked = distinct(indices,choices.length);

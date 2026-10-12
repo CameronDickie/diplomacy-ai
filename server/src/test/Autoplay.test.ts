@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { ALL_POWERS, type Power } from '@diplomacy/shared';
 import { DEFAULT_ASSIGNMENT, autoplay, fullGameDefinition, type ModelKey } from '../autoplay/Autoplay.js';
 import { assertDevelopment, parseAssignment } from '../autoplay/cli.js';
-import { parseMessages, talkLines, type PowerMessage } from '../luna/Context.js';
-import { buildChoices, parseUnitOrders } from '../luna/Choices.js';
+import { parseMessages, sharedContext, talkLines, type PowerMessage } from '../luna/Context.js';
+import { buildChoices, orderChoices, parseUnitOrders } from '../luna/Choices.js';
 import { describeRejection } from '../luna/LunaDecisionProvider.js';
 import { PreflightError, mockOpponentTransport, type LunaTransport } from '../luna/Transport.js';
 import { OPPONENT_CONTRACTS, opponentContract } from '../providers/OpponentContract.js';
@@ -292,4 +292,41 @@ test('with more free home centers than builds, the rule says to choose among the
   // As many builds as free centers needs no such warning.
   const all = buildChoices({ ...(board as object), units: [] } as never,'ITALY')!;
   assert.equal(all.rule,'Pick up to 3 numbers in total, at most one per home center. An empty list waives your builds.');
+});
+
+test('a full game\'s requests state the standings, name whose unit a support helps, and mark moves two units share',async t => {
+  const f = await setup(t); await f.run();
+  // Every request, from the first, says the score outright.
+  assert.ok(f.sent.every(s => /\nStandings \(18 supply centers win\): ([A-Z]+ \d+, ){6}[A-Z]+ \d+\.\n/.test(s.context)));
+  const orders = f.sent.filter(s => s.kind === 'UNIT_ORDERS');
+  // Two of a power's units that can reach the same place are marked on both moves, and the rule explains the mark.
+  const marked = orders.filter(s => / \([^)\n]*shared with [AF] [A-Z]{3}/.test(s.context));
+  assert.ok(marked.length > 0);
+  assert.ok(marked.every(s => s.context.includes('"Shared with" names other units of yours that can move to the same place: send only one of them there, or both fail.')));
+  // A support or convoy for another power's unit says whose it is; one for your own unit says nothing.
+  const helping = orders.flatMap(s => s.context.split('\n').filter(line => /^\d+ [A-Z]{3} (supports|convoys) /.test(line)).map(line => ({ me: speaker(s.context), line })));
+  assert.ok(helping.some(h => /\(([A-Z]+)'s unit\)$/.test(h.line)));
+  for (const h of helping) { const owner = /\(([A-Z]+)'s unit\)$/.exec(h.line)?.[1]; assert.notEqual(owner,h.me); }
+});
+
+test('the leader is named with its distance from winning, and the notes give way before last turn\'s results do',() => {
+  const definition = fullGameDefinition(1999), unit = (power: string, territory: string, type = 'ARMY') => ({ id: `${power}-${territory}`, power, type, territory, coast: null, mustRetreat: false, retreatOptions: [], retreatCoasts: {} });
+  const centers = (power: string, ids: string[]) => Object.fromEntries(ids.map(id => [id,power]));
+  const board = { year: 1930, season: 'SPRING', phase: 'ORDERS', units: [unit('ITALY','ROM'),unit('ITALY','VEN'),unit('ENGLAND','LON')],
+    territoryOwners: { ...centers('ITALY',['ROM','NAP','VEN','TUN','GRE','SER','BUL','CON','SMY','ANK','TRI','VIE','BUD','MAR','SPA','POR','PAR']), ...centers('ENGLAND',['LON','EDI','LVP']) } } as never;
+  const text = sharedContext({ board, definition },null);
+  assert.match(text,/\nStandings \(18 supply centers win\): ITALY 17, ENGLAND 3, AUSTRIA 0, FRANCE 0, GERMANY 0, RUSSIA 0, TURKEY 0\.\nITALY leads and needs 1 more supply center to win\. If ITALY reaches 18 the game ends and every other power has lost\.\n/);
+  // No leader is singled out while the game is even, and a played-to-a-win game names no end year.
+  const even = sharedContext({ board: { ...(board as object), territoryOwners: { ...centers('ITALY',['ROM','NAP','VEN']), ...centers('ENGLAND',['LON','EDI','LVP']) } } as never, definition },null);
+  assert.ok(!even.includes(' leads and needs ')); assert.ok(even.includes('The game ends as soon as one power owns 18 supply centers.'));
+  // A challenge request is unchanged: no standings line.
+  assert.ok(!sharedContext({ board, definition: TUNIS_PILOT_V1 },null).includes('Standings'));
+  // Rome and Venice can both move to Tuscany and Apulia... the mark appears when the notes are on and not otherwise.
+  const move = (from: string, to: string) => ({ id: `${from}|MOVE|${to}`, unitTerritory: from, description: `${from} moves to ${to}`, order: { power: 'ITALY', type: 'MOVE', unitTerritory: from, targetTerritory: to } });
+  const hold = (from: string) => ({ id: `${from}|HOLD`, unitTerritory: from, description: `${from} holds`, order: { power: 'ITALY', type: 'HOLD', unitTerritory: from } });
+  const legal = [hold('ROM'),hold('VEN'),move('ROM','TUS'),move('VEN','TUS'),move('VEN','TYR')] as never;
+  const withNotes = orderChoices(board,'ITALY',legal)!, without = orderChoices(board,'ITALY',legal,undefined,undefined,undefined,false)!;
+  assert.deepEqual(withNotes.choices.map(c => c.label),['ROM moves to TUS (shared with A VEN)','ROM holds','VEN moves to TUS (shared with A ROM)','VEN moves to TYR','VEN holds']);
+  assert.deepEqual(without.choices.map(c => c.label),['ROM moves to TUS','ROM holds','VEN moves to TUS','VEN moves to TYR','VEN holds']);
+  assert.ok(withNotes.rule.includes('"Shared with"') && !without.rule.includes('"Shared with"'));
 });

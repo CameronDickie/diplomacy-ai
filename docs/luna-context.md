@@ -84,7 +84,22 @@ only:
 - **Every hold and every move is kept**, so a fully legal answer always exists.
 
 Each move also says what it reaches: whose supply center it is, and whether a
-unit is there (`KIE moves to DEN (unowned supply center)`).
+unit is there (`KIE moves to DEN (unowned supply center)`). Two further notes
+are added when the complete request has room for them, and are the first thing
+dropped when it does not:
+
+- a move that another of the power's units could also make says so
+  (`ROM moves to TUS (shared with A VEN)`), with one line in the rule explaining
+  that only one of them should be sent. In the live full games GPT-6 Luna
+  ordered two of its units to one place 25 times in a game;
+- a support or convoy for another power's unit names the owner
+  (`AEG supports ION holding (TURKEY's unit)`).
+
+In a model-only full game the shared text also states the score:
+`Standings (18 supply centers win): ITALY 17, ENGLAND 11, …`, and once one power
+is clearly ahead with ten or more, how many it still needs and that everyone
+else loses if it gets them. In the second live game a power reached 17 without
+any other treating it as a threat.
 
 `coherenceIssues` in `Choices.ts` classifies order sets that still work against
 themselves (a move into your own stationary unit, two units to one place, an

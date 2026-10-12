@@ -21,6 +21,16 @@ export function sharedContext(job: Pick<PhaseJob,'board' | 'definition'>, lastRe
     // A game played "to a win" names a year far beyond any real game; telling the models that year would only mislead them.
     ? `Full game: each of the seven powers is played separately and plays for itself. The game ends ${d.objective.deadlineYear >= 1999 ? 'as soon as one power owns 18 supply centers' : `after Fall ${d.objective.deadlineYear}, or as soon as one power owns 18 supply centers`}.`
     : `Scenario "${d.title}": ${d.humanPower} is played by a human whose goal is to own ${d.objective.territory} after a Fall turn no later than Fall ${d.objective.deadlineYear}. Every other power is played separately and looks after its own interests.`);
+  if (d.autoplay) {
+    // The score, said outright: who is ahead and how far from winning. Models given only the lists of
+    // centers let a power reach 17 without any of them treating it as a threat.
+    const count = (power: Power) => TERRITORIES.filter(t => t.isSupplyCenter && board.territoryOwners[t.id] === power).length;
+    const standing = ALL_POWERS.map(power => ({ power, centers: count(power) })).sort((a,b) => b.centers - a.centers || a.power.localeCompare(b.power));
+    const [leader, second] = standing;
+    lines.push(`Standings (18 supply centers win): ${standing.map(s => `${s.power} ${s.centers}`).join(', ')}.`);
+    if (leader.centers > (second?.centers ?? 0) && leader.centers >= 10 && leader.centers < 18)
+      lines.push(`${leader.power} leads and needs ${18 - leader.centers} more supply center${18 - leader.centers === 1 ? '' : 's'} to win. If ${leader.power} reaches 18 the game ends and every other power has lost.`);
+  }
   lines.push('Supply centers:');
   const centers = (owner: Power | null) => TERRITORIES.filter(t => t.isSupplyCenter && (board.territoryOwners[t.id] ?? null) === owner).map(t => t.id).sort().join(' ') || '-';
   for (const power of ALL_POWERS) lines.push(`${power}: ${centers(power)}`);
@@ -100,7 +110,7 @@ export interface LunaPrompt {
   request: OpponentRequest;
   /** Reserve the entire accepted token ceiling; bytes do not prove a model token bound. */
   maxCostNanousd: number;
-  measured: { contextBytes: number; requestBytes: number; sharedBytes: number; listed: number; total: number; recentLines: number; compacted: boolean };
+  measured: { contextBytes: number; requestBytes: number; sharedBytes: number; listed: number; total: number; recentLines: number; compacted: boolean; /** Whether moves two of this power's units could both make are marked. */ shareNotes: boolean };
 }
 
 /**
@@ -111,7 +121,7 @@ export interface LunaPrompt {
  */
 export function lunaPrompt(job: Pick<PhaseJob,'board' | 'definition'>, power: Power, legal: readonly LegalOption[], lastReport: PublicPhaseReport | null, contract: OpponentContract = LUNA_CONTRACT, contested?: ReadonlySet<string>, conversation: readonly ConversationMessage[] = [], full?: FullGameTalk): LunaPrompt | null {
   if (!job.definition.opponentPowers.includes(power)) throw new ChoiceError('Only an opponent power is prompted.');
-  const build = (keep: number) => job.board.phase === 'ORDERS' ? orderChoices(job.board,power,legal,keep,contested,partners) : job.board.phase === 'RETREATS' ? retreatChoices(job.board,power) : buildChoices(job.board,power);
+  const build = (keep: number, shareNotes = false) => job.board.phase === 'ORDERS' ? orderChoices(job.board,power,legal,keep,contested,partners,shareNotes) : job.board.phase === 'RETREATS' ? retreatChoices(job.board,power) : buildChoices(job.board,power);
   const talk = conversationLines(conversation,job.definition.humanPower);
   // Having talked with the player, this power may be offered orders that help the player's units.
   // In a full game the same holds for any power it exchanged messages with this turn.
@@ -129,17 +139,22 @@ export function lunaPrompt(job: Pick<PhaseJob,'board' | 'definition'>, power: Po
   // A long history of messages is the first thing to give way after the recent results: half, then none.
   const said = full ? talkLines(power,full.messages) : [];
   const variants = said.length ? [said,talkLines(power,full!.messages,TALK_BYTES / 4),[]] : [said];
-  for (const lines of variants) for (const shape of shapes) {
-    const set = shape.keep === Number.MAX_SAFE_INTEGER ? whole : build(shape.keep)!;
+  // The notes on moves that two of this power's units could both make are worth having but are the first
+  // thing given up: they are tried only on the complete request, before anything else is cut.
+  const noted = job.board.phase === 'ORDERS' ? build(Number.MAX_SAFE_INTEGER,true)! : null;
+  const candidates = [...(noted && noted.choices.some((c,i) => c.label !== whole.choices[i].label) ? [{ lines: variants[0], shape: shapes[0], set: noted as ChoiceSet }] : []),
+    ...variants.flatMap(lines => shapes.map(shape => ({ lines, shape, set: null as ChoiceSet | null })))];
+  for (const { lines, shape, set: prepared } of candidates) {
+    const set = prepared ?? (shape.keep === Number.MAX_SAFE_INTEGER ? whole : build(shape.keep)!);
     // The schema allows at most 34 indices and index values up to 100,000.
-    if (set.groups.length > 34 || set.choices.length > 100_000) break;
+    if (set.groups.length > 34 || set.choices.length > 100_000) continue;
     const shared = sharedContext(job,lastReport,shape.recent), context = `${shared}\n\n${ownSection(set,job.definition.humanPower,talk,lines,autoplay ? full?.correction : undefined,byUnit)}`;
     const contextBytes = Buffer.byteLength(context,'utf8');
     if (contextBytes > contract.preset.maxContextBytes) continue;
     const request = autoplay ? contract.buildFullGameRequest({ context },byUnit ? 'UNIT_ORDERS' : 'ORDERS') : contract.buildRequest({ context }), requestBytes = Buffer.byteLength(request.body,'utf8');
     if (requestBytes > contract.preset.maxRequestBytes) continue;
     return { power, set, byUnit, read: byUnit ? parsed => parseUnitOrders(parsed,set) : parseChoices, context, request, maxCostNanousd: contract.reservationNanousd(contract.preset.maxInputTokens),
-      measured: { contextBytes, requestBytes, sharedBytes: Buffer.byteLength(shared,'utf8'), listed: set.coverage.listed, total: set.coverage.total, recentLines: shape.recent, compacted: shape !== shapes[0] || lines !== variants[0] } };
+      measured: { contextBytes, requestBytes, sharedBytes: Buffer.byteLength(shared,'utf8'), listed: set.coverage.listed, total: set.coverage.total, recentLines: shape.recent, compacted: shape !== shapes[0] || lines !== variants[0], shareNotes: set === noted } };
   }
   throw new ChoiceError('This position cannot be described within the request limits.');
 }
