@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { ASK_INSTRUCTIONS, CHAT_INSTRUCTIONS, FULL_GAME_INSTRUCTIONS, OPPONENT_INSTRUCTIONS, REPLY_INSTRUCTIONS } from './OpponentInstructions.js';
-import type { FullGameRequestKind } from './LunaPreset.js';
+import { ASK_INSTRUCTIONS, CHAT_INSTRUCTIONS, FULL_GAME_INSTRUCTIONS, FULL_GAME_UNIT_INSTRUCTIONS, OPPONENT_INSTRUCTIONS, REPLY_INSTRUCTIONS } from './OpponentInstructions.js';
+import { FULL_GAME_REQUEST_KINDS, type FullGameRequestKind } from './LunaPreset.js';
 
 /** Version the whole contract whenever settings, schema or prices change. */
 export const HAIKU_PRESET = Object.freeze({
@@ -35,13 +35,17 @@ const MESSAGES_SCHEMA = { type: 'object', properties: { messages: { type: 'array
   items: { type: 'object', properties: { to: { type: 'string' }, text: { type: 'string' } }, required: ['to', 'text'], additionalProperties: false } } },
   required: ['messages'], additionalProperties: false } as const;
 /** The three pinned requests of a model-only full game: its orders, its opening messages, its replies. Development only. */
+const UNIT_ORDERS_SCHEMA = { type: 'object', properties: { orders: { type: 'array',
+  items: { type: 'object', properties: { unit: { type: 'string' }, choice: { type: 'integer' } }, required: ['unit', 'choice'], additionalProperties: false } } },
+  required: ['orders'], additionalProperties: false } as const;
 export function buildHaikuFullGameRequest(input: { context: string }, kind: FullGameRequestKind) {
+  if (kind === 'UNIT_ORDERS') return build(input,FULL_GAME_UNIT_INSTRUCTIONS,UNIT_ORDERS_SCHEMA);
   return kind === 'ORDERS' ? build(input,FULL_GAME_INSTRUCTIONS,ORDERS_SCHEMA) : build(input,kind === 'ASK' ? ASK_INSTRUCTIONS : REPLY_INSTRUCTIONS,MESSAGES_SCHEMA);
 }
 /** Every serialized request this preset may send for a context. A transport refuses anything else. */
 export const haikuRequestBodies = (input: { context: string }): string[] =>
-  [buildHaikuRequest(input).body, buildHaikuChatRequest(input).body, ...(['ORDERS','ASK','REPLY'] as const).map(kind => buildHaikuFullGameRequest(input,kind).body)];
-function build(input: { context: string }, system: string, schema: typeof ORDERS_SCHEMA | typeof REPLY_SCHEMA | typeof MESSAGES_SCHEMA) {
+  [buildHaikuRequest(input).body, buildHaikuChatRequest(input).body, ...FULL_GAME_REQUEST_KINDS.map(kind => buildHaikuFullGameRequest(input,kind).body)];
+function build(input: { context: string }, system: string, schema: typeof ORDERS_SCHEMA | typeof REPLY_SCHEMA | typeof MESSAGES_SCHEMA | typeof UNIT_ORDERS_SCHEMA) {
   if (!input || typeof input !== 'object' || Object.keys(input).length !== 1 || !Object.hasOwn(input, 'context')
     || typeof input.context !== 'string' || !input.context.trim()
     || Buffer.byteLength(input.context, 'utf8') > HAIKU_PRESET.maxContextBytes) {

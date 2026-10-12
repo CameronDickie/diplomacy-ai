@@ -38,7 +38,12 @@ For each orders phase, three rounds of calls share one two-minute deadline:
 2. **Replies.** Every power that was written to gets one call and answers each
    power that wrote to it.
 3. **Orders.** Every power gets its orders call. Its request now includes its
-   own messages, sent and received, from this turn and earlier ones.
+   own messages, sent and received, from this turn and earlier ones. The answer
+   names each unit beside the number chosen for it
+   (`{"orders":[{"unit":"PAR","choice":12}, …]}`), and each number must come
+   from under that unit's own heading. The first live game used a bare list of
+   numbers here; once a power had many units, GPT-6 Luna repeatedly gave one
+   unit two numbers and another none (12 rejected answers, none from Haiku).
 
 Retreat and build phases have only the decision round.
 
@@ -63,9 +68,9 @@ its outcome. The reason is the call's recorded outcome: `INVALID_JSON`,
 nothing was sent or billed). Raw provider error text is never stored, so the
 reason is a category, not a message.
 An orders answer that cannot be used (outcome `INVALID_ACTION`) is explained the
-same way, for example "7 numbers for 8 units; nothing for A SIL": how many
-numbers came back, which units got none or more than one, and whether any were
-not on the list. The answer itself is not kept.
+same way, for example "F BRE was given more than once; no usable order for
+A TUN" or "41 is not one of the numbers under A GAS (those are 45 to 61)". The
+answer itself is not kept.
 
 The next try for that power is not the same request again: it ends with one
 server-written line saying what was wrong ("Your previous answer for this turn
@@ -79,7 +84,10 @@ example `PREFLIGHT (HTTP 429)` (rate limit or quota), `HTTP 401` (key refused)
 or `no answer in time`. Nothing was sent, so nothing was billed. When a phase
 fails this way the tool waits before trying again (5, 10, 20 … up to 60
 seconds), because a provider that is refusing requests is not helped by asking
-faster.
+faster. These waits do not use up the phase's recoveries: it waits up to twelve
+times, about ten minutes, before stopping. A failed connection is logged with
+the system's short code when there is one, for example
+`PREFLIGHT (no connection, ENOTFOUND)`.
 Running out of funds or a stop still halts the phase, as for a decision. An
 orders call that fails leaves the phase waiting and is recovered, up to the
 usual three calls per power; no power is ever given a default in place of its

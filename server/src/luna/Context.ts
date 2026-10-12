@@ -2,7 +2,7 @@ import { ALL_POWERS, TERRITORIES } from '@diplomacy/shared';
 import type { Power, PublicPhaseReport } from '@diplomacy/shared';
 import type { PhaseJob } from '../attempts/types.js';
 import { LUNA_CONTRACT, type OpponentContract, type OpponentRequest } from '../providers/OpponentContract.js';
-import { ChoiceError, buildChoices, orderChoices, retreatChoices, type ChoiceSet, type LegalOption } from './Choices.js';
+import { ChoiceError, buildChoices, orderChoices, parseChoices, parseUnitOrders, retreatChoices, type ChoiceSet, type LegalOption } from './Choices.js';
 
 export const CONTEXT_VERSION = 'luna-context-v4';
 /** Recent public results are useful but optional: they are the first thing dropped when space is short. */
@@ -75,17 +75,25 @@ const talkSection = (lines: readonly string[]) => lines.length
 export interface FullGameTalk { messages: readonly PowerMessage[]; partners: readonly Power[];
   /** Set when this power's earlier answer for this phase was billed but unusable: what was wrong with it, so the next try can avoid it. */
   correction?: string }
-function ownSection(set: ChoiceSet, human: Power, conversation: readonly string[], talk: readonly string[] = [], correction?: string): string {
+function ownSection(set: ChoiceSet, human: Power, conversation: readonly string[], talk: readonly string[] = [], correction?: string, byUnit = false): string {
   const lines = [`You are ${set.power}.`,...conversationSection(human,conversation),...talkSection(talk),set.rule];
   for (const group of set.groups) { lines.push(`${group.label}:`); for (const i of group.choices) lines.push(`${i} ${set.choices[i].label}`); }
   // Server-written, from the shape of the rejected answer only; it never quotes model output.
   if (correction) lines.push(`Your previous answer for this turn could not be used: ${correction}. ${set.phase === 'BUILDS' ? 'Follow the rule above exactly.' : `Go through the ${set.groups.length} headings above in order and take exactly one number from under each: ${set.groups.map(g => g.label).join(', ')}.`}`);
+  if (byUnit) {
+    const first = set.groups[0];
+    lines.push(`Answer with {"orders":[{"unit":"${first.id}","choice":${first.choices[0]}}, ...]}: one entry for each heading above, in that order (${set.groups.map(g => g.id).join(', ')}), where "choice" is a number listed under that unit's own heading.`);
+  } else
   lines.push('Answer with {"choices":[...]} using only numbers listed above.');
   return lines.join('\n');
 }
 export interface LunaPrompt {
   power: Power;
   set: ChoiceSet;
+  /** Reads the model's JSON into the numbers `set.toAction` takes. The shape depends on the request. */
+  read: (parsed: unknown) => number[];
+  /** Whether the answer names each unit beside its number (a full game's orders). */
+  byUnit: boolean;
   context: string;
   /** Exact serialized request and its hash, as reserved and sent. */
   request: OpponentRequest;
@@ -109,6 +117,8 @@ export function lunaPrompt(job: Pick<PhaseJob,'board' | 'definition'>, power: Po
   const helped = new Set<Power>([...(talk.length ? [job.definition.humanPower] : []),...(full?.partners ?? [])]);
   const partners = new Set(job.board.units.filter(u => u.power !== power && helped.has(u.power)).map(u => u.territory));
   const autoplay = Boolean(job.definition.autoplay);
+  // A full game's orders are answered unit by unit; everything else is a plain list of numbers.
+  const byUnit = autoplay && job.board.phase === 'ORDERS';
   const whole = build(Number.MAX_SAFE_INTEGER);
   if (!whole) return null;
   const widest = Math.max(...whole.groups.map(g => g.choices.length));
@@ -122,12 +132,12 @@ export function lunaPrompt(job: Pick<PhaseJob,'board' | 'definition'>, power: Po
     const set = shape.keep === Number.MAX_SAFE_INTEGER ? whole : build(shape.keep)!;
     // The schema allows at most 34 indices and index values up to 100,000.
     if (set.groups.length > 34 || set.choices.length > 100_000) break;
-    const shared = sharedContext(job,lastReport,shape.recent), context = `${shared}\n\n${ownSection(set,job.definition.humanPower,talk,lines,autoplay ? full?.correction : undefined)}`;
+    const shared = sharedContext(job,lastReport,shape.recent), context = `${shared}\n\n${ownSection(set,job.definition.humanPower,talk,lines,autoplay ? full?.correction : undefined,byUnit)}`;
     const contextBytes = Buffer.byteLength(context,'utf8');
     if (contextBytes > contract.preset.maxContextBytes) continue;
-    const request = autoplay ? contract.buildFullGameRequest({ context },'ORDERS') : contract.buildRequest({ context }), requestBytes = Buffer.byteLength(request.body,'utf8');
+    const request = autoplay ? contract.buildFullGameRequest({ context },byUnit ? 'UNIT_ORDERS' : 'ORDERS') : contract.buildRequest({ context }), requestBytes = Buffer.byteLength(request.body,'utf8');
     if (requestBytes > contract.preset.maxRequestBytes) continue;
-    return { power, set, context, request, maxCostNanousd: contract.reservationNanousd(contract.preset.maxInputTokens),
+    return { power, set, byUnit, read: byUnit ? parsed => parseUnitOrders(parsed,set) : parseChoices, context, request, maxCostNanousd: contract.reservationNanousd(contract.preset.maxInputTokens),
       measured: { contextBytes, requestBytes, sharedBytes: Buffer.byteLength(shared,'utf8'), listed: set.coverage.listed, total: set.coverage.total, recentLines: shape.recent, compacted: shape !== shapes[0] || lines !== variants[0] } };
   }
   throw new ChoiceError('This position cannot be described within the request limits.');

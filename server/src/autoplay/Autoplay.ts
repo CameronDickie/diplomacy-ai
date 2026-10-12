@@ -42,6 +42,8 @@ export interface AutoplayOptions {
   maxRecoveries?: number;
   /** Stop cleanly after this many phases in this run (the game stays resumable). */
   maxPhases?: number;
+  /** How many times one phase waits out a provider that cannot be reached before the run stops (default 12, about ten minutes). */
+  maxWaits?: number;
   /** Test seam for the pause between tries when a provider refuses requests before they are sent. */
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
@@ -139,7 +141,7 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
     onPhaseFailure: (job,error) => failures.push({ at: now(), phaseId: job.phaseId,
       // Never the raw error: it may carry request content.
       reason: error instanceof LunaDecisionError ? `${error.power}: ${error.code}${error.detail ? ` (${error.detail})` : ''}` : error instanceof Error && /deadline/i.test(error.message) ? 'The phase ran past its two-minute deadline.' : 'The phase was interrupted.' }) });
-  const recoveries = new Map<string, number>();
+  const recoveries = new Map<string, number>(), waits = new Map<string, number>(), maxWaits = options.maxWaits ?? 12;
   let seen = (await store.call('reports',{ attemptId: id })).length;
   let status: AutoplayResult['status'] = 'FINISHED', waitingOn: string | null = null, played = 0;
   try {
@@ -153,21 +155,27 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
       } else {
         // Left undecided by an earlier run or by a failed call: an explicit, counted recovery. Saved answers are reused.
         const used = recoveries.get(before.phaseId) ?? 0;
-        if (used >= maxRecoveries) {
+        // A request refused before it was sent cost nothing, so waiting it out does not use up the recoveries;
+        // it has its own, longer patience.
+        const unsent = /PREFLIGHT/.test(failures.at(-1)?.reason ?? '') && failures.at(-1)?.phaseId === before.phaseId;
+        const waited = waits.get(before.phaseId) ?? 0;
+        if (unsent ? waited >= maxWaits : used >= maxRecoveries) {
           status = 'WAITING';
           const paid = await store.call('paidState',{});
           waitingOn = paid.stopped ? 'Sponsored play is stopped (the funding grant is used up, or it was paused). Add a grant or resume, then run again with the same run ID.'
+            : unsent ? `${before.phaseId.split(':').slice(-3).join(' ')}: the provider could not be reached or refused requests ${waited + 1} times over several minutes (${failures.at(-1)!.reason}). Nothing was billed for those. Check your connection and the provider's status, then run again with the same run ID.`
             : `${before.phaseId.split(':').slice(-3).join(' ')} could not be decided after ${used} recover${used === 1 ? 'y' : 'ies'}: ${failures.at(-1)?.reason ?? 'no reason recorded'}. ${
               /CALL_LIMIT/.test(failures.at(-1)?.reason ?? '') ? `That power has used all ${orderCalls} of its orders calls for this phase; run again with the same run ID and a higher --order-calls to give it more.` : 'Run again with the same run ID to try again.'}`;
           break;
         }
         // A provider that is refusing requests before they are sent (rate limit, quota, outage) is not helped by asking faster.
-        if (/PREFLIGHT/.test(failures.at(-1)?.reason ?? '')) {
-          const seconds = Math.min(60,5 * 2 ** used);
+        if (unsent) {
+          const seconds = Math.min(60,5 * 2 ** waited);
+          waits.set(before.phaseId,waited + 1);
           log(`  … the provider refused the request before it was sent (${failures.at(-1)!.reason}); waiting ${seconds} s before trying again`);
           await (options.sleep ?? (ms => new Promise<void>(done => setTimeout(done,ms))))(seconds * 1000);
         }
-        recoveries.set(before.phaseId,used + 1);
+        else recoveries.set(before.phaseId,used + 1);
         await service.recover(id);
       }
       await service.wait(id);

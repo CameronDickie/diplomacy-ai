@@ -7,6 +7,7 @@ import { ALL_POWERS, type Power } from '@diplomacy/shared';
 import { DEFAULT_ASSIGNMENT, autoplay, fullGameDefinition, type ModelKey } from '../autoplay/Autoplay.js';
 import { assertDevelopment, parseAssignment } from '../autoplay/cli.js';
 import { parseMessages, talkLines, type PowerMessage } from '../luna/Context.js';
+import { parseUnitOrders } from '../luna/Choices.js';
 import { PreflightError, mockOpponentTransport, type LunaTransport } from '../luna/Transport.js';
 import { OPPONENT_CONTRACTS, opponentContract } from '../providers/OpponentContract.js';
 import { parseChallenge } from '../storage/publicData.js';
@@ -19,12 +20,12 @@ async function setup(t: test.TestContext, granted = 5_000_000_000) {
   await store.call('setFundingPolicy',{ attemptCapNanousd: 5_000_000_000, ceilingLimitNanousd: null, now: 1 });
   t.after(async () => { await store.close(); await rm(dir,{ recursive: true, force: true }); });
   /** Stand-in models that also record every request each model was sent. */
-  const sent: Array<{ key: ModelKey; context: string; kind: 'ORDERS' | 'ASK' | 'REPLY' }> = [];
+  const sent: Array<{ key: ModelKey; context: string; kind: 'ORDERS' | 'UNIT_ORDERS' | 'ASK' | 'REPLY' }> = [];
   const transports = (wrap: (key: ModelKey, inner: LunaTransport) => LunaTransport = (_key,inner) => inner) => Object.fromEntries((['luna','haiku'] as const).map(key => {
     const contract = opponentContract(key), inner = mockOpponentTransport(contract,{ pick: 'seeded', seed: 3 });
     const recording: LunaTransport = async request => {
       const context = contract.contextOf(request.body);
-      sent.push({ key, context, kind: (['ORDERS','ASK','REPLY'] as const).find(kind => contract.buildFullGameRequest({ context },kind).body === request.body)! });
+      sent.push({ key, context, kind: (['ORDERS','UNIT_ORDERS','ASK','REPLY'] as const).find(kind => contract.buildFullGameRequest({ context },kind).body === request.body)! });
       return inner(request);
     };
     return [key,wrap(key,recording)];
@@ -69,7 +70,7 @@ test('a full game with a model on every power plays to its last year through the
 
 test('what powers said reaches their own later requests and nobody else\'s',async t => {
   const f = await setup(t); await f.run();
-  const orders = f.sent.filter(s => s.kind === 'ORDERS'), full = orders.filter(s => s.context.includes('Your private messages with other powers'));
+  const orders = f.sent.filter(s => s.kind === 'UNIT_ORDERS'), full = orders.filter(s => s.context.includes('Your private messages with other powers'));
   assert.ok(full.length > 0);
   // The full game is described as one: no human, no scenario objective.
   assert.ok(f.sent.every(s => s.context.includes('Full game: each of the seven powers is played separately') && !s.context.includes('played by a human')));
@@ -78,6 +79,9 @@ test('what powers said reaches their own later requests and nobody else\'s',asyn
     // A request only ever shows messages this power sent or received.
     for (const line of context.split('\n').filter(l => /^\[[A-Z]+ \d{4}\] /.test(l))) assert.match(line,/^\[[A-Z]+ \d{4}\] (You to [A-Z]+|[A-Z]+ to you): /,`${me}: ${line}`);
   }
+  // Orders are asked for unit by unit; retreats and builds remain a plain list of numbers.
+  assert.ok(orders.every(s => s.context.includes('ORDERS phase') && /\nAnswer with \{"orders":\[\{"unit":"[A-Z]{3}","choice":\d+\}, \.\.\.\]\}: one entry for each heading above/.test(s.context)));
+  assert.ok(f.sent.filter(s => s.kind === 'ORDERS').every(s => !s.context.includes('ORDERS phase') && s.context.includes('Answer with {"choices":[...]}')));
   // A reply request shows the message it answers; an opening request of the first turn has none to show.
   const firstAsk = f.sent.find(s => s.kind === 'ASK')!, firstReply = f.sent.find(s => s.kind === 'REPLY')!;
   assert.ok(!firstAsk.context.includes(' to you: ')); assert.match(firstAsk.context,/\nYou may write to up to 3 of: /);
@@ -204,25 +208,25 @@ test('an orders answer that cannot be used is explained, and a game stuck on the
   const f = await setup(t);
   let broken = true;
   const asked: string[] = [];
-  // Turkey's model leaves one unit without an order whenever it is asked for orders.
+  // Turkey's model names one unit twice, gives another a number from the wrong list, and leaves the third out.
   const transports = f.transports((key,inner) => async request => {
     const contract = opponentContract(key), context = contract.contextOf(request.body);
-    if (broken && speaker(context) === 'TURKEY' && contract.buildFullGameRequest({ context },'ORDERS').body === request.body && context.includes('ORDERS phase')) asked.push(context);
-    if (broken && speaker(context) === 'TURKEY' && contract.buildFullGameRequest({ context },'ORDERS').body === request.body && context.includes('ORDERS phase'))
-      return { status: 200, body: contract.mockEnvelope({ serial: 9_000 + Math.floor(Math.random() * 1e9), text: '{"choices":[0,1]}', inputTokens: 100, outputTokens: 40 }) };
+    if (broken && speaker(context) === 'TURKEY' && contract.buildFullGameRequest({ context },'UNIT_ORDERS').body === request.body) asked.push(context);
+    if (broken && speaker(context) === 'TURKEY' && contract.buildFullGameRequest({ context },'UNIT_ORDERS').body === request.body)
+      return { status: 200, body: contract.mockEnvelope({ serial: 9_000 + Math.floor(Math.random() * 1e9), text: '{"orders":[{"unit":"F ANK","choice":0},{"unit":"ank","choice":1},{"unit":"CON","choice":999},{"unit":"PAR","choice":1}]}', inputTokens: 100, outputTokens: 40 }) };
     return inner(request);
   });
   const stuck = await f.run({ transports, lastYear: 1901, orderCalls: 3, maxRecoveries: 2 });
   assert.equal(stuck.status,'WAITING');
   const reasons = stuck.record.failures.map(x => x.reason);
   // Each rejected answer says what was wrong with it, in terms of the units, without quoting it.
-  assert.equal(reasons.filter(r => /^TURKEY orders call, try \d: answer not usable — 2 numbers for 3 units; nothing for /.test(r)).length,3);
-  assert.ok(reasons.some(r => r.includes('more than one for')));
+  const expected = /F ANK was given more than once; 999 is not one of the numbers under A CON \(those are \d+ to \d+\); PAR is not one of your units; no usable order for A CON, A SMY/;
+  assert.equal(reasons.filter(r => /^TURKEY orders call, try \d: answer not usable — /.test(r) && expected.test(r)).length,3);
   assert.equal(stuck.record.phases[0].calls.filter(c => c.power === 'TURKEY' && c.outcome === 'INVALID_ACTION').length,3);
   // The first try is the plain request. Each later try tells the model what was wrong with the answer it replaces,
   // in the server's words, and names the units it must cover.
   assert.equal(asked.length,3); assert.ok(!asked[0].includes('could not be used'));
-  for (const retry of asked.slice(1)) assert.match(retry,/\nYour previous answer for this turn could not be used: 2 numbers for 3 units; nothing for [^.]+; more than one for [^.]+\. Go through the 3 headings above in order and take exactly one number from under each: [^.]+\.\nAnswer with/);
+  for (const retry of asked.slice(1)) { assert.match(retry,expected); assert.match(retry,/\nYour previous answer for this turn could not be used: F ANK was given more than once; .+\. Go through the 3 headings above in order and take exactly one number from under each: F ANK, A CON, A SMY\.\nAnswer with \{"orders"/); }
   // No other power's request carries a correction.
   assert.ok(f.sent.filter(x => speaker(x.context) !== 'TURKEY').every(x => !x.context.includes('could not be used')));
   // The limit holds across runs: another run with the same limit buys nothing more and says how to go on.
@@ -247,8 +251,8 @@ test('a provider that refuses requests before they are sent is reported with its
     return refused;
   });
   const waits: number[] = [], lines: string[] = [];
-  const result = await f.run({ transports, lastYear: 1901, maxRecoveries: 3, sleep: async ms => { waits.push(ms); }, log: line => lines.push(line) });
-  assert.equal(result.status,'WAITING'); assert.match(result.waitingOn!,/PREFLIGHT \(HTTP 429\)/);
+  const result = await f.run({ transports, lastYear: 1901, maxWaits: 3, sleep: async ms => { waits.push(ms); }, log: line => lines.push(line) });
+  assert.equal(result.status,'WAITING'); assert.match(result.waitingOn!,/PREFLIGHT \(HTTP 429\)/); assert.match(result.waitingOn!,/Nothing was billed/);
   const reasons = result.record.failures.map(x => x.reason);
   assert.ok(reasons.some(r => /^AUSTRIA message call, try 1: PREFLIGHT \(HTTP 429\) — trying again$/.test(r)));
   assert.ok(reasons.some(r => /^[A-Z]+: PREFLIGHT \(HTTP 429\)$/.test(r)));
@@ -258,4 +262,19 @@ test('a provider that refuses requests before they are sent is reported with its
   // Nothing reached the model for those powers, so nothing was billed for them.
   assert.equal(result.record.models['gpt-6-luna']?.costNanousd ?? 0,0);
   assert.equal((await f.store.call('attemptFunding',{ attemptId: result.run.attemptId })).heldNanousd,0);
+});
+
+test('a unit-by-unit orders answer is read strictly: every unit once, each number from under its own heading',() => {
+  const set = { power: 'FRANCE', phase: 'ORDERS', rule: '', coverage: { listed: 5, total: 5 }, toAction: () => ({ phase: 'ORDERS', orderIds: [] }),
+    groups: [{ id: 'BRE', label: 'F BRE', choices: [0,1] },{ id: 'SPA', label: 'F SPA/SOUTH', choices: [2,3,4] }],
+    choices: [{ group: 'BRE', label: '' },{ group: 'BRE', label: '' },{ group: 'SPA', label: '' },{ group: 'SPA', label: '' },{ group: 'SPA', label: '' }] } as never;
+  // Units may be named as in the heading, with or without the unit type or coast, in any order.
+  assert.deepEqual(parseUnitOrders({ orders: [{ unit: 'F SPA/SOUTH', choice: 4 },{ unit: 'bre', choice: 1 }] },set),[1,4]);
+  assert.deepEqual(parseUnitOrders({ orders: [{ unit: 'Fleet BRE', choice: 0 },{ unit: 'SPA', choice: 2 }] },set),[0,2]);
+  // The mistake a bare list of numbers allowed, two for one unit and none for another, is now named.
+  assert.throws(() => parseUnitOrders({ orders: [{ unit: 'BRE', choice: 0 },{ unit: 'BRE', choice: 1 }] },set),/F BRE was given more than once; no usable order for F SPA\/SOUTH/);
+  assert.throws(() => parseUnitOrders({ orders: [{ unit: 'BRE', choice: 3 },{ unit: 'SPA', choice: 3 }] },set),/3 is not one of the numbers under F BRE \(those are 0 to 1\); no usable order for F BRE/);
+  assert.throws(() => parseUnitOrders({ orders: [{ unit: 'BRE', choice: 0 }] },set),/no usable order for F SPA\/SOUTH/);
+  for (const bad of [null,[],{ choices: [0,2] },{ orders: 'x' },{ orders: [{ unit: 'BRE' }] },{ orders: [{ unit: 1, choice: 0 }] },{ orders: [], extra: 1 }])
+    assert.throws(() => parseUnitOrders(bad,set),/the answer was not/);
 });

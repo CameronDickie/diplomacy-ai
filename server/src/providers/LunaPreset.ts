@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { ASK_INSTRUCTIONS, CHAT_INSTRUCTIONS, FULL_GAME_INSTRUCTIONS, OPPONENT_INSTRUCTIONS, REPLY_INSTRUCTIONS } from './OpponentInstructions.js';
+import { ASK_INSTRUCTIONS, CHAT_INSTRUCTIONS, FULL_GAME_INSTRUCTIONS, FULL_GAME_UNIT_INSTRUCTIONS, OPPONENT_INSTRUCTIONS, REPLY_INSTRUCTIONS } from './OpponentInstructions.js';
 
 /** Version the whole contract whenever settings, schema or prices change. */
 export const LUNA_PRESET = Object.freeze({
@@ -30,15 +30,24 @@ const MESSAGES_FORMAT = { type: 'json_schema', name: 'diplomacy_messages', stric
   schema: { type: 'object', properties: { messages: { type: 'array', maxItems: 6,
     items: { type: 'object', properties: { to: { type: 'string' }, text: { type: 'string' } }, required: ['to', 'text'], additionalProperties: false } } },
   required: ['messages'], additionalProperties: false } } as const;
-/** The three pinned requests of a model-only full game: its orders, its opening messages, its replies. Development only. */
-export type FullGameRequestKind = 'ORDERS' | 'ASK' | 'REPLY';
+const UNIT_ORDERS_FORMAT = { type: 'json_schema', name: 'diplomacy_unit_orders', strict: true,
+  schema: { type: 'object', properties: { orders: { type: 'array', maxItems: 34,
+    items: { type: 'object', properties: { unit: { type: 'string' }, choice: { type: 'integer' } }, required: ['unit', 'choice'], additionalProperties: false } } },
+  required: ['orders'], additionalProperties: false } } as const;
+/**
+ * The pinned requests of a model-only full game: its orders (one entry per unit), its retreats and
+ * builds (a list of numbers), its opening messages, its replies. Development only.
+ */
+export type FullGameRequestKind = 'ORDERS' | 'UNIT_ORDERS' | 'ASK' | 'REPLY';
+export const FULL_GAME_REQUEST_KINDS: readonly FullGameRequestKind[] = ['ORDERS','UNIT_ORDERS','ASK','REPLY'];
 export function buildLunaFullGameRequest(input: { context: string }, kind: FullGameRequestKind) {
+  if (kind === 'UNIT_ORDERS') return build(input,FULL_GAME_UNIT_INSTRUCTIONS,UNIT_ORDERS_FORMAT);
   return kind === 'ORDERS' ? build(input,FULL_GAME_INSTRUCTIONS,ORDERS_FORMAT) : build(input,kind === 'ASK' ? ASK_INSTRUCTIONS : REPLY_INSTRUCTIONS,MESSAGES_FORMAT);
 }
 /** Every serialized request this preset may send for a context. A transport refuses anything else. */
 export const lunaRequestBodies = (input: { context: string }): string[] =>
-  [buildLunaRequest(input).body, buildLunaChatRequest(input).body, ...(['ORDERS','ASK','REPLY'] as const).map(kind => buildLunaFullGameRequest(input,kind).body)];
-function build(input: { context: string }, instructions: string, format: typeof ORDERS_FORMAT | typeof REPLY_FORMAT | typeof MESSAGES_FORMAT) {
+  [buildLunaRequest(input).body, buildLunaChatRequest(input).body, ...FULL_GAME_REQUEST_KINDS.map(kind => buildLunaFullGameRequest(input,kind).body)];
+function build(input: { context: string }, instructions: string, format: typeof ORDERS_FORMAT | typeof REPLY_FORMAT | typeof MESSAGES_FORMAT | typeof UNIT_ORDERS_FORMAT) {
   if (!input || typeof input !== 'object' || Object.keys(input).length !== 1 || !Object.hasOwn(input, 'context')
     || typeof input.context !== 'string' || !input.context.trim()
     || Buffer.byteLength(input.context, 'utf8') > LUNA_PRESET.maxContextBytes) {

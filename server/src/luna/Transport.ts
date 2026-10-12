@@ -16,6 +16,11 @@ export type LunaTransport = ((request: { body: string; signal: AbortSignal }) =>
 export class PreflightError extends Error {
   constructor(message: string, readonly detail: string) { super(message); this.name = 'PreflightError'; }
 }
+/** The system's short code for a failed connection (ECONNRESET, ENOTFOUND, UND_ERR_SOCKET…), when there is one. Never a message. */
+export function networkCode(error: unknown): string {
+  const code = (error as { cause?: { code?: unknown }; code?: unknown } | null)?.cause?.code ?? (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && /^[A-Z][A-Z0-9_]{2,40}$/.test(code) ? `, ${code}` : '';
+}
 /** Read a bounded body. Raw errors and bodies are never logged. */
 async function readJson(response: Response, maxBytes: number): Promise<unknown> {
   const reader = response.body?.getReader(), chunks: Uint8Array[] = [];
@@ -77,7 +82,7 @@ export function httpLunaTransport(apiKey: string, request: typeof fetch = fetch)
         return value;
       })(),deadline);
     } catch (error) {
-      throw new PreflightError('Luna input-token preflight unavailable.',error instanceof PreflightError ? error.detail : signal.aborted ? 'cancelled' : deadline.aborted ? 'no answer in time' : 'no connection');
+      throw new PreflightError('Luna input-token preflight unavailable.',error instanceof PreflightError ? error.detail : signal.aborted ? 'cancelled' : deadline.aborted ? 'no answer in time' : `no connection${networkCode(error)}`);
     }
     const tokens = (count as { input_tokens?: unknown } | null)?.input_tokens;
     if (!count || typeof count !== 'object' || Array.isArray(count) || Object.keys(count).sort().join(',') !== 'input_tokens,object'
@@ -142,7 +147,10 @@ export function mockOpponentTransport(contract: OpponentContract, options: MockO
     // The quiet default is each unit's hold, wherever it is listed.
     const choose = (list: number[]) => options.pick === 'seeded' ? list[Math.floor(random() * list.length)] : list.find(n => holds.has(n)) ?? list[0];
     const choices = exactly ? groups.flat().slice(0,Number(exactly[1])) : upTo ? groups.slice(0,Number(upTo[1])).map(choose) : groups.filter(g => g.length).map(choose);
-    const output = JSON.stringify({ choices }), input = Math.ceil(Buffer.byteLength(body) / 4), out = Math.ceil(output.length / 3) + 16;
+    // A full game's orders are answered unit by unit, naming each heading beside its number.
+    const keyed = body === contract.buildFullGameRequest({ context: text },'UNIT_ORDERS').body;
+    const headings = own.split('\n').filter(line => /:$/.test(line)).map(line => line.slice(0,-1).replace(/^[AF] /,'').split('/')[0]);
+    const output = JSON.stringify(keyed ? { orders: choices.map((choice,i) => ({ unit: headings[i], choice })) } : { choices }), input = Math.ceil(Buffer.byteLength(body) / 4), out = Math.ceil(output.length / 3) + 16;
     return { status: 200, body: contract.mockEnvelope({ serial: ++serial, text: output, inputTokens: input, outputTokens: out }) };
   };
 }

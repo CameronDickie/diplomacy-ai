@@ -201,3 +201,29 @@ export function parseChoices(value: unknown): number[] {
     || v.choices.some(i => !Number.isSafeInteger(i) || (i as number) < 0 || (i as number) > 100_000)) throw new ChoiceError('Expected {"choices":[integers]}.');
   return v.choices as number[];
 }
+
+/** The territory a model meant by a unit name: "A BUL", "F BUL/SOUTH" and "bul" are all BUL. */
+const unitKey = (name: string) => name.trim().toUpperCase().replace(/^(?:A|F|ARMY|FLEET)\s+/,'').split('/')[0].trim();
+/**
+ * Strict reading of a full game's orders answer, `{orders:[{unit,choice}]}`, into the same list of
+ * numbers `toAction` takes. Each entry must name one of the power's units and a number from under
+ * that unit's own heading, and every unit must appear exactly once. Anything else is refused with a
+ * message that says which unit and why, in terms of the list; that message is safe to show the model.
+ */
+export function parseUnitOrders(value: unknown, set: ChoiceSet): number[] {
+  const v = value as { orders?: unknown };
+  if (!v || typeof v !== 'object' || Array.isArray(v) || Object.keys(v).length !== 1 || !Array.isArray(v.orders) || v.orders.length > 34) throw new ChoiceError('the answer was not {"orders":[{"unit","choice"}]}');
+  const byUnit = new Map(set.groups.map(g => [unitKey(g.id),g])), picked = new Map<string, number>(), problems: string[] = [];
+  for (const entry of v.orders as Array<{ unit?: unknown; choice?: unknown }>) {
+    if (!entry || typeof entry !== 'object' || typeof entry.unit !== 'string' || !Number.isSafeInteger(entry.choice)) throw new ChoiceError('the answer was not {"orders":[{"unit","choice"}]}');
+    const key = unitKey(entry.unit), group = byUnit.get(key), choice = entry.choice as number;
+    if (!group) problems.push(`${key.slice(0,12) || 'an unnamed unit'} is not one of your units`);
+    else if (picked.has(group.id)) problems.push(`${group.label} was given more than once`);
+    else if (!group.choices.includes(choice)) problems.push(`${choice} is not one of the numbers under ${group.label} (those are ${group.choices[0]} to ${group.choices.at(-1)})`);
+    else picked.set(group.id,choice);
+  }
+  const missed = set.groups.filter(g => !picked.has(g.id)).map(g => g.label);
+  if (missed.length) problems.push(`no usable order for ${missed.join(', ')}`);
+  if (problems.length) throw new ChoiceError(problems.slice(0,6).join('; '));
+  return set.groups.map(g => picked.get(g.id)!);
+}

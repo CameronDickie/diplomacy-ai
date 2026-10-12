@@ -9,7 +9,7 @@ import type { ProviderCallIntent, ProviderCallRecord } from '../providers/accoun
 import { LUNA_CONTRACT, type OpponentContract } from '../providers/OpponentContract.js';
 import { singlePlan, type OpponentPlan } from '../providers/OpponentPlan.js';
 import { ProviderCallError, recordedCall } from '../providers/RecordedCall.js';
-import { forcedAction, parseChoices } from './Choices.js';
+import { ChoiceError, forcedAction } from './Choices.js';
 import { lunaPrompt, parseMessages, talkPrompt, type PowerMessage } from './Context.js';
 import type { StoredPowerTalk } from '../storage/talks.js';
 import { PreflightError, type LunaTransport } from './Transport.js';
@@ -251,10 +251,11 @@ export class LunaDecisionProvider implements DecisionProvider {
       validate: async (parsed,callSignal,id) => {
         let action: PhaseAction;
         try {
-          action = prompt.set.toAction(parseChoices(parsed));
+          action = prompt.set.toAction(prompt.read(parsed));
           await this.rules.validate(job.board,power,action,callSignal);
         } catch (error) {
-          const reason = callSignal.aborted ? null : describeRejection(parsed,prompt.set);
+          // A unit-by-unit answer explains itself; a bare list of numbers is described from its shape.
+          const reason = callSignal.aborted ? null : prompt.byUnit ? (error instanceof ChoiceError ? error.message : 'the rules engine refused the combination') : describeRejection(parsed,prompt.set);
           if (reason) this.rejections.set(`${job.operationId}:${power}`,reason);
           try { this.options.onRejectedDecision?.({ phaseId: job.phaseId, power, attempt: earlier.filter(c => c.dispatchedAt !== null).length + 1,
             reason: reason ?? 'the phase was stopped before the answer could be checked' }); } catch { /* diagnostics never affect play */ }
