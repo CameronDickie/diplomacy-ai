@@ -341,3 +341,38 @@ func positionsByID(units []unitOutput) map[string]string {
 	}
 	return result
 }
+
+// A fleet on a split coast moving into a sea whose fleet has a convoy order used to crash the
+// adjudicator: the move was filed under the bare province, so Godip saw an order with no unit.
+func TestSplitCoastFleetMovingAgainstAConvoyingFleetResolves(t *testing.T) {
+	for _, mover := range []string{"FRANCE", "ENGLAND"} {
+		result, err := adjudicate(request{
+			Year:   1904,
+			Season: "SPRING",
+			Units: []unitInput{
+				{ID: "convoyer", Type: "FLEET", Power: "FRANCE", Territory: "MAO"},
+				{ID: "army", Type: "ARMY", Power: "FRANCE", Territory: "BRE"},
+				{ID: "mover", Type: "FLEET", Power: mover, Territory: "SPA", Coast: "SOUTH"},
+			},
+			Orders: []orderInput{
+				{Type: "CONVOY", UnitTerritory: "MAO", SupportedUnit: "BRE", TargetTerritory: "NAF"},
+				{Type: "HOLD", UnitTerritory: "BRE"},
+				{Type: "MOVE", UnitTerritory: "SPA", UnitCoast: "SOUTH", TargetTerritory: "MAO"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("%s fleet: %v", mover, err)
+		}
+		positions := positionsByID(result.Units)
+		if positions["convoyer"] != "MAO" || positions["mover"] != "SPA" {
+			t.Fatalf("%s fleet: an unsupported move against an occupied sea must bounce, got %v", mover, positions)
+		}
+		sources := map[string]bool{}
+		for _, entry := range result.Resolutions {
+			sources[entry.Source] = true
+		}
+		if !sources["SPA"] || !sources["MAO"] {
+			t.Fatalf("%s fleet: resolutions must name provinces without coasts, got %v", mover, sources)
+		}
+	}
+}

@@ -159,7 +159,8 @@ test('a full game ends on a solo win or after its last year, and neither is scor
 });
 
 test('running out of funds leaves the game waiting, with every decision already bought kept for the continuation',async t => {
-  const f = await setup(t,60_000_000), result = await f.run({ maxRecoveries: 1, lastYear: 1910 });
+  // The default recoveries are kept: on a loaded machine a rules-engine call can time out once, and that must not be mistaken for the funds running out.
+  const f = await setup(t,60_000_000), result = await f.run({ lastYear: 1910 });
   assert.equal(result.status,'WAITING'); assert.match(result.waitingOn!,/funding grant is used up/);
   assert.equal(result.record.attempt.lifecycle,'ACTIVE');
   await f.store.call('grantFunding',{ amountNanousd: 5_000_000_000, authorizationRef: 'owner-auto-0002', grantedBy: 'test', now: 2 });

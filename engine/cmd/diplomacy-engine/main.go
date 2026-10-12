@@ -128,7 +128,11 @@ func adjudicate(input request) (response, error) {
 		if err != nil {
 			return response{}, err
 		}
-		if err := state.SetOrder(toGodipProvince(submitted.UnitTerritory), order); err != nil {
+		// An order is filed under the unit's own location, coast included. Godip looks orders up beside
+		// units by that exact location; a fleet on a split coast whose order was filed under the bare
+		// province was seen as an order with no unit, and a convoying fleet it moved against then
+		// crashed the adjudicator.
+		if err := state.SetOrder(toGodipLocation(submitted.UnitTerritory, submitted.UnitCoast), order); err != nil {
 			return response{}, fmt.Errorf("set order for %s: %w", submitted.UnitTerritory, err)
 		}
 	}
@@ -148,7 +152,7 @@ func adjudicate(input request) (response, error) {
 
 	for source, order := range applied {
 		entry := resolution{
-			Source: fromGodipProvince(source),
+			Source: fromGodipProvince(source.Super()),
 			Type:   resolutionType(order),
 		}
 		for _, target := range order.Targets() {
