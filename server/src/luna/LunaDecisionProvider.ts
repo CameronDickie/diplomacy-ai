@@ -44,6 +44,12 @@ interface Options {
     retries?: number;
     /** Told about every message call that failed, and whether the power has now given up for the turn. */
     onFailure?: (failure: TalkFailure) => void };
+  /**
+   * Development diagnostics: told why a billed orders answer could not be used. The reason describes
+   * the shape of the mistake (how many numbers, which units were missed or given two); the answer
+   * itself is not kept.
+   */
+  onRejectedDecision?: (rejection: { phaseId: string; power: Power; attempt: number; reason: string }) => void;
   /** Test seam: awaited at named points for one power, to inject crashes and stops. */
   boundary?: (stage: 'reserved' | 'decided', power: Power, callId: string) => Promise<void>;
 }
@@ -237,8 +243,15 @@ export class LunaDecisionProvider implements DecisionProvider {
       sibling: () => Promise<boolean> = async () => false, halted: () => boolean = () => false): Promise<PhaseAction> {
     return this.call(job,power,{ role: job.board.phase, id: n => `${job.operationId}:${power}:${n}`, limit: this.options.maxCallsPerPower ?? 3, request: prompt.request, maxCostNanousd: prompt.maxCostNanousd,
       validate: async (parsed,callSignal,id) => {
-        const action = prompt.set.toAction(parseChoices(parsed));
-        await this.rules.validate(job.board,power,action,callSignal);
+        let action: PhaseAction;
+        try {
+          action = prompt.set.toAction(parseChoices(parsed));
+          await this.rules.validate(job.board,power,action,callSignal);
+        } catch (error) {
+          try { this.options.onRejectedDecision?.({ phaseId: job.phaseId, power, attempt: earlier.filter(c => c.dispatchedAt !== null).length + 1,
+            reason: callSignal.aborted ? 'the phase was stopped before the answer could be checked' : describeRejection(parsed,prompt.set) }); } catch { /* diagnostics never affect play */ }
+          throw error;
+        }
         callSignal.throwIfAborted();
         // Stored before the call is finished, so an interruption between the two cannot lose a paid answer.
         await this.store.call('saveProviderDecision',{ callId: id, action, now: this.now() });
@@ -316,3 +329,22 @@ export class LunaDecisionProvider implements DecisionProvider {
 
 /** "SPRING 1901" from a phase id, which ends in year, season and phase. */
 const turnOf = (phaseId: string): string => { const parts = phaseId.split(':'); return `${parts.at(-2)} ${parts.at(-3)}`; };
+
+/** What was wrong with an orders answer, in terms of the list it was given. Never the answer's own text. */
+export function describeRejection(parsed: unknown, set: NonNullable<ReturnType<typeof lunaPrompt>>['set']): string {
+  const picks = (parsed as { choices?: unknown } | null)?.choices;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || Object.keys(parsed).length !== 1 || !Array.isArray(picks) || picks.some(i => !Number.isSafeInteger(i))) return 'the answer was not {"choices":[numbers]}';
+  const numbers = picks as number[], outside = numbers.filter(i => i < 0 || i >= set.choices.length).length, repeated = numbers.length - new Set(numbers).size;
+  const perGroup = new Map<string, number>();
+  for (const i of numbers) if (i >= 0 && i < set.choices.length) perGroup.set(set.choices[i].group,(perGroup.get(set.choices[i].group) ?? 0) + 1);
+  const parts = [`${numbers.length} number${numbers.length === 1 ? '' : 's'} for ${set.groups.length} ${set.phase === 'ORDERS' ? 'unit' : 'slot'}${set.groups.length === 1 ? '' : 's'}`];
+  if (outside) parts.push(`${outside} not on the list`);
+  if (repeated) parts.push(`${repeated} repeated`);
+  if (set.phase !== 'BUILDS') {
+    const missed = set.groups.filter(g => !perGroup.has(g.id)).map(g => g.label), doubled = set.groups.filter(g => (perGroup.get(g.id) ?? 0) > 1).map(g => g.label);
+    if (missed.length) parts.push(`nothing for ${missed.join(', ')}`);
+    if (doubled.length) parts.push(`more than one for ${doubled.join(', ')}`);
+    if (!outside && !repeated && !missed.length && !doubled.length) parts.push('the rules engine refused the combination');
+  }
+  return parts.join('; ');
+}

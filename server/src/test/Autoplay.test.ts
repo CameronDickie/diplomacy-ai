@@ -199,3 +199,32 @@ test('only a scenario marked as a model-only full game may list all seven powers
   assert.equal(parseAssignment('austria=haiku, TURKEY=haiku').AUSTRIA,'haiku'); assert.equal(parseAssignment(undefined).ENGLAND,'haiku');
   assert.throws(() => parseAssignment('SPAIN=luna'),/Cannot read/); assert.throws(() => parseAssignment('AUSTRIA=gpt'),/Cannot read/);
 });
+
+test('an orders answer that cannot be used is explained, and a game stuck on them continues once more orders calls are allowed',async t => {
+  const f = await setup(t);
+  let broken = true;
+  // Turkey's model leaves one unit without an order whenever it is asked for orders.
+  const transports = f.transports((key,inner) => async request => {
+    const contract = opponentContract(key), context = contract.contextOf(request.body);
+    if (broken && speaker(context) === 'TURKEY' && contract.buildFullGameRequest({ context },'ORDERS').body === request.body && context.includes('ORDERS phase'))
+      return { status: 200, body: contract.mockEnvelope({ serial: 9_000 + Math.floor(Math.random() * 1e9), text: '{"choices":[0,1]}', inputTokens: 100, outputTokens: 40 }) };
+    return inner(request);
+  });
+  const stuck = await f.run({ transports, lastYear: 1901 });
+  assert.equal(stuck.status,'WAITING');
+  const reasons = stuck.record.failures.map(x => x.reason);
+  // Each rejected answer says what was wrong with it, in terms of the units, without quoting it.
+  assert.equal(reasons.filter(r => /^TURKEY orders call, try \d: answer not usable — 2 numbers for 3 units; nothing for /.test(r)).length,3);
+  assert.ok(reasons.some(r => r.includes('more than one for')));
+  assert.equal(stuck.record.phases[0].calls.filter(c => c.power === 'TURKEY' && c.outcome === 'INVALID_ACTION').length,3);
+  // The limit holds across runs: another run with the same limit buys nothing more and says how to go on.
+  const before = f.sent.length, again = await f.run({ transports, lastYear: 1901 });
+  assert.equal(again.status,'WAITING'); assert.match(again.waitingOn!,/higher --order-calls/); assert.equal(f.sent.length,before);
+  broken = false;
+  const done = await f.run({ transports, lastYear: 1901, orderCalls: 5 });
+  assert.equal(done.status,'FINISHED');
+  // The other six powers' first answers were kept; only Turkey was asked again.
+  assert.deepEqual(done.record.phases[0].calls.filter(c => c.outcome === 'VALID').map(c => c.power).sort(),[...ALL_POWERS].sort());
+  assert.equal(done.record.phases[0].calls.length,7 + 3);
+  await assert.rejects(f.run({ orderCalls: 11, lastYear: 1901 }),/between 3 and 10/);
+});

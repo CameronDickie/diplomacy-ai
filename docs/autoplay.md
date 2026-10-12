@@ -62,6 +62,10 @@ its outcome. The reason is the call's recorded outcome: `INVALID_JSON`,
 `TRANSPORT_ERROR` (no answer at all) or `PREFLIGHT` (the token count failed, so
 nothing was sent or billed). Raw provider error text is never stored, so the
 reason is a category, not a message.
+An orders answer that cannot be used (outcome `INVALID_ACTION`) is explained the
+same way, for example "7 numbers for 8 units; nothing for A SIL": how many
+numbers came back, which units got none or more than one, and whether any were
+not on the list. The answer itself is not kept.
 Running out of funds or a stop still halts the phase, as for a decision. An
 orders call that fails leaves the phase waiting and is recovered, up to the
 usual three calls per power; no power is ever given a default in place of its
@@ -124,6 +128,7 @@ is 15). With stand-in models both are only numbers.
 | `--models AUSTRIA=luna,ENGLAND=haiku` | per-power models. Default: Austria, France, Italy, Turkey on Luna; England, Germany, Russia on Haiku |
 | `--messages N` | how many powers each power may write to per turn (0–6, default 3) |
 | `--message-retries N` | further tries for a failed message or reply call (0–3, default 2) |
+| `--order-calls N` | orders calls one power may use for one phase, counted across every run (3–10, default 3). A game stuck because a power's answers were unusable continues when run again with a higher number |
 | `--resume-paid` | lift the pause the ledger sets when a grant runs out, after you have recorded a new grant |
 | `--max-phases N` | stop cleanly after N phases; continue later with the same run id |
 | `--attempt-cap USD` | per-game spending cap |

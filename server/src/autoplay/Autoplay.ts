@@ -36,6 +36,8 @@ export interface AutoplayOptions {
   talkRecipients?: number;
   /** Further tries for a message call that failed, before that power stays silent for the turn (0–3, default 2). */
   messageRetries?: number;
+  /** Orders calls one power may use for one phase, across every run (3–10, default 3). Raise it to continue a game stuck on unusable answers. */
+  orderCalls?: number;
   /** Explicit recoveries allowed for one phase in this run before the game is left waiting. */
   maxRecoveries?: number;
   /** Stop cleanly after this many phases in this run (the game stays resumable). */
@@ -118,7 +120,14 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
 
   const rules = new PhaseRules(), failures: Array<{ at: number; phaseId: string; reason: string }> = [];
   const main = options.transports[plan.contracts[0].key]!;
-  const provider = new LunaDecisionProvider(store,rules,main,{ now, plan, transports: options.transports, ...(talkRecipients ? { talk: { maxRecipients: talkRecipients, retries: options.messageRetries ?? 2,
+  const orderCalls = options.orderCalls ?? 3;
+  if (!Number.isSafeInteger(orderCalls) || orderCalls < 3 || orderCalls > 10) throw new Error('A power may have between 3 and 10 orders calls for a phase.');
+  const turn = (phaseId: string) => phaseId.split(':').slice(-3,-1).reverse().join(' ');
+  const provider = new LunaDecisionProvider(store,rules,main,{ now, plan, transports: options.transports, maxCallsPerPower: orderCalls,
+    onRejectedDecision: f => {
+      const reason = `${f.power} orders call, try ${f.attempt}: answer not usable — ${f.reason}`;
+      failures.push({ at: now(), phaseId: f.phaseId, reason }); log(`  ! ${turn(f.phaseId)} · ${reason}`);
+    }, ...(talkRecipients ? { talk: { maxRecipients: talkRecipients, retries: options.messageRetries ?? 2,
     onFailure: f => {
       const reason = `${f.power} ${f.round === 'ASK' ? 'message' : 'reply'} call, try ${f.attempt}: ${f.reason}${f.final ? ' — gave up; it says nothing this turn' : ' — trying again'}`;
       failures.push({ at: now(), phaseId: f.phaseId, reason }); log(`  ! ${f.phaseId.split(':').slice(-3,-1).reverse().join(' ')} · ${reason}`);
@@ -146,7 +155,8 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
           status = 'WAITING';
           const paid = await store.call('paidState',{});
           waitingOn = paid.stopped ? 'Sponsored play is stopped (the funding grant is used up, or it was paused). Add a grant or resume, then run again with the same run ID.'
-            : `${before.phaseId.split(':').slice(-3).join(' ')} could not be decided after ${used} recover${used === 1 ? 'y' : 'ies'}: ${failures.at(-1)?.reason ?? 'no reason recorded'}. Run again with the same run ID to try again.`;
+            : `${before.phaseId.split(':').slice(-3).join(' ')} could not be decided after ${used} recover${used === 1 ? 'y' : 'ies'}: ${failures.at(-1)?.reason ?? 'no reason recorded'}. ${
+              /CALL_LIMIT/.test(failures.at(-1)?.reason ?? '') ? `That power has used all ${orderCalls} of its orders calls for this phase; run again with the same run ID and a higher --order-calls to give it more.` : 'Run again with the same run ID to try again.'}`;
           break;
         }
         recoveries.set(before.phaseId,used + 1);
