@@ -7,9 +7,9 @@ import { keyVariable, liveTransport } from '../evaluation/cli.js';
 import { mockOpponentTransport, type LunaTransport } from '../luna/Transport.js';
 import { OPPONENT_CONTRACTS, opponentContract } from '../providers/OpponentContract.js';
 import { Store } from '../storage/Store.js';
-import { DEFAULT_ASSIGNMENT, autoplay, type AutoplayResult, type ModelKey } from './Autoplay.js';
+import { DEFAULT_ASSIGNMENT, LATEST_LAST_YEAR, autoplay, type AutoplayResult, type ModelKey } from './Autoplay.js';
 
-const USAGE = `Usage: autoplay --db DATABASE --run RUN_ID [--until 1908] [--models AUSTRIA=luna,ENGLAND=haiku,...] [--messages 3] [--message-retries 2] [--order-calls 6] [--max-phases N] [--attempt-cap USD] [--resume-paid] [--seed 1] [--out FILE]
+const USAGE = `Usage: autoplay --db DATABASE --run RUN_ID [--until 1908|win] [--models AUSTRIA=luna,ENGLAND=haiku,...] [--messages 3] [--message-retries 2] [--order-calls 6] [--max-phases N] [--attempt-cap USD] [--resume-paid] [--seed 1] [--out FILE]
        Plays one full game with a model on every power. Free stand-in models unless --live is given.
        add --live --authorization-ref REFERENCE to call the real providers (see docs/autoplay.md)`;
 
@@ -34,7 +34,7 @@ export function assertDevelopment(env: NodeJS.ProcessEnv): void {
 export function format(result: AutoplayResult): string {
   const s = result.summary, usd = (n: number) => `USD ${(n / 1e9).toFixed(4)}`;
   return [
-    `Run ${result.run.runId} · ${result.run.transport.toUpperCase()} transport · to Fall ${result.run.lastYear} · messages to up to ${result.run.talkRecipients} powers`,
+    `Run ${result.run.runId} · ${result.run.transport.toUpperCase()} transport · ${result.run.lastYear === LATEST_LAST_YEAR ? 'until a power wins' : `to Fall ${result.run.lastYear}`} · messages to up to ${result.run.talkRecipients} powers`,
     `Models: ${ALL_POWERS.map(p => `${p} ${result.run.assignment[p]}`).join(', ')}`,
     `Status ${result.status}${result.endedBy === 'SOLO_WIN' ? ' · ended by a solo win' : result.endedBy === 'LAST_YEAR' ? ` · ended after Fall ${result.run.lastYear}` : ''}${result.waitingOn ? ` · ${result.waitingOn}` : ''}`,
     ...(result.record.failures.length ? [`Failures recorded: ${result.record.failures.length} (listed under record.failures)`] : []),
@@ -52,7 +52,7 @@ async function main() {
   const { values } = parseArgs({ options: { db: { type: 'string' }, run: { type: 'string' }, until: { type: 'string', default: '1908' }, models: { type: 'string' }, messages: { type: 'string', default: '3' }, 'message-retries': { type: 'string', default: '2' }, 'order-calls': { type: 'string', default: '6' },
     'max-phases': { type: 'string' }, 'attempt-cap': { type: 'string' }, seed: { type: 'string', default: '1' }, out: { type: 'string' }, live: { type: 'boolean', default: false }, 'resume-paid': { type: 'boolean', default: false }, 'authorization-ref': { type: 'string' } }, strict: true });
   if (!values.db || !values.run) throw new Error(USAGE);
-  const db = resolve(values.db), lastYear = Number(values.until), talkRecipients = Number(values.messages), messageRetries = Number(values['message-retries']), orderCalls = Number(values['order-calls']), seed = Number(values.seed);
+  const db = resolve(values.db), lastYear = values.until === 'win' ? LATEST_LAST_YEAR : Number(values.until), talkRecipients = Number(values.messages), messageRetries = Number(values['message-retries']), orderCalls = Number(values['order-calls']), seed = Number(values.seed);
   const maxPhases = values['max-phases'] === undefined ? undefined : Number(values['max-phases']);
   if (![lastYear,talkRecipients,messageRetries,orderCalls,seed].every(Number.isSafeInteger) || (maxPhases !== undefined && (!Number.isSafeInteger(maxPhases) || maxPhases < 1))) throw new Error(USAGE);
   const assignment = parseAssignment(values.models), keys = [...new Set(Object.values(assignment))];

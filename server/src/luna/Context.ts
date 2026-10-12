@@ -18,7 +18,8 @@ export function sharedContext(job: Pick<PhaseJob,'board' | 'definition'>, lastRe
   const { board, definition: d } = job, lines: string[] = [];
   lines.push(`Diplomacy, standard map. ${board.season} ${board.year}, ${board.phase} phase.`);
   lines.push(d.autoplay
-    ? `Full game: each of the seven powers is played separately and plays for itself. The game ends after Fall ${d.objective.deadlineYear}, or as soon as one power owns 18 supply centers.`
+    // A game played "to a win" names a year far beyond any real game; telling the models that year would only mislead them.
+    ? `Full game: each of the seven powers is played separately and plays for itself. The game ends ${d.objective.deadlineYear >= 1999 ? 'as soon as one power owns 18 supply centers' : `after Fall ${d.objective.deadlineYear}, or as soon as one power owns 18 supply centers`}.`
     : `Scenario "${d.title}": ${d.humanPower} is played by a human whose goal is to own ${d.objective.territory} after a Fall turn no later than Fall ${d.objective.deadlineYear}. Every other power is played separately and looks after its own interests.`);
   lines.push('Supply centers:');
   const centers = (owner: Power | null) => TERRITORIES.filter(t => t.isSupplyCenter && (board.territoryOwners[t.id] ?? null) === owner).map(t => t.id).sort().join(' ') || '-';

@@ -137,8 +137,8 @@ export class ProviderCallRepository {
   }
   forAttempt(attemptId:string):ProviderCallRecord[] {
     identifier(attemptId);
-    const rows=this.db.prepare('SELECT id FROM provider_calls WHERE attempt_id=? ORDER BY created_at,id LIMIT 6001').all(attemptId);
-    if(rows.length>6000)throw new StoreError('STORE_UNAVAILABLE','Provider record count for this attempt exceeds its bound.');
+    const rows=this.db.prepare('SELECT id FROM provider_calls WHERE attempt_id=? ORDER BY created_at,id LIMIT 50001').all(attemptId);
+    if(rows.length>50000)throw new StoreError('STORE_UNAVAILABLE','Provider record count for this attempt exceeds its bound.');
     return rows.map(r=>this.required(String(r.id)));
   }
   totals(input:StoreOperations['providerCallTotals']['input']):StoreOperations['providerCallTotals']['output'] {

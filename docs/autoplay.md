@@ -107,7 +107,7 @@ Either of two ways, whichever comes first:
   supply centers; a power owning 18 of the 34, which is more than half, has
   won and the game stops there, before that winter's builds.
 - **The last year.** `--until YEAR` (default 1908): the game stops once that
-  year's Fall has settled.
+  year's Fall has settled. `--until win` removes the year as a stopping point.
 
 The summary's `endedBy` says which: `SOLO_WIN` or `LAST_YEAR`.
 
@@ -146,7 +146,7 @@ is 15). With stand-in models both are only numbers.
 | Option | Meaning |
 | -- | -- |
 | `--run ID` | names the game. Running again with the same id **continues** it; nothing already bought is bought again |
-| `--until YEAR` | the game ends after this year's Fall (1901–1925, default 1908) or on a solo win |
+| `--until YEAR` or `--until win` | the game ends after this year's Fall (default 1908) or on a solo win, whichever is first. `win` plays until a power has 18 centers: there is no year limit to speak of (it stops at 1999), and nothing detects a stalemate, so a game with no winner runs until you stop it with Ctrl-C or its spending cap is reached |
 | `--models AUSTRIA=luna,ENGLAND=haiku` | per-power models. Default: Austria, France, Italy, Turkey on Luna; England, Germany, Russia on Haiku |
 | `--messages N` | how many powers each power may write to per turn (0–6, default 3) |
 | `--message-retries N` | further tries for a failed message or reply call (0–3, default 2) |

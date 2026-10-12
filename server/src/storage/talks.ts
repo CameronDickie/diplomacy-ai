@@ -23,7 +23,7 @@ export class TalkRepository {
   constructor(private db: DatabaseSync) {}
   list(attemptId: string): StoredPowerTalk[] {
     identifier(attemptId);
-    return this.db.prepare('SELECT * FROM power_talks WHERE attempt_id=? ORDER BY created_at,rowid LIMIT 5000').all(attemptId).map(r => ({ callId: String(r.call_id), attemptId: String(r.attempt_id),
+    return this.db.prepare('SELECT * FROM power_talks WHERE attempt_id=? ORDER BY created_at,rowid LIMIT 50000').all(attemptId).map(r => ({ callId: String(r.call_id), attemptId: String(r.attempt_id),
       operationId: String(r.operation_id), phaseId: String(r.phase_id), kind: r.kind as StoredPowerTalk['kind'], power: r.power as Power,
       messages: JSON.parse(String(r.messages_json)) as StoredPowerTalk['messages'], createdAt: Number(r.created_at) }));
   }

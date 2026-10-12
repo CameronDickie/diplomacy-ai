@@ -20,7 +20,11 @@ export type ModelKey = OpponentContract['key'];
 /** Luna and Haiku down the middle: with seven powers that is four and three. */
 export const DEFAULT_ASSIGNMENT: Readonly<Record<Power, ModelKey>> = Object.freeze({
   AUSTRIA: 'luna', ENGLAND: 'haiku', FRANCE: 'luna', GERMANY: 'haiku', ITALY: 'luna', RUSSIA: 'haiku', TURKEY: 'luna' });
-export const FIRST_YEAR = 1901, LATEST_LAST_YEAR = 1925;
+/**
+ * The furthest a game may be asked to run. It is not a planning horizon: a game "to a win" simply
+ * names this year. Reached only by a game that never produces a winner.
+ */
+export const FIRST_YEAR = 1901, LATEST_LAST_YEAR = 1999;
 
 export interface AutoplayOptions {
   store: Store;
