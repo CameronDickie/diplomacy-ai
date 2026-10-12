@@ -190,3 +190,38 @@ test('a player can delete their account and is signed out with nothing left behi
   await expect(page.getByRole('button', { name: 'Start practice' })).toBeDisabled();
   expect((await page.request.get('/api/attempts')).status()).toBe(401);
 });
+
+test('a hosted game is created, filled and played for a turn in the same frame as the challenge, and the two pages link to each other', async ({ page }) => {
+  await page.goto('/');
+  const ways = page.getByLabel('Ways to play');
+  await expect(ways.getByRole('link', { name: 'Hosted games' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'Play a full game' })).toBeVisible();
+  await page.getByRole('button', { name: 'Create a game' }).click();
+  await expect(page.getByRole('heading', { name: 'Waiting for players' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Start the game' })).toBeDisabled();
+  await page.getByRole('button', { name: /Fill all 6 with offline bots/ }).click();
+  await page.getByRole('button', { name: 'Start the game' }).click();
+  // Starting takes everyone to the map with this turn's orders beside it.
+  await expect(phase(page)).toHaveText('Spring 1901 · orders');
+  const orders = page.getByLabel('Your orders');
+  const units = orders.getByLabel('Your units').getByRole('button', { pressed: false });
+  const count = await units.count();
+  expect(count).toBeGreaterThanOrEqual(3);
+  for (let i = 0; i < count; i++) {
+    await orders.getByLabel('Your units').locator('button.dip-unit').nth(i).click();
+    await orders.getByRole('button', { name: 'Set this order' }).click();
+  }
+  await orders.getByRole('button', { name: 'Submit orders' }).click();
+  await expect(phase(page)).toHaveText('Fall 1901 · orders');
+  await section(page, 'History').click();
+  await expect(content(page)).toContainText('holds');
+  await content(page).getByRole('button', { name: /Show Spring 1901 on the map/ }).click();
+  await expect(page.getByLabel('Replay controls')).toContainText('Spring 1901');
+  await page.getByRole('button', { name: 'Return to the orders log' }).click();
+  await section(page, 'Messages').click();
+  await expect(page.getByRole('heading', { name: 'Talk to the other powers' })).toBeVisible();
+  await noSidewaysScroll(page);
+  await ways.getByRole('link', { name: 'Daily challenge' }).click();
+  await expect(page.getByLabel('Your mission')).toBeVisible();
+  await expect(page.getByLabel('Ways to play').getByRole('link', { name: 'Daily challenge' })).toHaveAttribute('aria-current', 'page');
+});

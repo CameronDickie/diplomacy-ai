@@ -69,6 +69,10 @@ body:has(.dip) { background: var(--folio-paper); }
 .dip-monogram:hover .dip-mark-start { transform: translate(-4px, -4px); }
 .dip-monogram:hover .dip-mark-end { transform: translate(4px, 4px); }
 .dip-wordmark { font-family: Arial, sans-serif; font-size: 20px; letter-spacing: -.04em; font-weight: 500; text-decoration: none; }
+.dip-switch { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--folio-control); border-radius: 999px; font-size: 13px; font-weight: 600; }
+.dip .dip-switch a { padding: 5px 12px; border-radius: 999px; color: var(--folio-muted); text-decoration: none; white-space: nowrap; }
+.dip .dip-switch a:hover { color: var(--folio-ink); }
+.dip .dip-switch a[aria-current='page'] { color: var(--folio-on-accent); background: var(--folio-accent); }
 .dip-nav { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; }
 .dip .dip-nav button { border: 0; background: none; padding: 8px 12px; border-radius: 999px; color: var(--folio-muted); font-size: 15px; font-weight: 600; }
 .dip .dip-nav button:hover:not(:disabled) { color: var(--folio-ink); background: none; }
@@ -157,6 +161,8 @@ body:has(.dip) { background: var(--folio-paper); }
   .dip-map { height: 62dvh; min-height: 340px; }
   .dip-chat-powers { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 12px; }
 }
+/* With both ways to play in the header, the game's sections take their own row sooner. */
+@media (max-width: 1180px) { .dip-header:has(.dip-switch) .dip-nav { order: 3; flex-basis: 100%; } .dip-header:has(.dip-switch) .dip-account { margin-left: auto; } }
 @media (max-width: 640px) {
   .dip-wrap { width: min(100% - 28px, 1320px); }
   .dip-header { gap: 12px; min-height: 0; }

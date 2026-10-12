@@ -1,9 +1,20 @@
-# The challenge interface
+# The game interface
 
-How the challenge screens are organised and styled. Code is in
-`client/src/challenge/` and `client/src/ui/ChallengeApp.tsx`. The older
-hosted-room screens (`client/src/ui/App.tsx` and friends) are separate and keep
-their own styling.
+How the screens are organised and styled. There are two ways to play, in one
+shared frame (`client/src/challenge/Shell.tsx`):
+
+| Page | Address | What it is | Code |
+| -- | -- | -- | -- |
+| Daily challenge | `/challenge` | one scenario with an objective and a deadline, played alone | `client/src/challenge/`, `client/src/ui/ChallengeApp.tsx` |
+| Hosted games | `/` | a full seven-power game that people create, share by code and play to its end | `client/src/rooms/` |
+
+The header has a switch between the two. Hosted games do not exist in the
+showcase profile (production), so there `/` is the challenge and the switch is
+not shown. Both pages use the same map component (`client/src/ui/MapGraph.tsx`),
+so trackpad panning, pinch zoom and centring on the selected unit behave the
+same in both.
+
+## Daily challenge
 
 ## One place for each kind of information
 
@@ -32,6 +43,25 @@ Play shows a one-line summary of last turn with a link.
 A replay (the reference run, an exhibition game, or a turn from your own
 history) takes over the page with the map and its controls, and returns you to
 where you were.
+
+## Hosted games
+
+| View | Address | Holds |
+| -- | -- | -- |
+| Game | `#/game` | creating or joining a game; then the game code, who sits where, how empty seats are filled, the host's settings and the start; once running, each power's player, supply centers, status and voice controls; Discord linking |
+| Play | `#/play` | the map and your orders for the current turn, and which powers the turn is waiting on |
+| Messages | `#/messages` | one private thread per power |
+| History | `#/history` | the orders log, the animated replay of any phase, and the public game export |
+| Event log | `#/log` | what this browser sent and received (host only) |
+
+Orders can be given two ways that feed one list: click a unit on the map and
+then a province (a small menu offers hold, move, coast or convoy), or select
+the unit in the list and use the menus, which also cover supports and convoys.
+Starting the game takes every player to Play.
+
+What the host is offered for empty seats depends on who they are: the operator
+can add model opponents; on a local server anyone can add offline bots, which
+always hold; otherwise seats are filled by people joining.
 
 ## Style
 

@@ -16,9 +16,15 @@ import { TERRITORIES } from '@diplomacy/shared';
 import {
   adjacentTerritories,
   TERRITORY_BY_ID,
-  territoryLabel,
-  unitLabel,
+  territoryName,
 } from '../lib/game.js';
+import { ArrowFillButton } from '../challenge/Shell.js';
+import { describeOrderFields, title } from '../challenge/text.js';
+
+const territoryLabel = (id: TerritoryId) => territoryName(id);
+/** "Army · Paris", with the owner when it is somebody else's unit. */
+const unitLabel = (unit: Unit, own?: Power | null) =>
+  `${title(unit.type)} · ${territoryName(unit.territory)}${unit.coast ? ` (${unit.coast.toLowerCase()} coast)` : ''}${own && unit.power !== own ? ` · ${title(unit.power)}` : ''}`;
 
 interface Props {
   submission: SubmissionState | null;
@@ -26,14 +32,18 @@ interface Props {
   myPower: Power | null;
   selectedUnit: Unit | null;
   pendingOrders: Order[];
-  onSelectTerritory: (territory: TerritoryId) => void;
+  onSelectTerritory: (territory: TerritoryId | null) => void;
   onPendingOrdersChange: (orders: Order[]) => void;
   onSubmitOrders: () => void;
   onSubmitRetreats: (retreats: Record<string, RetreatDestination | null>) => void;
   onSubmitBuilds: (payload: Omit<SubmitBuildsPayload, 'gameId'>) => void;
 }
 
-export function OrderPanel(props: Props) {
+/**
+ * This turn's decisions for a hosted game: one order per unit, then retreats or adjustments.
+ * Orders can also be given on the map; both feed the same pending list.
+ */
+export function Orders(props: Props) {
   const {
     gameState,
     myPower,
@@ -103,7 +113,7 @@ export function OrderPanel(props: Props) {
   }, [gameState, selectedUnit, supportedUnit]);
 
   if (!gameState || !myPower) {
-    return <section className="card"><h2>Orders</h2><p>Create or join a game to issue orders.</p></section>;
+    return <p className="dip-muted">Create or join a game to give orders.</p>;
   }
 
   const myUnits = gameState.units.filter(unit => unit.power === myPower && !unit.mustRetreat);
@@ -200,12 +210,11 @@ export function OrderPanel(props: Props) {
   }
 
   return (
-    <section className="card order-card">
-      <h2>{myPower} Orders</h2>
-      {submission?.status === 'SUBMITTING' && <p role="status">Submitting decisions. Waiting for the server…</p>}
-      {submission?.status === 'FAILED' && <p role="alert">{submission.error?.message ?? 'Submission failed. Please retry.'}</p>}
+    <div className="dip-orders">
+      {submission?.status === 'SUBMITTING' && <p role="status" className="dip-small">Submitting decisions. Waiting for the server…</p>}
+      {submission?.status === 'FAILED' && <p role="alert" className="dip-notice is-error">{submission.error?.message ?? 'Submission failed. Please retry.'}</p>}
       {gameState.phase === 'ORDERS' && hasSubmittedOrders && (
-        <div className="turn-waiting" role="status">
+        <div className="dip-notice" role="status" style={{ color: 'var(--folio-success)' }}>
           <strong>Orders submitted.</strong>{' '}
           {waitingHumans.length > 0
             ? `Waiting for ${waitingHumans.map(player => player.power).join(', ')}.`
@@ -214,33 +223,38 @@ export function OrderPanel(props: Props) {
               : 'All orders are in. Resolving the turn.'}
         </div>
       )}
-      <div className="unit-list">
+      {gameState.phase === 'ORDERS' && <ul className="dip-list" aria-label="Your units">
         {myUnits.map(unit => {
-          const ordered = orderedUnitKeys.has(orderKey(unit.territory, unit.coast));
+          const order = pendingOrders.find(candidate => orderKey(candidate.unitTerritory, candidate.unitCoast) === orderKey(unit.territory, unit.coast));
           return (
-            <button
-              className={[
-                'unit-button',
-                selectedUnit?.id === unit.id ? 'selected' : '',
-                ordered ? 'ordered' : 'unordered',
-              ].filter(Boolean).join(' ')}
-              key={unit.id}
-              onClick={() => onSelectTerritory(unit.territory)}
-            >
-              <span>{unitLabel(unit)}</span>
-              <em>{ordered ? 'queued' : 'needs order'}</em>
-            </button>
+            <li key={unit.id}>
+              <span>
+                <button
+                  className="dip-unit"
+                  aria-pressed={selectedUnit?.id === unit.id}
+                  onClick={() => onSelectTerritory(selectedUnit?.id === unit.id ? null : unit.territory)}
+                >
+                  {unitLabel(unit)}
+                </button>
+                <small style={order ? undefined : { color: 'var(--folio-warning)' }}>{order ? describeOrder(order) : 'Needs an order'}</small>
+              </span>
+              {order && canSubmitOrders && <button
+                className="dip-link dip-small"
+                aria-label={`Remove order for ${territoryName(unit.territory)}`}
+                onClick={() => onPendingOrdersChange(pendingOrders.filter(candidate => candidate.id !== order.id))}
+              >Remove</button>}
+            </li>
           );
         })}
-      </div>
+      </ul>}
 
       {canSubmitOrders && selectedUnit && selectedUnit.power === myPower && (
-        <div className="order-builder">
+        <div className="dip-builder">
           <h3>{unitLabel(selectedUnit)}</h3>
-          <p className="field-help">
-            Changing these controls edits a draft. Click Set Order to add it to Pending.
+          <p className="dip-muted dip-small">
+            Choose an order here, or click a destination on the map. Nothing is sent until you submit.
           </p>
-          <select value={orderType} onChange={event => {
+          <select aria-label="Order type" value={orderType} onChange={event => {
             setOrderType(event.target.value as OrderType);
             setDraftDirty(true);
           }}>
@@ -273,7 +287,7 @@ export function OrderPanel(props: Props) {
                 </select>
               )}
               {selectedUnit.type === 'ARMY' && (
-                <label className="check-row">
+                <label className="dip-check">
                   <input
                     type="checkbox"
                     checked={viaConvoy}
@@ -286,9 +300,8 @@ export function OrderPanel(props: Props) {
                 </label>
               )}
               {selectedUnit.type === 'FLEET' && (
-                <p className="movement-note">
-                  Fleet destinations only include adjacent seas and coastal provinces. Inland
-                  provinces, including Budapest, are army-only.
+                <p className="dip-muted dip-small">
+                  Fleets can only reach adjacent seas and coastal provinces.
                 </p>
               )}
             </>
@@ -302,7 +315,7 @@ export function OrderPanel(props: Props) {
             }}>
               <option value="">Unit to support</option>
               {(orderType === 'SUPPORT_HOLD' ? supportHoldUnits : supportMoveUnits).map(unit => (
-                <option value={unit.territory} key={unit.id}>{unitLabel(unit)}</option>
+                <option value={unit.territory} key={unit.id}>{unitLabel(unit, myPower)}</option>
               ))}
             </select>
           )}
@@ -327,7 +340,7 @@ export function OrderPanel(props: Props) {
               }}>
                 <option value="">Army to convoy</option>
                 {convoyArmies.map(unit => (
-                  <option value={unit.territory} key={unit.id}>{unitLabel(unit)}</option>
+                  <option value={unit.territory} key={unit.id}>{unitLabel(unit, myPower)}</option>
                 ))}
               </select>
               <select value={supportedDestination} onChange={event => {
@@ -342,73 +355,49 @@ export function OrderPanel(props: Props) {
             </>
           )}
 
-          {draftDirty && (
-            <p className="order-draft-warning" role="status">
-              This draft is not queued yet.
-            </p>
-          )}
           <button
-            className={draftDirty ? 'primary' : undefined}
+            className={draftDirty ? 'dip-solid' : undefined}
             onClick={addOrder}
             disabled={!canAddOrder()}
           >
-            Set Order
+            Set this order
           </button>
+          {draftDirty && (
+            <p className="dip-small" role="status" style={{ color: 'var(--folio-warning)' }}>
+              This order is not set yet.
+            </p>
+          )}
         </div>
       )}
 
       {gameState.phase === 'RETREATS' && <RetreatPanel {...props} />}
       {gameState.phase === 'BUILDS' && <BuildPanel {...props} />}
 
-      <div className="pending-list">
-        <h3>Pending</h3>
+      {gameState.phase === 'ORDERS' && <>
         {canSubmitOrders && unorderedUnits.length > 0 && (
-          <div className="order-submit-blocker" role="status">
-            <strong>Orders incomplete.</strong>
-            <span>
-              Set orders for {unorderedUnits.map(unit => unitLabel(unit)).join(', ')}.
-            </span>
-          </div>
-        )}
-        {canSubmitOrders && draftDirty && (
-          <div className="order-submit-blocker" role="status">
-            <strong>Draft not queued.</strong>
-            <span>Click Set Order or select another unit before submitting.</span>
-          </div>
-        )}
-        {pendingOrders.map(order => (
-          <p key={order.id}>
-            {describeOrder(order)}
-            <button
-              className="inline-remove"
-              aria-label={`Remove order for ${order.unitTerritory}`}
-              disabled={!canSubmitOrders}
-              onClick={() => onPendingOrdersChange(
-                pendingOrders.filter(candidate => candidate.id !== order.id)
-              )}
-            >
-              Remove
-            </button>
+          <p className="dip-small dip-muted" role="status">
+            Still to order: {unorderedUnits.map(unit => territoryName(unit.territory)).join(', ')}.
           </p>
-        ))}
-        <button
-          className="primary"
-          onClick={onSubmitOrders}
-          disabled={!canSubmitCompleteOrders}
-          title={
-            canSubmitCompleteOrders
-              ? undefined
-              : draftDirty
-                ? 'Queue or discard the current draft before submitting.'
-                : unorderedUnits.length > 0
-                  ? 'Every active unit needs a queued order before humans can submit.'
-                  : undefined
-          }
-        >
-          {hasSubmittedOrders ? 'Orders Submitted' : 'Submit Orders'}
-        </button>
-      </div>
-    </section>
+        )}
+        <div className="dip-orders-actions">
+          <ArrowFillButton
+            onClick={onSubmitOrders}
+            disabled={!canSubmitCompleteOrders}
+            title={
+              canSubmitCompleteOrders
+                ? undefined
+                : draftDirty
+                  ? 'Set or discard the order you are editing before submitting.'
+                  : unorderedUnits.length > 0
+                    ? 'Every unit needs an order before you can submit.'
+                    : undefined
+            }
+          >
+            {hasSubmittedOrders ? 'Orders submitted' : submission?.status === 'SUBMITTING' ? 'Submitting…' : 'Submit orders'}
+          </ArrowFillButton>
+        </div>
+      </>}
+    </div>
   );
 }
 
@@ -426,13 +415,12 @@ function RetreatPanel({ gameState, myPower, onSubmitRetreats, submission }: Prop
       return next;
     });
   }, [retreats.map(unit => unit.id).join('|')]);
-  if (retreats.length === 0) return <p>No retreats required.</p>;
+  if (retreats.length === 0) return <p className="dip-muted dip-small" role="status">None of your units has to retreat. Waiting for the powers that do.</p>;
   return (
-    <div className="order-builder">
-      <h3>Retreats</h3>
+    <div className="dip-builder">
       {retreats.map(unit => (
         <label key={unit.id}>
-          {unitLabel(unit)}
+          Retreat from {territoryName(unit.territory)}
           <select
             disabled={submitted || submitting}
             value={serializeRetreat(choices[unit.id])}
@@ -448,7 +436,7 @@ function RetreatPanel({ gameState, myPower, onSubmitRetreats, submission }: Prop
               }
               return coasts.map(coast => (
                 <option value={`${option}|${coast}`} key={`${option}-${coast}`}>
-                  {territoryLabel(option)} / {coast}
+                  {territoryLabel(option)} ({coast.toLowerCase()} coast)
                 </option>
               ));
             })}
@@ -456,8 +444,7 @@ function RetreatPanel({ gameState, myPower, onSubmitRetreats, submission }: Prop
           </select>
         </label>
       ))}
-      <button
-        className="primary"
+      <div className="dip-orders-actions"><ArrowFillButton
         disabled={submitted || submitting}
         onClick={() => {
           onSubmitRetreats(Object.fromEntries(
@@ -465,8 +452,8 @@ function RetreatPanel({ gameState, myPower, onSubmitRetreats, submission }: Prop
           ));
         }}
       >
-        {submitted ? 'Retreats Submitted' : submitting ? 'Submitting…' : 'Submit Retreats'}
-      </button>
+        {submitted ? 'Retreats submitted' : submitting ? 'Submitting…' : 'Submit retreats'}
+      </ArrowFillButton></div>
     </div>
   );
 }
@@ -552,19 +539,18 @@ function BuildPanel({ gameState, myPower, onSubmitBuilds, submission }: Props) {
   }
 
   return (
-    <fieldset className="order-builder" disabled={submitted || submitting}>
-      <h3>Adjustments</h3>
-      <p className="adjustment-count" aria-live="polite">
+    <fieldset className="dip-builder" disabled={submitted || submitting}>
+      <p className="dip-small" aria-live="polite">
         {delta > 0
-          ? `${remainingBuilds} of ${delta} builds remaining`
+          ? `${remainingBuilds} of ${delta} builds left to choose. Unused builds are waived.`
           : delta < 0
-            ? `${remainingDisbands} of ${requiredDisbands} disbands remaining`
-            : 'No adjustments required'}
+            ? `${remainingDisbands} of ${requiredDisbands} disbands left to choose.`
+            : 'Your units already match your supply centers. Submit to continue.'}
       </p>
 
       {delta > 0 && remainingBuilds > 0 && (
         <>
-          <select value={territory} onChange={event => {
+          <select aria-label="Home supply center" value={territory} onChange={event => {
             setTerritory(event.target.value);
             setCoast('');
           }}>
@@ -573,7 +559,7 @@ function BuildPanel({ gameState, myPower, onSubmitBuilds, submission }: Props) {
               <option value={center.id} key={center.id}>{territoryLabel(center.id)}</option>
             ))}
           </select>
-          <select value={unitType} onChange={event => {
+          <select aria-label="Unit type" value={unitType} onChange={event => {
             setUnitType(event.target.value as UnitType);
             setCoast('');
           }}>
@@ -586,33 +572,28 @@ function BuildPanel({ gameState, myPower, onSubmitBuilds, submission }: Props) {
               {buildCoasts.map(option => <option value={option} key={option}>{option}</option>)}
             </select>
           )}
-          <button onClick={addBuild} disabled={!canAddBuild}>Add Build</button>
+          <button onClick={addBuild} disabled={!canAddBuild}>Add this build</button>
         </>
       )}
 
       {delta > 0 && builds.length > 0 && (
-        <div className="adjustment-draft">
-          <h3>Queued builds</h3>
+        <ul className="dip-list" aria-label="Chosen builds">
           {builds.map((build, index) => (
-            <p key={`${build.territory}-${build.type}`}>
-              {build.type} in {build.territory}{build.coast ? `/${build.coast}` : ''}
+            <li key={`${build.territory}-${build.type}`}>
+              <span>{title(build.type)} in {territoryName(build.territory)}{build.coast ? ` (${build.coast.toLowerCase()} coast)` : ''}</span>
               <button
-                className="inline-remove"
+                className="dip-link dip-small"
                 onClick={() => setBuilds(current => current.filter((_, item) => item !== index))}
               >
                 Remove
               </button>
-            </p>
+            </li>
           ))}
-        </div>
-      )}
-
-      {delta > 0 && remainingBuilds === 0 && (
-        <p className="adjustment-complete">All available builds are queued.</p>
+        </ul>
       )}
 
       {delta < 0 && remainingDisbands > 0 && units.map(unit => (
-        <label className="check-row" key={unit.id}>
+        <label className="dip-check" key={unit.id}>
           <input
             type="checkbox"
             checked={disbands.includes(unit.id)}
@@ -623,33 +604,31 @@ function BuildPanel({ gameState, myPower, onSubmitBuilds, submission }: Props) {
       ))}
 
       {delta < 0 && remainingDisbands === 0 && (
-        <div className="adjustment-draft">
-          <h3>Selected disbands</h3>
+        <ul className="dip-list" aria-label="Chosen disbands">
           {units.filter(unit => disbands.includes(unit.id)).map(unit => (
-            <p key={unit.id}>
-              {unitLabel(unit)}
-              <button className="inline-remove" onClick={() => toggleDisband(unit.id)}>
+            <li key={unit.id}>
+              <span>{unitLabel(unit)}</span>
+              <button className="dip-link dip-small" onClick={() => toggleDisband(unit.id)}>
                 Remove
               </button>
-            </p>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
 
-      <button
-        className="primary"
+      <div className="dip-orders-actions"><ArrowFillButton
         disabled={submitted || submitting || (delta < 0 && remainingDisbands !== 0)}
         onClick={() => {
           onSubmitBuilds({ builds, disbands });
         }}
       >
         {submitted
-          ? 'Adjustments Submitted'
+          ? 'Adjustments submitted'
           : submitting ? 'Submitting…'
           : delta > 0 && remainingBuilds > 0
           ? `Submit and waive ${remainingBuilds}`
-          : 'Submit Adjustments'}
-      </button>
+          : 'Submit adjustments'}
+      </ArrowFillButton></div>
     </fieldset>
   );
 }
@@ -658,18 +637,4 @@ function orderKey(territory: TerritoryId, coast: Coast | null): string {
   return `${territory}:${coast ?? ''}`;
 }
 
-function describeOrder(order: Order): string {
-  if (order.type === 'HOLD') return `${order.unitTerritory} holds`;
-  if (order.type === 'MOVE') {
-    return `${order.unitTerritory} moves to ${order.targetTerritory}${
-      order.targetCoast ? `/${order.targetCoast}` : ''
-    }${order.viaConvoy ? ' via convoy' : ''}`;
-  }
-  if (order.type === 'SUPPORT_HOLD') {
-    return `${order.unitTerritory} supports ${order.supportedUnit} holding`;
-  }
-  if (order.type === 'SUPPORT_MOVE') {
-    return `${order.unitTerritory} supports ${order.supportedUnit} to ${order.supportedDestination}`;
-  }
-  return `${order.unitTerritory} convoys ${order.supportedUnit} to ${order.targetTerritory}`;
-}
+const describeOrder = (order: Order) => describeOrderFields(order);

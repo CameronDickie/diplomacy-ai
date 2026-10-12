@@ -61,7 +61,7 @@ export function ChallengeApp() {
     onSelectTerritory={territory => { if (playing && entry.own.some(u => u.territory === territory)) { entry.setSelected(now => now === territory ? null : territory); void game.activity(); } }}
     onClearSelection={() => entry.setSelected(null)} />;
 
-  return <Shell nav={nav} current={current} onNavigate={id => go(id as View)}>
+  return <Shell section="challenge" nav={nav} current={current} onNavigate={id => go(id as View)}>
     {game.error && <div className="dip-notice is-error" role="alert" style={{ marginTop: 16 }}>{game.error} <button onClick={game.clearError}>Dismiss</button>{!game.loaded && <button onClick={() => window.location.reload()}>Retry</button>}</div>}
     {!game.loaded && !game.error && <p style={{ padding: '40px 0' }} role="status">Loading the challenge…</p>}
     {replay && report ? <main id="dip-content">

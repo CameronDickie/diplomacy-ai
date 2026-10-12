@@ -43,9 +43,14 @@ export function ArrowFillButton({ children, className = '', ...props }: ButtonHT
 }
 
 export interface NavItem { id: string; label: string; count?: number }
-/** The shared frame: the site monogram home link, the views of the current game, the account and the theme. */
-export function Shell({ nav, current, onNavigate, children }: { nav: NavItem[]; current: string; onNavigate: (id: string) => void; children: ReactNode }) {
+/**
+ * The shared frame of both ways to play: the site monogram home link, the switch between the daily
+ * challenge and hosted games, the views of the current game, the account and the theme.
+ * Hosted games do not exist in the showcase profile, so the switch is only shown where both do.
+ */
+export function Shell({ nav, current, onNavigate, section, children }: { nav: NavItem[]; current: string; onNavigate: (id: string) => void; section: 'challenge' | 'games'; children: ReactNode }) {
   const auth = useAuth();
+  const both = auth.status !== 'CHECKING' && auth.status !== 'ERROR' && auth.profile !== 'showcase';
   return <div className="dip">
     <div className="dip-wrap">
       <header className="dip-header">
@@ -54,6 +59,10 @@ export function Shell({ nav, current, onNavigate, children }: { nav: NavItem[]; 
             <svg viewBox="0 0 100 100" fill="none" aria-hidden="true"><path className="dip-mark-start" d="M44 12H12V44" stroke="currentColor" strokeWidth="12" /><path className="dip-mark-end" d="M56 88H88V56" stroke="currentColor" strokeWidth="12" /></svg></a>
           <span className="dip-wordmark">Diplomacy</span>
         </span>
+        {both && <nav className="dip-switch" aria-label="Ways to play">
+          <a href="/challenge" aria-current={section === 'challenge' ? 'page' : undefined}>Daily challenge</a>
+          <a href="/" aria-current={section === 'games' ? 'page' : undefined}>Hosted games</a>
+        </nav>}
         <nav className="dip-nav" aria-label="Game sections">
           {nav.map(item => <button key={item.id} type="button" aria-current={current === item.id ? 'page' : undefined} onClick={() => onNavigate(item.id)}>
             {item.label}{item.count ? <span className="dip-nav-count">{item.count}</span> : null}</button>)}

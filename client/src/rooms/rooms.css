@@ -1,0 +1,28 @@
+/* Hosted games: the few pieces the challenge does not have. Everything else comes from challenge/theme.css. */
+.dip-form { display: grid; gap: 16px; max-width: 920px; }
+.dip-form > label { max-width: 420px; }
+.dip-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px 28px; align-items: end; }
+.dip input:not([type='checkbox']) { width: 100%; }
+.dip .dip-check { display: flex; gap: 8px; align-items: center; color: var(--folio-ink); font-size: 15px; }
+.dip .dip-check input { width: auto; padding: 0; }
+.dip fieldset.dip-builder { border: 0; margin: 0; padding: 0; min-width: 0; }
+.dip-builder { display: grid; gap: 10px; padding: 14px 0; border-block: 1px solid var(--folio-line); }
+.dip-builder h3 { margin: 0; }
+.dip-builder p { margin: 0; }
+.dip-builder > button { justify-self: start; }
+.dip-list li > span > small { font-weight: 400; }
+.dip-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; border: 1px solid var(--folio-control); }
+.dip-powers { margin-top: 28px; }
+.dip-powers .dip-list li { padding: 8px 0; }
+.dip-voice { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.dip .dip-voice button { padding: 5px 10px; font-size: 13px; }
+.dip-voice small { display: inline; }
+.dip code { font-size: 12px; overflow-wrap: anywhere; }
+
+/* The order menu that opens on the map where you clicked. */
+.dip-map-menu { position: fixed; z-index: 8; width: 240px; display: grid; gap: 8px; padding: 12px; border: 1px solid var(--folio-control); border-radius: 10px;
+  background: var(--folio-paper); color: var(--folio-ink); box-shadow: 0 14px 36px rgba(0, 0, 0, .28); }
+.dip-map-menu header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.dip-map-menu p { margin: 0; }
+.dip-map-menu > div { display: grid; gap: 6px; }
+.dip-map-menu em { font-style: normal; font-size: 13px; color: var(--folio-muted); }
