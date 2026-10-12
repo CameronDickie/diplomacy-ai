@@ -9,7 +9,7 @@ import { OPPONENT_CONTRACTS, opponentContract } from '../providers/OpponentContr
 import { Store } from '../storage/Store.js';
 import { DEFAULT_ASSIGNMENT, autoplay, type AutoplayResult, type ModelKey } from './Autoplay.js';
 
-const USAGE = `Usage: autoplay --db DATABASE --run RUN_ID [--until 1908] [--models AUSTRIA=luna,ENGLAND=haiku,...] [--messages 3] [--max-phases N] [--attempt-cap USD] [--seed 1] [--out FILE]
+const USAGE = `Usage: autoplay --db DATABASE --run RUN_ID [--until 1908] [--models AUSTRIA=luna,ENGLAND=haiku,...] [--messages 3] [--message-retries 2] [--max-phases N] [--attempt-cap USD] [--resume-paid] [--seed 1] [--out FILE]
        Plays one full game with a model on every power. Free stand-in models unless --live is given.
        add --live --authorization-ref REFERENCE to call the real providers (see docs/autoplay.md)`;
 
@@ -36,7 +36,8 @@ export function format(result: AutoplayResult): string {
   return [
     `Run ${result.run.runId} · ${result.run.transport.toUpperCase()} transport · to Fall ${result.run.lastYear} · messages to up to ${result.run.talkRecipients} powers`,
     `Models: ${ALL_POWERS.map(p => `${p} ${result.run.assignment[p]}`).join(', ')}`,
-    `Status ${result.status}${result.waitingOn ? ` · ${result.waitingOn}` : ''}`,
+    `Status ${result.status}${result.endedBy === 'SOLO_WIN' ? ' · ended by a solo win' : result.endedBy === 'LAST_YEAR' ? ` · ended after Fall ${result.run.lastYear}` : ''}${result.waitingOn ? ` · ${result.waitingOn}` : ''}`,
+    ...(result.record.failures.length ? [`Failures recorded: ${result.record.failures.length} (listed under record.failures)`] : []),
     `Reached ${s.season} ${s.year} after ${s.phases} phases${s.winner ? ` · ${s.winner} won` : ''}`,
     `Supply centers: ${ALL_POWERS.map(p => `${p} ${s.centers[p]}`).join(', ')}`,
     `Order calls ${s.calls} (${s.validCalls} valid) · message calls ${s.talkCalls} · messages sent ${s.messages}`,
@@ -48,12 +49,12 @@ export function format(result: AutoplayResult): string {
 
 async function main() {
   assertDevelopment(process.env);
-  const { values } = parseArgs({ options: { db: { type: 'string' }, run: { type: 'string' }, until: { type: 'string', default: '1908' }, models: { type: 'string' }, messages: { type: 'string', default: '3' },
-    'max-phases': { type: 'string' }, 'attempt-cap': { type: 'string' }, seed: { type: 'string', default: '1' }, out: { type: 'string' }, live: { type: 'boolean', default: false }, 'authorization-ref': { type: 'string' } }, strict: true });
+  const { values } = parseArgs({ options: { db: { type: 'string' }, run: { type: 'string' }, until: { type: 'string', default: '1908' }, models: { type: 'string' }, messages: { type: 'string', default: '3' }, 'message-retries': { type: 'string', default: '2' },
+    'max-phases': { type: 'string' }, 'attempt-cap': { type: 'string' }, seed: { type: 'string', default: '1' }, out: { type: 'string' }, live: { type: 'boolean', default: false }, 'resume-paid': { type: 'boolean', default: false }, 'authorization-ref': { type: 'string' } }, strict: true });
   if (!values.db || !values.run) throw new Error(USAGE);
-  const db = resolve(values.db), lastYear = Number(values.until), talkRecipients = Number(values.messages), seed = Number(values.seed);
+  const db = resolve(values.db), lastYear = Number(values.until), talkRecipients = Number(values.messages), messageRetries = Number(values['message-retries']), seed = Number(values.seed);
   const maxPhases = values['max-phases'] === undefined ? undefined : Number(values['max-phases']);
-  if (![lastYear,talkRecipients,seed].every(Number.isSafeInteger) || (maxPhases !== undefined && (!Number.isSafeInteger(maxPhases) || maxPhases < 1))) throw new Error(USAGE);
+  if (![lastYear,talkRecipients,messageRetries,seed].every(Number.isSafeInteger) || (maxPhases !== undefined && (!Number.isSafeInteger(maxPhases) || maxPhases < 1))) throw new Error(USAGE);
   const assignment = parseAssignment(values.models), keys = [...new Set(Object.values(assignment))];
   const transports: Partial<Record<ModelKey, LunaTransport>> = {};
   for (const key of keys) {
@@ -73,9 +74,11 @@ async function main() {
       // Keeps whatever overall limit is already in force; only the per-game cap changes.
       await store.call('setFundingPolicy',{ attemptCapNanousd: cap, ceilingLimitNanousd: totals.ceilingNanousd < totals.grantedNanousd ? totals.ceilingNanousd : null, now: Date.now() });
     }
+    // A pause is written when a grant runs out. Lifting it is the owner's call, made by passing this flag.
+    if (values['resume-paid']) await store.call('setPaidStopped',{ stopped: false, operatorId: 'autoplay-cli', now: Date.now() });
     const funds = await store.call('fundingTotals',{});
     console.log(`Funding: USD ${(funds.availableNanousd / 1e9).toFixed(4)} available · this game may spend up to USD ${(funds.attemptCapNanousd / 1e9).toFixed(2)}${values.live ? '' : ' (stand-in models: only numbers)'}`);
-    const result = await autoplay({ store, runId: values.run, lastYear, assignment, transports, transportKind: values.live ? 'live' : 'mock', talkRecipients, maxPhases, signal: stop.signal, log: line => console.log(line) });
+    const result = await autoplay({ store, runId: values.run, lastYear, assignment, transports, transportKind: values.live ? 'live' : 'mock', talkRecipients, messageRetries, maxPhases, signal: stop.signal, log: line => console.log(line) });
     console.log(`\n${format(result)}`);
     // The record holds no keys and no prompts; it is still private game data, so only its owner may read it.
     await writeFile(out,`${JSON.stringify(result,null,2)}\n`,{ mode: 0o600 });

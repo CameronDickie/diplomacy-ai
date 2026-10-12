@@ -34,6 +34,8 @@ export interface AutoplayOptions {
   transportKind: 'mock' | 'live';
   /** How many other powers each power may write to before orders. 0 turns messages off. */
   talkRecipients?: number;
+  /** Further tries for a message call that failed, before that power stays silent for the turn (0–3, default 2). */
+  messageRetries?: number;
   /** Explicit recoveries allowed for one phase in this run before the game is left waiting. */
   maxRecoveries?: number;
   /** Stop cleanly after this many phases in this run (the game stays resumable). */
@@ -45,6 +47,8 @@ export interface AutoplayOptions {
 export interface AutoplayResult {
   run: { runId: string; attemptId: string; transport: 'mock' | 'live'; lastYear: number; talkRecipients: number; assignment: Record<Power, string>; planId: string; contextVersion: string };
   status: 'FINISHED' | 'WAITING' | 'PAUSED';
+  /** How a finished game ended: one power reached 18 supply centers, or the last year's Fall settled. */
+  endedBy: 'SOLO_WIN' | 'LAST_YEAR' | null;
   /** Why the game is not finished, in plain words. Null when it is. */
   waitingOn: string | null;
   summary: {
@@ -105,12 +109,20 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   if (attempt && (attempt.preset?.id !== plan.id || attempt.preset?.pricingVersion !== plan.pricingVersion))
     throw new Error('This run was started with different models or prices. Continue it with the same assignment, or choose a new run ID.');
   if (attempt && (attempt.challengeId !== definition.id)) throw new Error('This run was started with a different last year. Continue it with the same one, or choose a new run ID.');
+  // Checked here, before anything is created: starting against an empty or paused ledger would otherwise pause it for everything.
+  if ((await store.call('paidState',{})).stopped) throw new Error('Sponsored play is paused in this database (a grant ran out, or it was paused). Record a grant if needed, then run again with --resume-paid.');
+  if (!attempt && (await store.call('fundingTotals',{})).availableNanousd < plan.reservationNanousd * plan.maxConcurrentDecisions)
+    throw new Error('Not enough funds to start. Record a funding grant first: npm run storage -- grant DATABASE <usd> <your-reference>');
   attempt ??= await store.call('createAttempt',{ id, playerId: player.id, challengeId: definition.id, challengeVersion: definition.version, now: now(), reconnectTokenHash: hashToken(id),
     sponsored: { preset: { id: plan.id, pricingVersion: plan.pricingVersion }, minimumAvailableNanousd: plan.reservationNanousd } });
 
   const rules = new PhaseRules(), failures: Array<{ at: number; phaseId: string; reason: string }> = [];
   const main = options.transports[plan.contracts[0].key]!;
-  const provider = new LunaDecisionProvider(store,rules,main,{ now, plan, transports: options.transports, ...(talkRecipients ? { talk: { maxRecipients: talkRecipients } } : {}) });
+  const provider = new LunaDecisionProvider(store,rules,main,{ now, plan, transports: options.transports, ...(talkRecipients ? { talk: { maxRecipients: talkRecipients, retries: options.messageRetries ?? 2,
+    onFailure: f => {
+      const reason = `${f.power} ${f.round === 'ASK' ? 'message' : 'reply'} call, try ${f.attempt}: ${f.reason}${f.final ? ' — gave up; it says nothing this turn' : ' — trying again'}`;
+      failures.push({ at: now(), phaseId: f.phaseId, reason }); log(`  ! ${f.phaseId.split(':').slice(-3,-1).reverse().join(' ')} · ${reason}`);
+    } } } : {}) });
   // Three rounds of calls (messages, replies, orders) share one phase deadline.
   const service = new AttemptService(store,provider,rules,{ now, maxRunning: 1, timeoutMs: 120_000,
     onPhaseFailure: (job,error) => failures.push({ at: now(), phaseId: job.phaseId,
@@ -162,6 +174,7 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
     run: { runId, attemptId: id, transport: options.transportKind, lastYear: options.lastYear, talkRecipients,
       assignment: Object.fromEntries(ALL_POWERS.map(p => [p,plan.contractFor(p).preset.model])) as Record<Power, string>, planId: plan.id, contextVersion: CONTEXT_VERSION },
     status: attempt.lifecycle === 'ACTIVE' ? (status === 'FINISHED' ? 'WAITING' : status) : 'FINISHED',
+    endedBy: attempt.lifecycle === 'ACTIVE' ? null : ALL_POWERS.some(p => count[p] >= 18) ? 'SOLO_WIN' : 'LAST_YEAR',
     waitingOn: attempt.lifecycle === 'ACTIVE' ? waitingOn : null,
     summary: { phases: record.phases.filter(p => p.report).length, year: attempt.board.year, season: attempt.board.season, centers: count,
       winner: ALL_POWERS.find(p => count[p] >= 18) ?? null,

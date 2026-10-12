@@ -19,6 +19,9 @@ export type LunaFailure = 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED' | 'PAU
 export class LunaDecisionError extends Error {
   constructor(readonly code: LunaFailure, readonly power: Power) { super(`Sponsored decision unavailable (${code}).`); this.name = 'LunaDecisionError'; }
 }
+export interface TalkFailure { phaseId: string; power: Power; round: 'ASK' | 'REPLY'; attempt: number;
+  /** The recorded outcome of the call (INVALID_JSON, TIMEOUT, PROVIDER_ERROR…), or PREFLIGHT when the token count failed and nothing was sent. */
+  reason: string; final: boolean }
 interface Options {
   now?: () => number;
   /** Which pinned preset to serve. Defaults to Luna. */
@@ -36,7 +39,11 @@ interface Options {
    * Development only, and only for a model-only full game: before each orders phase every power may
    * write to up to this many other powers, and each power written to answers once.
    */
-  talk?: { maxRecipients: number };
+  talk?: { maxRecipients: number;
+    /** Further tries for a message call that failed, before that power stays silent this turn. Default 2. */
+    retries?: number;
+    /** Told about every message call that failed, and whether the power has now given up for the turn. */
+    onFailure?: (failure: TalkFailure) => void };
   /** Test seam: awaited at named points for one power, to inject crashes and stops. */
   boundary?: (stage: 'reserved' | 'decided', power: Power, callId: string) => Promise<void>;
 }
@@ -58,6 +65,7 @@ export class LunaDecisionProvider implements DecisionProvider {
     const width=options.maxConcurrentDecisions ?? this.plan.maxConcurrentDecisions;
     if(!Number.isSafeInteger(width)||width<1||width>this.plan.maxConcurrentDecisions)throw new Error('Invalid opponent concurrency.');
     if(options.talk&&(!Number.isSafeInteger(options.talk.maxRecipients)||options.talk.maxRecipients<1||options.talk.maxRecipients>6))throw new Error('Powers may write to between 1 and 6 others.');
+    if(options.talk?.retries!==undefined&&(!Number.isSafeInteger(options.talk.retries)||options.talk.retries<0||options.talk.retries>3))throw new Error('A message call may be retried between 0 and 3 times.');
   }
   decide(context: DecisionContext): Promise<PhaseDecisions> { return this.run(context); }
   recover(context: DecisionContext): Promise<PhaseDecisions> { return this.run(context); }
@@ -170,9 +178,10 @@ export class LunaDecisionProvider implements DecisionProvider {
 
   /**
    * The messages of one orders phase: each power with units may write to a few others, then each
-   * power that was written to answers once. A power gets one call per round per phase: an answer
-   * that never came or could not be used is not bought again, and that power simply says nothing.
-   * Running out of funds or a stop still fails the phase, exactly as for a decision.
+   * power that was written to answers once. A call that fails is tried again at once, a bounded
+   * number of times across every run of the phase; after that the power says nothing this turn.
+   * Each failure is reported with its recorded outcome. Running out of funds or a stop still fails
+   * the phase, exactly as for a decision.
    */
   private async negotiate(job: DecisionContext['job'], last: Parameters<typeof talkPrompt>[2], calls: ProviderCallRecord[], lanes: ReturnType<LunaDecisionProvider['lanes']>, signal: AbortSignal): Promise<void> {
     const alive = job.definition.opponentPowers.filter(p => job.board.units.some(u => u.power === p && !u.mustRetreat));
@@ -182,18 +191,28 @@ export class LunaDecisionProvider implements DecisionProvider {
       await lanes.each(powers,async power => {
         const done = said.find(t => t.operationId === job.operationId && t.kind === kind && t.power === power);
         if (done) { await this.store.call('finishProviderCall',{ id: done.callId, outcome: 'VALID', now: this.now() }).catch(() => {}); return; }
-        const earlier = calls.filter(c => c.power === power && c.role === kind);
-        // One attempt per power per round: whatever became of a call that left the process, it is not repeated.
-        const others = othersOf(power,said);
-        if (earlier.some(c => c.dispatchedAt !== null) || !others.length || lanes.state.failed) return;
-        signal.throwIfAborted();
+        let earlier = calls.filter(c => c.power === power && c.role === kind);
+        const others = othersOf(power,said), limit = 1 + (this.options.talk!.retries ?? 2), sentCalls = () => earlier.filter(c => c.dispatchedAt !== null).length;
+        if (!others.length) return;
         const contract = this.plan.contractFor(power), prompt = talkPrompt(job,power,last,kind,others,history,this.options.talk!.maxRecipients,contract);
-        try {
-          await lanes.call((sibling,halted) => this.call(job,power,{ role: kind, id: () => `${job.operationId}:${power}:${kind.toLowerCase()}`, limit: 1, request: prompt.request, maxCostNanousd: prompt.maxCostNanousd,
-            validate: async (parsed,_signal,id) => { await this.store.call('savePowerTalk',{ callId: id, messages: parseMessages(parsed,prompt.allowed,prompt.max), now: this.now() }); } },earlier,signal,sibling,halted));
-        } catch (error) {
-          // The call's outcome is on record. Silence is a legitimate result of a negotiation round; lost funds or a stop are not.
-          if (!(error instanceof LunaDecisionError) || !['PROVIDER','PREFLIGHT','CALL_LIMIT'].includes(error.code)) throw error;
+        // Calls that left the process count against the limit across every run of this phase; `tries` also
+        // bounds failures that never left it (a token count that failed).
+        for (let tries = 0; tries < limit && sentCalls() < limit && !lanes.state.failed; tries++) {
+          signal.throwIfAborted();
+          try {
+            await lanes.call((sibling,halted) => this.call(job,power,{ role: kind, id: n => `${job.operationId}:${power}:${kind.toLowerCase()}:${n}`, limit, request: prompt.request, maxCostNanousd: prompt.maxCostNanousd,
+              validate: async (parsed,_signal,id) => { await this.store.call('savePowerTalk',{ callId: id, messages: parseMessages(parsed,prompt.allowed,prompt.max), now: this.now() }); } },earlier,signal,sibling,halted));
+            return;
+          } catch (error) {
+            // Silence is a legitimate result of a negotiation round; lost funds or a stop are not.
+            if (!(error instanceof LunaDecisionError) || !['PROVIDER','PREFLIGHT','CALL_LIMIT'].includes(error.code)) throw error;
+            earlier = (await this.store.call('providerCallsForOperation',{ operationId: job.operationId })).filter(c => c.power === power && c.role === kind);
+            const attempt = Math.max(sentCalls(),tries + 1), final = attempt >= limit || error.code === 'CALL_LIMIT';
+            // The recorded outcome says why; raw provider errors are never kept.
+            const reason = error.code === 'PREFLIGHT' ? 'PREFLIGHT' : earlier.filter(c => c.dispatchedAt !== null).at(-1)?.outcome ?? error.code;
+            try { this.options.talk!.onFailure?.({ phaseId: job.phaseId, power, round: kind, attempt, reason, final }); } catch { /* a diagnostic hook must never affect play */ }
+            if (final) return;
+          }
         }
       });
     };

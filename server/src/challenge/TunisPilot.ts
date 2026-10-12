@@ -116,6 +116,8 @@ export function scoreChallenge(
       achievementIds: [], tie: 'NOT_POSSIBLE',
     };
   }
+  // In a full game a solo win is how the game is meant to end, not a failed objective.
+  if (attempt.lifecycle === 'GAME_FINISHED' && definition.autoplay) return { outcome: 'SUCCESS', reason: 'GAME_FINISHED', completedYear: settledFalls.at(-1)?.year ?? null, achievementIds: [], tie: 'NOT_POSSIBLE' };
   if (attempt.lifecycle === 'GAME_FINISHED') {
     return {
       outcome: 'FAILURE', reason: 'GAME_FINISHED', completedYear: null,

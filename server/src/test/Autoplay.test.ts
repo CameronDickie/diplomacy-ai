@@ -11,7 +11,7 @@ import { mockOpponentTransport, type LunaTransport } from '../luna/Transport.js'
 import { OPPONENT_CONTRACTS, opponentContract } from '../providers/OpponentContract.js';
 import { parseChallenge } from '../storage/publicData.js';
 import { Store } from '../storage/Store.js';
-import { TUNIS_PILOT_V1 } from '../challenge/TunisPilot.js';
+import { TUNIS_PILOT_V1, scoreChallenge } from '../challenge/TunisPilot.js';
 
 async function setup(t: test.TestContext, granted = 5_000_000_000) {
   const dir = await mkdtemp(join(tmpdir(),'diplomacy-autoplay-')), store = await Store.open(join(dir,'game.sqlite'));
@@ -102,36 +102,69 @@ test('continuing a run buys nothing twice, and a run cannot be continued with ot
   await assert.rejects(f.run({ lastYear: 1903 }),/different last year/);
 });
 
-test('a message call that fails costs that power its say for the turn and nothing else: it is not repeated and the game goes on',async t => {
+test('a message call that fails is tried again, then given up on for the turn, with every failure and its reason recorded; the game goes on',async t => {
   const f = await setup(t);
-  // Germany's model answers every message request with something unusable.
+  // Germany's model answers every opening-message request with something unusable; Russia's fails only the first time each turn.
+  const russiaSeen = new Set<string>();
   const transports = f.transports((key,inner) => async request => {
-    const contract = opponentContract(key), context = contract.contextOf(request.body);
-    if (speaker(context) === 'GERMANY' && contract.buildFullGameRequest({ context },'ASK').body === request.body)
-      return { status: 200, body: contract.mockEnvelope({ serial: 9_000 + Math.floor(Math.random() * 1e6), text: 'not json', inputTokens: 100, outputTokens: 40 }) };
+    const contract = opponentContract(key), context = contract.contextOf(request.body), me = speaker(context);
+    const bad = () => ({ status: 200, body: contract.mockEnvelope({ serial: 9_000 + Math.floor(Math.random() * 1e9), text: 'not json', inputTokens: 100, outputTokens: 40 }) });
+    if (contract.buildFullGameRequest({ context },'ASK').body === request.body) {
+      if (me === 'GERMANY') return bad();
+      if (me === 'RUSSIA' && !russiaSeen.has(request.body)) { russiaSeen.add(request.body); return bad(); }
+    }
     return inner(request);
   });
-  const result = await f.run({ transports });
-  assert.equal(result.status,'FINISHED');
+  const lines: string[] = [], result = await f.run({ transports, log: line => lines.push(line) });
+  assert.equal(result.status,'FINISHED'); assert.equal(result.endedBy,'LAST_YEAR');
   for (const phase of result.record.phases.filter(p => p.report?.phase === 'ORDERS')) {
+    // Three tries (one call and two more), all recorded, no messages.
     const germany = phase.talk!.filter(c => c.power === 'GERMANY' && c.round === 'ASK');
-    assert.equal(germany.length,1); assert.equal(germany[0].outcome,'INVALID_JSON'); assert.deepEqual(germany[0].messages,[]);
-    // Its orders were still decided by its own model.
-    assert.equal(phase.calls.find(c => c.power === 'GERMANY')!.outcome,'VALID');
+    assert.deepEqual(germany.map(c => c.outcome),['INVALID_JSON','INVALID_JSON','INVALID_JSON']); assert.ok(germany.every(c => c.messages.length === 0));
+    // One failure, then a usable answer: its messages were sent.
+    const russia = phase.talk!.filter(c => c.power === 'RUSSIA' && c.round === 'ASK');
+    assert.deepEqual(russia.map(c => c.outcome),['INVALID_JSON','VALID']); assert.ok(russia[1].messages.length >= 1);
+    // Both still had their orders decided by their own model.
+    for (const power of ['GERMANY','RUSSIA']) assert.equal(phase.calls.find(c => c.power === power)!.outcome,'VALID');
   }
+  // Four orders phases: three recorded failures each for Germany (the last one final), one each for Russia.
+  const failures = result.record.failures.map(x => x.reason);
+  assert.equal(failures.filter(r => r.startsWith('GERMANY message call')).length,12);
+  assert.equal(failures.filter(r => /^GERMANY message call, try 3: INVALID_JSON — gave up/.test(r)).length,4);
+  assert.equal(failures.filter(r => /^RUSSIA message call, try 1: INVALID_JSON — trying again/.test(r)).length,4);
+  assert.ok(lines.some(line => line.includes('! SPRING 1901 · GERMANY message call, try 1: INVALID_JSON')));
   // The failed calls were billed and are counted.
   assert.ok(result.record.models['claude-haiku-5-5'].talkCalls > result.record.models['claude-haiku-5-5'].talkValid);
+  // With retries turned off, one try is all a power gets.
+  const g = await setup(t), once = await g.run({ transports: g.transports((key,inner) => async request => {
+    const contract = opponentContract(key), context = contract.contextOf(request.body);
+    return speaker(context) === 'GERMANY' && contract.buildFullGameRequest({ context },'ASK').body === request.body
+      ? { status: 200, body: contract.mockEnvelope({ serial: 9_000 + Math.floor(Math.random() * 1e9), text: 'not json', inputTokens: 100, outputTokens: 40 }) } : inner(request);
+  }), messageRetries: 0, lastYear: 1901, runId: 'game-b' });
+  assert.deepEqual(once.record.phases[0].talk!.filter(c => c.power === 'GERMANY' && c.round === 'ASK').map(c => c.outcome),['INVALID_JSON']);
+});
+
+test('a full game ends on a solo win or after its last year, and neither is scored as a failure',() => {
+  const definition = fullGameDefinition(1903);
+  const fall = (year: number) => ({ season: 'FALL', phase: 'ORDERS', year, sequence: year, dislodgedUnits: [], after: { territoryOwners: {} } }) as never;
+  const score = (lifecycle: 'ACTIVE' | 'GAME_FINISHED', years: number[]) => scoreChallenge(definition,{ challengeId: definition.id, challengeVersion: 1, lifecycle, reports: years.map(fall) });
+  assert.equal(score('ACTIVE',[1901,1902]).outcome,'INCOMPLETE');
+  assert.deepEqual([score('ACTIVE',[1901,1902,1903]).outcome,score('ACTIVE',[1901,1902,1903]).reason],['SUCCESS','DEADLINE']);
+  // The rules engine ends the game when a power owns 18 centers after a Fall; that is reported as the game finishing.
+  assert.deepEqual([score('GAME_FINISHED',[1901,1902]).outcome,score('GAME_FINISHED',[1901,1902]).reason,score('GAME_FINISHED',[1901,1902]).completedYear],['SUCCESS','GAME_FINISHED',1902]);
 });
 
 test('running out of funds leaves the game waiting, with every decision already bought kept for the continuation',async t => {
-  const f = await setup(t,10_000_000), result = await f.run({ maxRecoveries: 1 });
+  const f = await setup(t,60_000_000), result = await f.run({ maxRecoveries: 1, lastYear: 1910 });
   assert.equal(result.status,'WAITING'); assert.match(result.waitingOn!,/funding grant is used up/);
   assert.equal(result.record.attempt.lifecycle,'ACTIVE');
   await f.store.call('grantFunding',{ amountNanousd: 5_000_000_000, authorizationRef: 'owner-auto-0002', grantedBy: 'test', now: 2 });
   const bought = (await f.store.call('providerCallsForAttempt',{ attemptId: result.run.attemptId })).filter(c => c.outcome === 'VALID').map(c => c.id);
   assert.ok(bought.length > 0);
+  // A paused ledger is reported before anything is attempted, with what to do about it.
+  await assert.rejects(f.run({ lastYear: 1910 }),/--resume-paid/);
   await f.store.call('setPaidStopped',{ stopped: false, operatorId: player(result.run.attemptId), now: 3 });
-  const done = await f.run();
+  const done = await f.run({ lastYear: 1910 });
   assert.equal(done.status,'FINISHED');
   const after = await f.store.call('providerCallsForAttempt',{ attemptId: result.run.attemptId });
   // Everything bought before the stop is still there, once.

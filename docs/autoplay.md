@@ -51,9 +51,17 @@ What a power is shown:
   turn, it is also offered orders that support or convoy that power's units,
   so an agreement can actually be carried out.
 
-A power gets **one** message call and **one** reply call per turn. If that
-call fails or returns something unusable, the power says nothing that turn; the
-call is billed and listed in the record with its outcome, and is not repeated.
+A message or reply call that fails, or returns something unusable, is tried
+again at once: up to two more times by default (`--message-retries N`, 0–3).
+After that the power says nothing that turn and the game goes on. Every failed
+try is billed, printed as it happens, listed under `record.failures` with the
+power, the try number and the reason, and kept in that phase's `talk[]` with
+its outcome. The reason is the call's recorded outcome: `INVALID_JSON`,
+`INVALID_ACTION` (valid JSON of the wrong shape), `TIMEOUT`, `PROVIDER_ERROR`
+(the provider answered with an error status), `REFUSED`, `INCOMPLETE`,
+`TRANSPORT_ERROR` (no answer at all) or `PREFLIGHT` (the token count failed, so
+nothing was sent or billed). Raw provider error text is never stored, so the
+reason is a category, not a message.
 Running out of funds or a stop still halts the phase, as for a decision. An
 orders call that fails leaves the phase waiting and is recovered, up to the
 usual three calls per power; no power is ever given a default in place of its
@@ -65,8 +73,35 @@ dropped, then each unit's list of supports and convoys is shortened. So request
 size grows over the first years and then levels off. The record lists the
 provider-counted input tokens of every call, which is how to see that curve.
 
+## When a game ends
+
+Either of two ways, whichever comes first:
+
+- **A solo win.** After a Fall turn (and its retreats) the rules engine counts
+  supply centers; a power owning 18 of the 34, which is more than half, has
+  won and the game stops there, before that winter's builds.
+- **The last year.** `--until YEAR` (default 1908): the game stops once that
+  year's Fall has settled.
+
+The summary's `endedBy` says which: `SOLO_WIN` or `LAST_YEAR`.
+
 ## Running it
 
+`scripts/autoplay.sh` is the ready-made way to run it on this machine. It sets
+the development profile, creates `data/autoplay.sqlite` on first use, and for a
+live run reads `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` from `playtest.env` if
+they are not already in your environment (only those two lines; the file is not
+sourced and nothing is printed). It never records a funding grant; that stays
+your own command. Everything after the script name is passed to the tool:
+
+```bash
+npm run build
+scripts/autoplay.sh --run trial-1 --until 1903          # creates the database, then asks for a grant
+npm run storage -- grant "$PWD/data/autoplay.sqlite" 5 autoplay-0001
+scripts/autoplay.sh --run trial-1 --until 1903 --attempt-cap 5
+```
+
+The same by hand, which is also what the rest of this page uses.
 Always start with the free stand-in models. They exercise every code path and
 cost nothing.
 
@@ -88,10 +123,17 @@ is 15). With stand-in models both are only numbers.
 | `--until YEAR` | the game ends after this year's Fall (1901–1925, default 1908) or on a solo win |
 | `--models AUSTRIA=luna,ENGLAND=haiku` | per-power models. Default: Austria, France, Italy, Turkey on Luna; England, Germany, Russia on Haiku |
 | `--messages N` | how many powers each power may write to per turn (0–6, default 3) |
+| `--message-retries N` | further tries for a failed message or reply call (0–3, default 2) |
+| `--resume-paid` | lift the pause the ledger sets when a grant runs out, after you have recorded a new grant |
 | `--max-phases N` | stop cleanly after N phases; continue later with the same run id |
 | `--attempt-cap USD` | per-game spending cap |
 | `--out FILE` | where the record goes (default `autoplay-ID.json` in the current directory, which git ignores) |
 | `--live --authorization-ref REF` | call the real providers; see below |
+
+A game is not started against a ledger that is paused or has too little to
+cover one round of calls; it says so and changes nothing. If a grant runs out
+mid-game the ledger pauses, the game waits with everything bought so far kept,
+and it continues after a new grant and one run with `--resume-paid`.
 
 Ctrl-C finishes the phase in hand, writes the record and leaves the game
 resumable. A run cannot be continued with different models, prices or last
@@ -150,7 +192,8 @@ One JSON file, readable only by you (it holds no keys and no prompts):
 
 - `run`: run id, transport, last year, message limit, the model of each power,
   the context version.
-- `status` and `waitingOn`: `FINISHED`, or why it is not and what to do.
+- `status`, `endedBy` and `waitingOn`: `FINISHED` and how it ended, or why it
+  is not finished and what to do.
 - `summary`: phases played, where the game stands, supply centers, winner if
   any, call counts, messages sent, cost settled and held, and the largest
   request of each kind in input tokens.
@@ -162,7 +205,8 @@ One JSON file, readable only by you (it holds no keys and no prompts):
   - `talk[]`: one per message or reply call: power, model, round, outcome,
     time, tokens, cost, and the messages themselves with their recipients.
 - `record.models`: totals per model, decisions and messages counted apart.
-- `record.failures`: why any phase had to wait, with times.
+- `record.failures`: every failed message or reply try (power, try number,
+  reason, whether it gave up), and why any phase had to wait, with times.
 
 Prompts and the models' reasoning text are not stored anywhere, so they are not
 in the record. Token counts, including reasoning tokens, are.
