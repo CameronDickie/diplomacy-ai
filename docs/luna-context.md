@@ -6,7 +6,7 @@ engine then checks. It contains no transport and makes no provider call.
 
 ## What a request contains
 
-`Context.ts` (`luna-context-v4`) writes plain text in two parts:
+`Context.ts` (`luna-context-v5`) writes plain text in two parts:
 
 1. **Shared prefix**, identical for all six opponents in a phase so the provider
    can cache it: season and phase, the scenario's pinned objective, supply
@@ -65,7 +65,7 @@ are byte-for-byte what they were, so the preset ids did not change.
 | -- | -- | -- |
 | Orders | the legal orders that can serve this power, per unit: moves, then supports and convoys, then HOLD last | exactly one per active unit |
 | Retreats | disband, then each legal destination (with coast) per dislodged unit | exactly one per dislodged unit |
-| Builds | army and fleet (per coast) for each free owned home center | up to the allowance, one per center; empty waives |
+| Builds | army and fleet (per coast) for each free owned home center | up to the allowance, one per center; empty waives. When there are more free centers than builds the rule says so in words, because models otherwise picked one per center |
 | Disbands | each of the power's units | exactly the required number |
 
 ### Which orders are offered

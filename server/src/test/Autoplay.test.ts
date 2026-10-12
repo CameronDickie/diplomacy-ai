@@ -7,7 +7,8 @@ import { ALL_POWERS, type Power } from '@diplomacy/shared';
 import { DEFAULT_ASSIGNMENT, autoplay, fullGameDefinition, type ModelKey } from '../autoplay/Autoplay.js';
 import { assertDevelopment, parseAssignment } from '../autoplay/cli.js';
 import { parseMessages, talkLines, type PowerMessage } from '../luna/Context.js';
-import { parseUnitOrders } from '../luna/Choices.js';
+import { buildChoices, parseUnitOrders } from '../luna/Choices.js';
+import { describeRejection } from '../luna/LunaDecisionProvider.js';
 import { PreflightError, mockOpponentTransport, type LunaTransport } from '../luna/Transport.js';
 import { OPPONENT_CONTRACTS, opponentContract } from '../providers/OpponentContract.js';
 import { parseChallenge } from '../storage/publicData.js';
@@ -278,4 +279,17 @@ test('a unit-by-unit orders answer is read strictly: every unit once, each numbe
   assert.throws(() => parseUnitOrders({ orders: [{ unit: 'BRE', choice: 0 }] },set),/no usable order for F SPA\/SOUTH/);
   for (const bad of [null,[],{ choices: [0,2] },{ orders: 'x' },{ orders: [{ unit: 'BRE' }] },{ orders: [{ unit: 1, choice: 0 }] },{ orders: [], extra: 1 }])
     assert.throws(() => parseUnitOrders(bad,set),/the answer was not/);
+});
+
+test('with more free home centers than builds, the rule says to choose among them, and an answer with one per center is explained',() => {
+  const unit = (territory: string) => ({ id: territory, power: 'ITALY', type: 'ARMY', territory, coast: null, mustRetreat: false, retreatOptions: [], retreatCoasts: {} });
+  const board = { year: 1929, season: 'WINTER', phase: 'BUILDS', territoryOwners: { ROM: 'ITALY', NAP: 'ITALY', VEN: 'ITALY', TUN: 'ITALY' }, units: [unit('TUN'),unit('PIE'),unit('TUS')] } as never;
+  const one = buildChoices(board,'ITALY')!;
+  assert.equal(one.groups.length,3);
+  assert.match(one.rule,/^Pick up to 1 number in total, at most one per home center\. You have 3 free home centers but only 1 build, so choose which center to build in: do not pick one number under every heading\. An empty list waives your builds\.$/);
+  assert.throws(() => one.toAction([one.groups[0].choices[0],one.groups[1].choices[0]]),/Too many builds/);
+  assert.equal(describeRejection({ choices: [one.groups[0].choices[0],one.groups[1].choices[0]] },one),'2 numbers for 3 slots; the rule allows 1 in total, not one under every heading');
+  // As many builds as free centers needs no such warning.
+  const all = buildChoices({ ...(board as object), units: [] } as never,'ITALY')!;
+  assert.equal(all.rule,'Pick up to 3 numbers in total, at most one per home center. An empty list waives your builds.');
 });

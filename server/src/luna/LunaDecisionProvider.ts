@@ -353,7 +353,10 @@ export function describeRejection(parsed: unknown, set: NonNullable<ReturnType<t
   if (set.phase === 'BUILDS') {
     const doubled = set.groups.filter(g => (perGroup.get(g.id) ?? 0) > 1 && set.groups.length > 1).map(g => g.label.replace(/^Build in /,''));
     if (doubled.length) parts.push(`more than one build in ${doubled.join(', ')}`);
-    else if (!outside && !repeated) parts.push('not the number of choices the rule asks for');
+    else if (!outside && !repeated) {
+      const limit = /Pick (?:up to|exactly) (\d+)/.exec(set.rule)?.[1];
+      parts.push(limit && numbers.length > Number(limit) ? `the rule allows ${limit} in total, not one under every heading` : 'not the number of choices the rule asks for');
+    }
   } else {
     const missed = set.groups.filter(g => !perGroup.has(g.id)).map(g => g.label), doubled = set.groups.filter(g => (perGroup.get(g.id) ?? 0) > 1).map(g => g.label);
     if (missed.length) parts.push(`nothing for ${missed.join(', ')}`);

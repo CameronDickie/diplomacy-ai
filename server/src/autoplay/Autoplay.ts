@@ -141,13 +141,26 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
       failures.push({ at: now(), phaseId: f.phaseId, reason }); log(`  ! ${f.phaseId.split(':').slice(-3,-1).reverse().join(' ')} · ${reason}`);
     } } } : {}) });
   // Three rounds of calls (messages, replies, orders) share one phase deadline.
+  let seen = (await store.call('reports',{ attemptId: id })).length, played = 0;
+  // Printed as each phase is committed. One submission can settle several phases in a row (those that ask
+  // nothing of the nominal seat follow on their own), so waiting for the submission to return would hold
+  // the lines back and show them all with one total.
+  const announce = async () => {
+    const reports = await store.call('reports',{ attemptId: id });
+    for (const report of reports.slice(seen)) {
+      played++;
+      const spent = await store.call('attemptFunding',{ attemptId: id }), c = centers({ territoryOwners: report.after.territoryOwners } as BoardFixture);
+      log(`${report.season} ${report.year} ${report.phase} · ${ALL_POWERS.map(p => `${p.slice(0,3)} ${c[p]}`).join(' ')} · ${usd(spent.settledNanousd)} spent${spent.heldNanousd ? `, ${usd(spent.heldNanousd)} held` : ''}`);
+    }
+    seen = reports.length;
+  };
   const service = new AttemptService(store,provider,rules,{ now, maxRunning: 1, timeoutMs: 120_000,
+    boundary: async stage => { if (stage === 'committed') await announce().catch(() => {}); },
     onPhaseFailure: (job,error) => failures.push({ at: now(), phaseId: job.phaseId,
       // Never the raw error: it may carry request content.
       reason: error instanceof LunaDecisionError ? `${error.power}: ${error.code}${error.detail ? ` (${error.detail})` : ''}` : error instanceof Error && /deadline/i.test(error.message) ? 'The phase ran past its two-minute deadline.' : 'The phase was interrupted.' }) });
   const recoveries = new Map<string, number>(), waits = new Map<string, number>(), maxWaits = options.maxWaits ?? 12;
-  let seen = (await store.call('reports',{ attemptId: id })).length;
-  let status: AutoplayResult['status'] = 'FINISHED', waitingOn: string | null = null, played = 0;
+  let status: AutoplayResult['status'] = 'FINISHED', waitingOn: string | null = null;
   try {
     while (attempt.lifecycle === 'ACTIVE') {
       if (options.signal?.aborted) { status = 'PAUSED'; waitingOn = 'Stopped by you. Run it again with the same run ID to continue.'; break; }
@@ -184,14 +197,7 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
       }
       await service.wait(id);
       attempt = (await store.call('attempt',{ id }))!;
-      // One submission can settle several phases (those that ask nothing of the nominal seat follow on their own).
-      const reports = await store.call('reports',{ attemptId: id });
-      for (const report of reports.slice(seen)) {
-        played++;
-        const spent = await store.call('attemptFunding',{ attemptId: id }), c = centers({ ...attempt.board, territoryOwners: report.after.territoryOwners } as BoardFixture);
-        log(`${report.season} ${report.year} ${report.phase} · ${ALL_POWERS.map(p => `${p.slice(0,3)} ${c[p]}`).join(' ')} · ${usd(spent.settledNanousd)} spent${spent.heldNanousd ? `, ${usd(spent.heldNanousd)} held` : ''}`);
-      }
-      seen = reports.length;
+      await announce();
     }
   } finally { await service.close(); }
 

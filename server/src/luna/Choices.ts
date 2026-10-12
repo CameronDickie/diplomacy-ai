@@ -181,7 +181,9 @@ export function buildChoices(board: BoardFixture, power: Power): AdjustmentChoic
   const allowed = Math.min(delta,homes.length);
   // Nothing can be built: the only legal adjustment is to waive, so there is nothing to ask.
   if (!allowed) return null;
-  return { power, phase: 'BUILDS', rule: `Pick up to ${allowed} number${allowed === 1 ? '' : 's'}, at most one per home center. An empty list waives your builds.`, groups, choices, defaultIndices: groups.slice(0,allowed).map(g=>g.choices[0]),
+  // With more free centers than builds, a model reads the headings as one pick each; the count is spelled out.
+  const fewer = allowed < homes.length ? ` You have ${homes.length} free home centers but only ${allowed} build${allowed === 1 ? '' : 's'}, so choose which center${allowed === 1 ? '' : 's'} to build in: do not pick one number under every heading.` : '';
+  return { power, phase: 'BUILDS', rule: `Pick up to ${allowed} number${allowed === 1 ? '' : 's'} in total, at most one per home center.${fewer} An empty list waives your builds.`, groups, choices, defaultIndices: groups.slice(0,allowed).map(g=>g.choices[0]),
     coverage: { listed: choices.length, total: choices.length },
     toAction(indices) {
       const picked = distinct(indices,choices.length);
