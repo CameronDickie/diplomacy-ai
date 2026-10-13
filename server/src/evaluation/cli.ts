@@ -5,6 +5,7 @@ import { parseArgs } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { shutdownGodip } from '../adjudication/GodipAdjudicator.js';
 import { anthropicHaikuTransport } from '../luna/HaikuTransport.js';
+import { http1Fetch } from '../luna/Http1Fetch.js';
 import { httpLunaTransport, mockOpponentTransport, type LunaTransport } from '../luna/Transport.js';
 import { LUNA_CONTRACT, opponentContract, type OpponentContract } from '../providers/OpponentContract.js';
 import { Store } from '../storage/Store.js';
@@ -34,7 +35,9 @@ export function liveTransport(input: { live: boolean; db: string; authorizationR
     const grant = db.prepare('SELECT amount_nanousd FROM funding_grants WHERE authorization_ref=?').get(input.authorizationRef);
     if (!grant) throw new Error('No funding grant with that authorization reference is recorded in this database.');
   } finally { db.close(); }
-  return contract.key === 'haiku' ? anthropicHaikuTransport(input.apiKey,input.fetchImpl) : httpLunaTransport(input.apiKey,input.fetchImpl);
+  // The tools' long runs use plain HTTP/1.1 requests (see http1Fetch); the server keeps the built-in fetch.
+  const fetchImpl = input.fetchImpl ?? http1Fetch;
+  return contract.key === 'haiku' ? anthropicHaikuTransport(input.apiKey,fetchImpl) : httpLunaTransport(input.apiKey,fetchImpl);
 }
 export function format(report: EvaluationReport): string {
   const s = report.summary, lines = [

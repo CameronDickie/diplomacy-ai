@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,6 +12,7 @@ import { FULL_GAME_UNIT_INSTRUCTIONS, OPPONENT_INSTRUCTIONS } from '../providers
 import { parseMessages, sharedContext, talkLines, type PowerMessage } from '../luna/Context.js';
 import { buildChoices, orderChoices, parseUnitOrders } from '../luna/Choices.js';
 import { describeRejection } from '../luna/LunaDecisionProvider.js';
+import { http1Fetch } from '../luna/Http1Fetch.js';
 import { PreflightError, httpLunaTransport, mockOpponentTransport, networkCode, type LunaTransport } from '../luna/Transport.js';
 import { OPPONENT_CONTRACTS, opponentContract } from '../providers/OpponentContract.js';
 import { parseChallenge } from '../storage/publicData.js';
@@ -397,4 +400,41 @@ test('a token count that fails says why: the HTTP status even behind a large err
   assert.equal(networkCode(new TypeError('some secret text')),', TypeError');
   assert.equal(networkCode({ code: 'not a code!' }),'');
   assert.equal(networkCode(null),'');
+});
+
+test('the tools\' plain HTTP/1.1 fetch sends exact bytes on its own connection, returns any status without following it, and honours cancellation and a size limit',async t => {
+  const seen: Array<{ method: string; url: string; auth: string; encoding: string; connection: string; body: string }> = [];
+  const server = createServer((req,res) => {
+    const chunks: Buffer[] = [];
+    req.on('data',c => chunks.push(c)).on('end',() => {
+      seen.push({ method: req.method!, url: req.url!, auth: String(req.headers.authorization), encoding: String(req.headers['accept-encoding']), connection: String(req.headers.connection), body: Buffer.concat(chunks).toString('utf8') });
+      if (req.url === '/moved') { res.writeHead(307,{ location: '/elsewhere' }); res.end('x'.repeat(10_000)); }
+      else if (req.url === '/huge') { res.writeHead(200); res.end('x'.repeat(2 * 1024 * 1024)); }
+      else if (req.url === '/slow') { /* never answers */ }
+      else { res.writeHead(200,{ 'content-type': 'application/json', 'request-id': 'req_1' }); res.end('{"object":"response.input_tokens","input_tokens":100}'); }
+    });
+  });
+  server.listen(0,'127.0.0.1'); await once(server,'listening');
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`, body = JSON.stringify({ text: 'é'.repeat(20_000) });
+  const ok = await http1Fetch(`${base}/count`,{ method: 'POST', headers: { Authorization: 'Bearer test-key-not-real', 'Content-Type': 'application/json' }, body });
+  assert.equal(ok.status,200); assert.equal(ok.headers.get('request-id'),'req_1'); assert.deepEqual(await ok.json(),{ object: 'response.input_tokens', input_tokens: 100 });
+  assert.deepEqual(seen[0],{ method: 'POST', url: '/count', auth: 'Bearer test-key-not-real', encoding: 'identity', connection: 'close', body });
+  // A redirect is an answer with a status, never followed and never an unnamed failure.
+  const moved = await http1Fetch(`${base}/moved`,{ method: 'POST', body: 'x' });
+  assert.equal(moved.status,307); assert.equal(seen.length,2);
+  await assert.rejects(http1Fetch(`${base}/huge`),{ name: 'ResponseTooLarge' });
+  const stop = new AbortController(), slow = http1Fetch(`${base}/slow`,{ signal: stop.signal });
+  setTimeout(() => stop.abort(),30);
+  await assert.rejects(slow,{ name: 'AbortError' });
+  await assert.rejects(http1Fetch(`${base}/x`,{ signal: AbortSignal.abort() }));
+  await assert.rejects(http1Fetch('ftp://example.invalid/x'),TypeError);
+  // Nothing listening: the system's code is there to report.
+  const closed = createServer(); closed.listen(0,'127.0.0.1'); await once(closed,'listening');
+  const dead = `http://127.0.0.1:${(closed.address() as { port: number }).port}`; closed.close(); await once(closed,'close');
+  await assert.rejects(http1Fetch(dead),(error: unknown) => networkCode(error) === ', ECONNREFUSED');
+  // Through the transport, a redirect from the count endpoint is reported as its status.
+  const request = OPPONENT_CONTRACTS.luna.buildFullGameRequest({ context: 'x' },'ASK').body;
+  const redirected = httpLunaTransport('test-key-not-real',((_url,init) => http1Fetch(`${base}/moved`,init)) as typeof fetch);
+  await assert.rejects(redirected.preflight!({ body: request, signal: new AbortController().signal }),(error: unknown) => error instanceof PreflightError && error.detail === 'HTTP 307');
 });
