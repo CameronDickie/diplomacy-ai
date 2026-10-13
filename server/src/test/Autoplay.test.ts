@@ -10,7 +10,7 @@ import { FULL_GAME_UNIT_INSTRUCTIONS, OPPONENT_INSTRUCTIONS } from '../providers
 import { parseMessages, sharedContext, talkLines, type PowerMessage } from '../luna/Context.js';
 import { buildChoices, orderChoices, parseUnitOrders } from '../luna/Choices.js';
 import { describeRejection } from '../luna/LunaDecisionProvider.js';
-import { PreflightError, mockOpponentTransport, type LunaTransport } from '../luna/Transport.js';
+import { PreflightError, httpLunaTransport, mockOpponentTransport, networkCode, type LunaTransport } from '../luna/Transport.js';
 import { OPPONENT_CONTRACTS, opponentContract } from '../providers/OpponentContract.js';
 import { parseChallenge } from '../storage/publicData.js';
 import { Store } from '../storage/Store.js';
@@ -381,4 +381,20 @@ test('a full game\'s hold rule makes holding the exception; the challenge keeps 
   }
   // The challenge's request is byte for byte what its preset pins.
   assert.ok(OPPONENT_CONTRACTS.haiku.buildRequest({ context: 'x' }).body.includes(challengeRule));
+});
+
+test('a token count that fails says why: the HTTP status even behind a large error page, the system\'s code, or the kind of error',async () => {
+  const body = OPPONENT_CONTRACTS.luna.buildFullGameRequest({ context: 'x' },'ASK').body, signal = new AbortController().signal;
+  const detail = async (fetchImpl: typeof fetch) => { try { await httpLunaTransport('test-key-not-real',fetchImpl).preflight!({ body, signal }); return 'counted'; } catch (error) { return error instanceof PreflightError ? error.detail : 'other'; } };
+  // An error page far larger than a count is still an HTTP status, not a lost connection.
+  assert.equal(await detail((async () => new Response('<html>' + 'x'.repeat(20_000),{ status: 429 })) as typeof fetch),'HTTP 429');
+  assert.equal(await detail((async () => new Response('<html>' + 'x'.repeat(20_000),{ status: 403 })) as typeof fetch),'HTTP 403');
+  assert.equal(await detail((async () => new Response('x'.repeat(20_000))) as typeof fetch),'no connection, ResponseTooLarge');
+  assert.equal(await detail((async () => { throw Object.assign(new TypeError('fetch failed: secret text'),{ cause: Object.assign(new Error('secret'),{ code: 'ECONNRESET' }) }); }) as typeof fetch),'no connection, ECONNRESET');
+  // One failure per address tried, wrapped twice.
+  const perAddress = Object.assign(new Error('x'),{ name: 'AggregateError', errors: [Object.assign(new Error('a'),{ code: 'ETIMEDOUT' }),Object.assign(new Error('b'),{ code: 'ENETUNREACH' })] });
+  assert.equal(networkCode(Object.assign(new TypeError('fetch failed'),{ cause: perAddress })),', ETIMEDOUT/ENETUNREACH');
+  assert.equal(networkCode(new TypeError('some secret text')),', TypeError');
+  assert.equal(networkCode({ code: 'not a code!' }),'');
+  assert.equal(networkCode(null),'');
 });

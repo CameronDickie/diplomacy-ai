@@ -16,10 +16,25 @@ export type LunaTransport = ((request: { body: string; signal: AbortSignal }) =>
 export class PreflightError extends Error {
   constructor(message: string, readonly detail: string) { super(message); this.name = 'PreflightError'; }
 }
-/** The system's short code for a failed connection (ECONNRESET, ENOTFOUND, UND_ERR_SOCKET…), when there is one. Never a message. */
+/**
+ * What is safe to say about a request that got no usable answer: the system's short code
+ * (ECONNRESET, ENOTFOUND, UND_ERR_SOCKET…) when there is one, otherwise the kind of error. Never a message.
+ */
 export function networkCode(error: unknown): string {
-  const code = (error as { cause?: { code?: unknown }; code?: unknown } | null)?.cause?.code ?? (error as { code?: unknown } | null)?.code;
-  return typeof code === 'string' && /^[A-Z][A-Z0-9_]{2,40}$/.test(code) ? `, ${code}` : '';
+  type Coded = { code?: unknown; name?: unknown; cause?: unknown; errors?: unknown };
+  const seen: Coded[] = [];
+  // fetch wraps the real failure in `cause`; trying several addresses wraps one failure per address in `errors`.
+  const walk = (value: unknown, depth: number) => {
+    if (!value || typeof value !== 'object' || depth > 3) return;
+    const e = value as Coded; seen.push(e); walk(e.cause,depth + 1);
+    if (Array.isArray(e.errors)) for (const inner of e.errors.slice(0,4)) walk(inner,depth + 1);
+  };
+  walk(error,0);
+  const safe = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z][A-Za-z0-9_]{2,40}$/.test(v);
+  const codes = [...new Set(seen.map(e => e.code).filter(safe))];
+  if (codes.length) return `, ${codes.join('/')}`;
+  const name = seen.map(e => e.name).filter(safe).at(-1);
+  return name ? `, ${name}` : '';
 }
 /** Read a bounded body. Raw errors and bodies are never logged. */
 async function readJson(response: Response, maxBytes: number): Promise<unknown> {
@@ -30,7 +45,7 @@ async function readJson(response: Response, maxBytes: number): Promise<unknown> 
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > maxBytes) throw new Error('Provider response exceeds its size limit.');
+      if (size > maxBytes) throw Object.assign(new Error('Provider response exceeds its size limit.'),{ name: 'ResponseTooLarge' });
       chunks.push(value);
     }
   } finally { await reader?.cancel().catch(() => {}); reader?.releaseLock(); }
@@ -77,9 +92,9 @@ export function httpLunaTransport(apiKey: string, request: typeof fetch = fetch)
     try {
       count = await abortable((async () => {
         const response = await request(LUNA_PRESET.countEndpoint,{ method: 'POST', signal: deadline, redirect: 'error', headers, body: countBody });
-        const value = await readJson(response,LUNA_PRESET.maxCountResponseBytes);
-        if (response.status !== 200) throw new PreflightError('',`HTTP ${response.status}`);
-        return value;
+        // The status first: an error page can be larger than a count, and must not be mistaken for a lost connection.
+        if (response.status !== 200) { await response.body?.cancel().catch(() => {}); throw new PreflightError('',`HTTP ${response.status}`); }
+        return await readJson(response,LUNA_PRESET.maxCountResponseBytes);
       })(),deadline);
     } catch (error) {
       throw new PreflightError('Luna input-token preflight unavailable.',error instanceof PreflightError ? error.detail : signal.aborted ? 'cancelled' : deadline.aborted ? 'no answer in time' : `no connection${networkCode(error)}`);
