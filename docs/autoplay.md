@@ -30,7 +30,10 @@ challenge one.
 
 ## How a turn runs
 
-For each orders phase, three rounds of calls share one two-minute deadline:
+For each orders phase, three rounds of calls share one five-minute deadline.
+Each call may take 40 seconds (the challenge allows 20, because a visitor is
+waiting there; an unattended game would rather wait than leave a call's outcome
+unknown and its worst-case cost held):
 
 1. **Messages.** Every power with units gets one call. It may write one
    message to each of up to three other powers (`--messages N`, 0 turns this
@@ -103,7 +106,7 @@ provider-counted input tokens of every call, which is how to see that curve.
 
 ## When a game ends
 
-Either of two ways, whichever comes first:
+One of three ways, whichever comes first:
 
 - **A solo win.** After a Fall turn (and its retreats) the rules engine counts
   supply centers; a power owning 18 of the 34, which is more than half, has
@@ -111,7 +114,14 @@ Either of two ways, whichever comes first:
 - **The last year.** `--until YEAR` (default 1908): the game stops once that
   year's Fall has settled. `--until win` removes the year as a stopping point.
 
-The summary's `endedBy` says which: `SOLO_WIN` or `LAST_YEAR`.
+- **A stalemate.** `--stalemate-years N`: the run stops once no supply center
+  has changed hands for N years. It is 10 by default with `--until win`, and
+  off otherwise; 0 turns it off. The game itself is left as it stands, so
+  running again with a larger number (or 0) plays on, and running again with
+  the same number reports the stalemate again without buying anything. The
+  longest quiet stretch in the first three live games was four years.
+
+The summary's `endedBy` says which: `SOLO_WIN`, `LAST_YEAR` or `STALEMATE`.
 
 ## Running it
 
@@ -148,7 +158,8 @@ is 15). With stand-in models both are only numbers.
 | Option | Meaning |
 | -- | -- |
 | `--run ID` | names the game. Running again with the same id **continues** it; nothing already bought is bought again |
-| `--until YEAR` or `--until win` | the game ends after this year's Fall (default 1908) or on a solo win, whichever is first. `win` plays until a power has 18 centers: there is no year limit to speak of (it stops at 1999), and nothing detects a stalemate, so a game with no winner runs until you stop it with Ctrl-C or its spending cap is reached |
+| `--until YEAR` or `--until win` | the game ends after this year's Fall (default 1908) or on a solo win, whichever is first. `win` plays until a power has 18 centers: there is no year limit to speak of (it stops at 1999), so a game with no winner ends as a stalemate (below), on Ctrl-C, or when its spending cap is reached |
+| `--stalemate-years N` | end the run once no supply center has changed hands for N years (default 10 with `--until win`, otherwise off; 0 is off) |
 | `--models AUSTRIA=luna,ENGLAND=haiku` | per-power models. Default: Austria, France, Italy, Turkey on Luna; England, Germany, Russia on Haiku |
 | `--messages N` | how many powers each power may write to per turn (0–6, default 3) |
 | `--message-retries N` | further tries for a failed message or reply call (0–3, default 2) |
@@ -217,10 +228,15 @@ flight, so the available balance should stay a few cents above zero.
 
 ## The record
 
-One JSON file, readable only by you (it holds no keys and no prompts):
+One JSON file, readable only by you (it holds no keys and no game requests):
 
 - `run`: run id, transport, last year, message limit, the model of each power,
-  the context version.
+  the context version, and `harness`: the code commit the run was played with
+  (and whether code differed from it), the standing orders instructions with a
+  short fingerprint, the call time limit and the stalemate limit. Two games
+  with the same fingerprint were given the same rules of play. A continued
+  game states the latest run's values. The commit is `null` where there is no
+  git checkout, such as inside the container.
 - `status`, `endedBy` and `waitingOn`: `FINISHED` and how it ended, or why it
   is not finished and what to do.
 - `summary`: phases played, where the game stands, supply centers, winner if
@@ -237,8 +253,9 @@ One JSON file, readable only by you (it holds no keys and no prompts):
 - `record.failures`: every failed message or reply try (power, try number,
   reason, whether it gave up), and why any phase had to wait, with times.
 
-Prompts and the models' reasoning text are not stored anywhere, so they are not
-in the record. Token counts, including reasoning tokens, are.
+Game requests (the board text sent each turn) and the models' reasoning text are
+not stored anywhere, so they are not in the record; the standing instructions,
+which are the same every turn, are. Token counts, including reasoning tokens, are.
 
 ## What this does not tell you
 

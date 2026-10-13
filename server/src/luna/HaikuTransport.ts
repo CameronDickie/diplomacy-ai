@@ -39,7 +39,8 @@ export function anthropicHaikuTransport(apiKey: string, fetchImpl?: typeof fetch
       if (exact !== body || used) throw new Error('Haiku preflight does not authorize these bytes or a repeated dispatch.');
       sendSignal.throwIfAborted(); used = true;
       try {
-        return { status: 200, body: await client.messages.create(params,{ signal: sendSignal }) };
+        // The caller's signal carries the deadline (20 seconds for a challenge, longer for an unattended game); the SDK's own must not cut in first.
+        return { status: 200, body: await client.messages.create(params,{ signal: sendSignal, timeout: 120_000 }) };
       } catch (error) {
         // An HTTP error answer is recorded as such. Raw provider errors are never logged or stored.
         if (error instanceof Anthropic.APIError && typeof error.status === 'number') return { status: error.status, body: null };

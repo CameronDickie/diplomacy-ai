@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -9,7 +10,7 @@ import { OPPONENT_CONTRACTS, opponentContract } from '../providers/OpponentContr
 import { Store } from '../storage/Store.js';
 import { DEFAULT_ASSIGNMENT, LATEST_LAST_YEAR, autoplay, type AutoplayResult, type ModelKey } from './Autoplay.js';
 
-const USAGE = `Usage: autoplay --db DATABASE --run RUN_ID [--until 1908|win] [--models AUSTRIA=luna,ENGLAND=haiku,...] [--messages 3] [--message-retries 2] [--order-calls 6] [--max-phases N] [--attempt-cap USD] [--resume-paid] [--seed 1] [--out FILE]
+const USAGE = `Usage: autoplay --db DATABASE --run RUN_ID [--until 1908|win] [--models AUSTRIA=luna,ENGLAND=haiku,...] [--messages 3] [--message-retries 2] [--order-calls 6] [--stalemate-years 10] [--max-phases N] [--attempt-cap USD] [--resume-paid] [--seed 1] [--out FILE]
        Plays one full game with a model on every power. Free stand-in models unless --live is given.
        add --live --authorization-ref REFERENCE to call the real providers (see docs/autoplay.md)`;
 
@@ -31,12 +32,24 @@ export function assertDevelopment(env: NodeJS.ProcessEnv): void {
   if ((env.DIPLOMACY_PROFILE ?? (env.NODE_ENV === 'production' ? 'showcase' : 'local')) !== 'local')
     throw new Error('Autoplay is a development tool. It runs only with DIPLOMACY_PROFILE=local.');
 }
+/**
+ * The commit this run's code was built from, and whether any code differs from it. Asked of git and
+ * nothing else; unknown (null) where there is no checkout, such as inside the container.
+ */
+export function harnessVersion(): { commit: string | null; modified: boolean } {
+  const git = (...args: string[]) => execFileSync('git',args,{ cwd: new URL('.',import.meta.url).pathname, encoding: 'utf8', stdio: ['ignore','pipe','ignore'], timeout: 5_000 }).trim();
+  try {
+    const root = git('rev-parse','--show-toplevel');
+    return { commit: git('rev-parse','HEAD'), modified: git('status','--porcelain','--',`${root}/server`,`${root}/shared`,`${root}/engine`) !== '' };
+  } catch { return { commit: null, modified: false }; }
+}
 export function format(result: AutoplayResult): string {
   const s = result.summary, usd = (n: number) => `USD ${(n / 1e9).toFixed(4)}`;
   return [
     `Run ${result.run.runId} · ${result.run.transport.toUpperCase()} transport · ${result.run.lastYear === LATEST_LAST_YEAR ? 'until a power wins' : `to Fall ${result.run.lastYear}`} · messages to up to ${result.run.talkRecipients} powers`,
     `Models: ${ALL_POWERS.map(p => `${p} ${result.run.assignment[p]}`).join(', ')}`,
-    `Status ${result.status}${result.endedBy === 'SOLO_WIN' ? ' · ended by a solo win' : result.endedBy === 'LAST_YEAR' ? ` · ended after Fall ${result.run.lastYear}` : ''}${result.waitingOn ? ` · ${result.waitingOn}` : ''}`,
+    `Harness: ${result.run.harness.commit ? `commit ${result.run.harness.commit.slice(0,7)}${result.run.harness.modified ? ' with uncommitted changes' : ''}` : 'commit unknown'} · orders instructions ${result.run.harness.instructionsHash}`,
+    `Status ${result.status}${result.endedBy === 'SOLO_WIN' ? ' · ended by a solo win' : result.endedBy === 'LAST_YEAR' ? ` · ended after Fall ${result.run.lastYear}` : result.endedBy === 'STALEMATE' ? ` · ended as a stalemate: no supply center changed hands for ${result.run.harness.stalemateYears} years` : ''}${result.waitingOn ? ` · ${result.waitingOn}` : ''}`,
     ...(result.record.failures.length ? [`Failures recorded: ${result.record.failures.length} (listed under record.failures)`] : []),
     `Reached ${s.season} ${s.year} after ${s.phases} phases${s.winner ? ` · ${s.winner} won` : ''}`,
     `Supply centers: ${ALL_POWERS.map(p => `${p} ${s.centers[p]}`).join(', ')}`,
@@ -49,12 +62,14 @@ export function format(result: AutoplayResult): string {
 
 async function main() {
   assertDevelopment(process.env);
-  const { values } = parseArgs({ options: { db: { type: 'string' }, run: { type: 'string' }, until: { type: 'string', default: '1908' }, models: { type: 'string' }, messages: { type: 'string', default: '3' }, 'message-retries': { type: 'string', default: '2' }, 'order-calls': { type: 'string', default: '6' },
+  const { values } = parseArgs({ options: { db: { type: 'string' }, run: { type: 'string' }, until: { type: 'string', default: '1908' }, models: { type: 'string' }, messages: { type: 'string', default: '3' }, 'message-retries': { type: 'string', default: '2' }, 'order-calls': { type: 'string', default: '6' }, 'stalemate-years': { type: 'string' },
     'max-phases': { type: 'string' }, 'attempt-cap': { type: 'string' }, seed: { type: 'string', default: '1' }, out: { type: 'string' }, live: { type: 'boolean', default: false }, 'resume-paid': { type: 'boolean', default: false }, 'authorization-ref': { type: 'string' } }, strict: true });
   if (!values.db || !values.run) throw new Error(USAGE);
   const db = resolve(values.db), lastYear = values.until === 'win' ? LATEST_LAST_YEAR : Number(values.until), talkRecipients = Number(values.messages), messageRetries = Number(values['message-retries']), orderCalls = Number(values['order-calls']), seed = Number(values.seed);
+  // A game with no year to stop at needs another way to end if nobody can win.
+  const stalemateYears = values['stalemate-years'] === undefined ? (values.until === 'win' ? 10 : 0) : Number(values['stalemate-years']);
   const maxPhases = values['max-phases'] === undefined ? undefined : Number(values['max-phases']);
-  if (![lastYear,talkRecipients,messageRetries,orderCalls,seed].every(Number.isSafeInteger) || (maxPhases !== undefined && (!Number.isSafeInteger(maxPhases) || maxPhases < 1))) throw new Error(USAGE);
+  if (![lastYear,talkRecipients,messageRetries,orderCalls,seed,stalemateYears].every(Number.isSafeInteger) || (maxPhases !== undefined && (!Number.isSafeInteger(maxPhases) || maxPhases < 1))) throw new Error(USAGE);
   const assignment = parseAssignment(values.models), keys = [...new Set(Object.values(assignment))];
   const transports: Partial<Record<ModelKey, LunaTransport>> = {};
   for (const key of keys) {
@@ -78,9 +93,9 @@ async function main() {
     if (values['resume-paid']) await store.call('setPaidStopped',{ stopped: false, operatorId: 'autoplay-cli', now: Date.now() });
     const funds = await store.call('fundingTotals',{});
     console.log(`Funding: USD ${(funds.availableNanousd / 1e9).toFixed(4)} available · this game may spend up to USD ${(funds.attemptCapNanousd / 1e9).toFixed(2)}${values.live ? '' : ' (stand-in models: only numbers)'}`);
-    const result = await autoplay({ store, runId: values.run, lastYear, assignment, transports, transportKind: values.live ? 'live' : 'mock', talkRecipients, messageRetries, orderCalls, maxPhases, signal: stop.signal, log: line => console.log(line) });
+    const result = await autoplay({ store, runId: values.run, lastYear, assignment, transports, transportKind: values.live ? 'live' : 'mock', talkRecipients, messageRetries, orderCalls, maxPhases, stalemateYears, harness: harnessVersion(), signal: stop.signal, log: line => console.log(line) });
     console.log(`\n${format(result)}`);
-    // The record holds no keys and no prompts; it is still private game data, so only its owner may read it.
+    // The record holds no keys and no game requests (only the standing instructions); it is still private game data, so only its owner may read it.
     await writeFile(out,`${JSON.stringify(result,null,2)}\n`,{ mode: 0o600 });
     console.log(`Game record: ${out}`);
     if (result.status !== 'FINISHED') process.exitCode = 1;

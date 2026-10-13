@@ -4,8 +4,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ALL_POWERS, type Power } from '@diplomacy/shared';
-import { DEFAULT_ASSIGNMENT, autoplay, fullGameDefinition, type ModelKey } from '../autoplay/Autoplay.js';
-import { assertDevelopment, parseAssignment } from '../autoplay/cli.js';
+import { CALL_TIMEOUT_MS, DEFAULT_ASSIGNMENT, autoplay, fullGameDefinition, harnessInstructions, quietYears, type ModelKey } from '../autoplay/Autoplay.js';
+import { assertDevelopment, harnessVersion, parseAssignment } from '../autoplay/cli.js';
+import { FULL_GAME_UNIT_INSTRUCTIONS, OPPONENT_INSTRUCTIONS } from '../providers/OpponentInstructions.js';
 import { parseMessages, sharedContext, talkLines, type PowerMessage } from '../luna/Context.js';
 import { buildChoices, orderChoices, parseUnitOrders } from '../luna/Choices.js';
 import { describeRejection } from '../luna/LunaDecisionProvider.js';
@@ -329,4 +330,42 @@ test('the leader is named with its distance from winning, and the notes give way
   assert.deepEqual(withNotes.choices.map(c => c.label),['ROM moves to TUS (shared with A VEN)','ROM holds','VEN moves to TUS (shared with A ROM)','VEN moves to TYR','VEN holds']);
   assert.deepEqual(without.choices.map(c => c.label),['ROM moves to TUS','ROM holds','VEN moves to TUS','VEN moves to TYR','VEN holds']);
   assert.ok(withNotes.rule.includes('"Shared with"') && !without.rule.includes('"Shared with"'));
+});
+
+test('a game with no year to stop at ends as a stalemate once no supply center has changed hands for the stated years, and stays continuable',async t => {
+  const owners = (o: Record<string, string>) => ({ after: { territoryOwners: o } });
+  assert.equal(quietYears([]),0);
+  assert.equal(quietYears([{ year: 1901, ...owners({ VIE: 'AUSTRIA' }) },{ year: 1902, ...owners({ VIE: 'ITALY' }) },{ year: 1903, ...owners({ VIE: 'ITALY' }) },{ year: 1905, ...owners({ VIE: 'ITALY' }) }]),3);
+  // Changing hands and back again is not quiet.
+  assert.equal(quietYears([{ year: 1901, ...owners({ VIE: 'AUSTRIA' }) },{ year: 1904, ...owners({ VIE: 'ITALY' }) },{ year: 1905, ...owners({ VIE: 'AUSTRIA' }) }]),0);
+
+  // Stand-ins that hold every unit: nothing ever changes hands.
+  const f = await setup(t), still = () => Object.fromEntries((['luna','haiku'] as const).map(key => [key,mockOpponentTransport(opponentContract(key),{ pick: 'first' })])) as Record<ModelKey, LunaTransport>;
+  const lines: string[] = [];
+  const ended = await f.run({ lastYear: 1950, transports: still(), stalemateYears: 2, log: line => lines.push(line) });
+  assert.equal(ended.status,'FINISHED'); assert.equal(ended.endedBy,'STALEMATE'); assert.equal(ended.waitingOn,null); assert.equal(ended.summary.winner,null);
+  assert.equal(ended.summary.year,1903);
+  assert.ok(lines.some(line => /No supply center has changed hands for 2 years/.test(line)));
+  // The game itself is untouched: the same verdict again costs nothing, and a larger limit plays on.
+  assert.equal(ended.record.attempt.lifecycle,'ACTIVE');
+  const again = await f.run({ lastYear: 1950, transports: still(), stalemateYears: 2 });
+  assert.equal(again.endedBy,'STALEMATE'); assert.equal(again.summary.calls,ended.summary.calls); assert.equal(again.summary.settledNanousd,ended.summary.settledNanousd);
+  const on = await f.run({ lastYear: 1950, transports: still(), stalemateYears: 3 });
+  assert.equal(on.endedBy,'STALEMATE'); assert.equal(on.summary.year,1904); assert.ok(on.summary.calls > ended.summary.calls);
+  await assert.rejects(f.run({ stalemateYears: -1 }),/stalemate limit/);
+});
+
+test('a record states the code and the standing orders instructions it was played under, and calls get the longer full-game limit',async t => {
+  const f = await setup(t), result = await f.run({ lastYear: 1901, harness: { commit: 'a'.repeat(40), modified: true } });
+  assert.deepEqual(result.run.harness,{ commit: 'a'.repeat(40), modified: true, ...harnessInstructions(), callTimeoutMs: CALL_TIMEOUT_MS, stalemateYears: 0 });
+  assert.equal(result.run.harness.ordersInstructions,FULL_GAME_UNIT_INSTRUCTIONS);
+  assert.match(result.run.harness.instructionsHash,/^[0-9a-f]{16}$/);
+  assert.equal(CALL_TIMEOUT_MS,40_000);
+  // The challenge's own pinned limits are not what changed.
+  assert.equal(OPPONENT_CONTRACTS.luna.preset.timeoutMs,20_000); assert.equal(OPPONENT_CONTRACTS.haiku.preset.timeoutMs,20_000);
+  assert.notEqual(OPPONENT_INSTRUCTIONS,FULL_GAME_UNIT_INSTRUCTIONS);
+  // Unknown without a caller to say; from a checkout, git's full commit id.
+  assert.deepEqual((await f.run({ runId: 'game-b', lastYear: 1901 })).run.harness.commit,null);
+  const version = harnessVersion();
+  assert.ok(version.commit === null || /^[0-9a-f]{40}$/.test(version.commit));
 });

@@ -4,6 +4,7 @@ import { AttemptService } from '../attempts/AttemptService.js';
 import { PhaseRules } from '../attempts/PhaseRules.js';
 import { gameRecord } from '../challenge/PlaytestLog.js';
 import type { ChallengeDefinition } from '../challenge/TunisPilot.js';
+import { FULL_GAME_UNIT_INSTRUCTIONS } from '../providers/OpponentInstructions.js';
 import { scriptedHumanAction } from '../evaluation/ScriptedPlayer.js';
 import { canonicalJson, exportBoard, type BoardFixture } from '../fixtures/BoardFixture.js';
 import type { ScenarioFixture } from '../fixtures/ScenarioFixture.js';
@@ -25,6 +26,30 @@ export const DEFAULT_ASSIGNMENT: Readonly<Record<Power, ModelKey>> = Object.free
  * names this year. Reached only by a game that never produces a winner.
  */
 export const FIRST_YEAR = 1901, LATEST_LAST_YEAR = 1999;
+/**
+ * One full-game call may take this long. The challenge's presets pin 20 seconds for a visitor who is
+ * waiting; an unattended game would rather wait than leave a call's outcome unknown and its cost held.
+ */
+export const CALL_TIMEOUT_MS = 40_000;
+/** Messages, replies and orders, each with room for a retry at the longer call limit. */
+const PHASE_TIMEOUT_MS = 300_000;
+
+/** The standing orders instructions a game is played under, and a short fingerprint to compare games by. */
+export const harnessInstructions = () => ({ ordersInstructions: FULL_GAME_UNIT_INSTRUCTIONS,
+  instructionsHash: createHash('sha256').update(FULL_GAME_UNIT_INSTRUCTIONS).digest('hex').slice(0,16) });
+
+/**
+ * How many years have passed with no supply center changing hands, counted back from the latest
+ * settled phase. Ownership only changes after a Fall turn, so this is whole years.
+ */
+export function quietYears(reports: ReadonlyArray<{ year: number; after: { territoryOwners: unknown } }>): number {
+  const last = reports.at(-1);
+  if (!last) return 0;
+  const owners = canonicalJson(last.after.territoryOwners);
+  let since = last.year;
+  for (let i = reports.length - 1; i >= 0 && canonicalJson(reports[i].after.territoryOwners) === owners; i--) since = reports[i].year;
+  return last.year - since;
+}
 
 export interface AutoplayOptions {
   store: Store;
@@ -48,6 +73,13 @@ export interface AutoplayOptions {
   maxPhases?: number;
   /** How many times one phase waits out a provider that cannot be reached before the run stops (default 12, about ten minutes). */
   maxWaits?: number;
+  /**
+   * End the game once no supply center has changed hands for this many years. Unset or 0: never.
+   * The game itself is left as it stands, so it can be continued with a larger number or none.
+   */
+  stalemateYears?: number;
+  /** The code this run is played with, when the caller can tell (the CLI asks git). Recorded, never interpreted. */
+  harness?: { commit: string | null; modified: boolean };
   /** Test seam for the pause between tries when a provider refuses requests before they are sent. */
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
@@ -55,10 +87,12 @@ export interface AutoplayOptions {
   signal?: AbortSignal;
 }
 export interface AutoplayResult {
-  run: { runId: string; attemptId: string; transport: 'mock' | 'live'; lastYear: number; talkRecipients: number; assignment: Record<Power, string>; planId: string; contextVersion: string };
+  run: { runId: string; attemptId: string; transport: 'mock' | 'live'; lastYear: number; talkRecipients: number; assignment: Record<Power, string>; planId: string; contextVersion: string;
+    /** What the game was played under: code commit (null when unknown), whether harness files differed from it, and the standing orders instructions. A continued game states the latest run's. */
+    harness: { commit: string | null; modified: boolean; instructionsHash: string; ordersInstructions: string; callTimeoutMs: number; stalemateYears: number } };
   status: 'FINISHED' | 'WAITING' | 'PAUSED';
-  /** How a finished game ended: one power reached 18 supply centers, or the last year's Fall settled. */
-  endedBy: 'SOLO_WIN' | 'LAST_YEAR' | null;
+  /** How a finished game ended: one power reached 18 supply centers, the last year's Fall settled, or no center changed hands for the stated number of years. */
+  endedBy: 'SOLO_WIN' | 'LAST_YEAR' | 'STALEMATE' | null;
   /** Why the game is not finished, in plain words. Null when it is. */
   waitingOn: string | null;
   summary: {
@@ -99,6 +133,8 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   const talkRecipients = options.talkRecipients ?? 3, maxRecoveries = options.maxRecoveries ?? 5;
   if (!Number.isSafeInteger(talkRecipients) || talkRecipients < 0 || talkRecipients > 6) throw new Error('Powers may write to between 0 and 6 others.');
   if (!Number.isSafeInteger(maxRecoveries) || maxRecoveries < 0 || maxRecoveries > 10) throw new Error('Recovery limit must be between 0 and 10.');
+  const stalemateYears = options.stalemateYears ?? 0;
+  if (!Number.isSafeInteger(stalemateYears) || stalemateYears < 0 || stalemateYears > 99) throw new Error('The stalemate limit must be between 0 and 99 years.');
   const assignment = options.assignment ?? DEFAULT_ASSIGNMENT;
   if (ALL_POWERS.some(p => !assignment[p])) throw new Error('Every power needs a model.');
   const plan = mixedPlan(assignment,opponentContract(assignment.AUSTRIA));
@@ -131,7 +167,7 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   const orderCalls = options.orderCalls ?? 6;
   if (!Number.isSafeInteger(orderCalls) || orderCalls < 3 || orderCalls > 10) throw new Error('A power may have between 3 and 10 orders calls for a phase.');
   const turn = (phaseId: string) => phaseId.split(':').slice(-3,-1).reverse().join(' ');
-  const provider = new LunaDecisionProvider(store,rules,main,{ now, plan, transports: options.transports, maxCallsPerPower: orderCalls,
+  const provider = new LunaDecisionProvider(store,rules,main,{ now, plan, transports: options.transports, maxCallsPerPower: orderCalls, timeoutMs: CALL_TIMEOUT_MS,
     onRejectedDecision: f => {
       const reason = `${f.power} orders call, try ${f.attempt}: answer not usable — ${f.reason}`;
       failures.push({ at: now(), phaseId: f.phaseId, reason }); log(`  ! ${turn(f.phaseId)} · ${reason}`);
@@ -141,7 +177,7 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
       failures.push({ at: now(), phaseId: f.phaseId, reason }); log(`  ! ${f.phaseId.split(':').slice(-3,-1).reverse().join(' ')} · ${reason}`);
     } } } : {}) });
   // Three rounds of calls (messages, replies, orders) share one phase deadline.
-  let seen = (await store.call('reports',{ attemptId: id })).length, played = 0;
+  let seen = (await store.call('reports',{ attemptId: id })).length, played = 0, quiet = 0;
   // Printed as each phase is committed. One submission can settle several phases in a row (those that ask
   // nothing of the nominal seat follow on their own), so waiting for the submission to return would hold
   // the lines back and show them all with one total.
@@ -152,17 +188,20 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
       const spent = await store.call('attemptFunding',{ attemptId: id }), c = centers({ territoryOwners: report.after.territoryOwners } as BoardFixture);
       log(`${report.season} ${report.year} ${report.phase} · ${ALL_POWERS.map(p => `${p.slice(0,3)} ${c[p]}`).join(' ')} · ${usd(spent.settledNanousd)} spent${spent.heldNanousd ? `, ${usd(spent.heldNanousd)} held` : ''}`);
     }
-    seen = reports.length;
+    seen = reports.length; quiet = quietYears(reports);
   };
-  const service = new AttemptService(store,provider,rules,{ now, maxRunning: 1, timeoutMs: 120_000,
+  const service = new AttemptService(store,provider,rules,{ now, maxRunning: 1, timeoutMs: PHASE_TIMEOUT_MS,
     boundary: async stage => { if (stage === 'committed') await announce().catch(() => {}); },
     onPhaseFailure: (job,error) => failures.push({ at: now(), phaseId: job.phaseId,
       // Never the raw error: it may carry request content.
-      reason: error instanceof LunaDecisionError ? `${error.power}: ${error.code}${error.detail ? ` (${error.detail})` : ''}` : error instanceof Error && /deadline/i.test(error.message) ? 'The phase ran past its two-minute deadline.' : 'The phase was interrupted.' }) });
+      reason: error instanceof LunaDecisionError ? `${error.power}: ${error.code}${error.detail ? ` (${error.detail})` : ''}` : error instanceof Error && /deadline/i.test(error.message) ? 'The phase ran past its five-minute deadline.' : 'The phase was interrupted.' }) });
   const recoveries = new Map<string, number>(), waits = new Map<string, number>(), maxWaits = options.maxWaits ?? 12;
-  let status: AutoplayResult['status'] = 'FINISHED', waitingOn: string | null = null;
+  let status: AutoplayResult['status'] = 'FINISHED', waitingOn: string | null = null, stalemate = false;
   try {
+    quiet = quietYears(await store.call('reports',{ attemptId: id }));
     while (attempt.lifecycle === 'ACTIVE') {
+      // Checked between phases and from the stored reports, so a continued run reaches the same verdict without buying anything.
+      if (stalemateYears && quiet >= stalemateYears && attempt.execution === 'ACCEPTING') { stalemate = true; log(`No supply center has changed hands for ${quiet} years: ending the game as a stalemate.`); break; }
       if (options.signal?.aborted) { status = 'PAUSED'; waitingOn = 'Stopped by you. Run it again with the same run ID to continue.'; break; }
       if (options.maxPhases !== undefined && played >= options.maxPhases) { status = 'PAUSED'; waitingOn = `Stopped after ${played} phases as asked. Run it again with the same run ID to continue.`; break; }
       const before: StoredAttempt = attempt;
@@ -208,9 +247,10 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   const peak = (values: Array<number | null>) => Math.max(0,...values.map(v => v ?? 0));
   return {
     run: { runId, attemptId: id, transport: options.transportKind, lastYear: options.lastYear, talkRecipients,
-      assignment: Object.fromEntries(ALL_POWERS.map(p => [p,plan.contractFor(p).preset.model])) as Record<Power, string>, planId: plan.id, contextVersion: CONTEXT_VERSION },
-    status: attempt.lifecycle === 'ACTIVE' ? (status === 'FINISHED' ? 'WAITING' : status) : 'FINISHED',
-    endedBy: attempt.lifecycle === 'ACTIVE' ? null : ALL_POWERS.some(p => count[p] >= 18) ? 'SOLO_WIN' : 'LAST_YEAR',
+      assignment: Object.fromEntries(ALL_POWERS.map(p => [p,plan.contractFor(p).preset.model])) as Record<Power, string>, planId: plan.id, contextVersion: CONTEXT_VERSION,
+      harness: { commit: options.harness?.commit ?? null, modified: options.harness?.modified ?? false, ...harnessInstructions(), callTimeoutMs: CALL_TIMEOUT_MS, stalemateYears } },
+    status: attempt.lifecycle === 'ACTIVE' && !stalemate ? (status === 'FINISHED' ? 'WAITING' : status) : 'FINISHED',
+    endedBy: stalemate ? 'STALEMATE' : attempt.lifecycle === 'ACTIVE' ? null : ALL_POWERS.some(p => count[p] >= 18) ? 'SOLO_WIN' : 'LAST_YEAR',
     waitingOn: attempt.lifecycle === 'ACTIVE' ? waitingOn : null,
     summary: { phases: record.phases.filter(p => p.report).length, year: attempt.board.year, season: attempt.board.season, centers: count,
       winner: ALL_POWERS.find(p => count[p] >= 18) ?? null,

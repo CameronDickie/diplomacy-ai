@@ -36,7 +36,7 @@ export class AttemptService {
   constructor(private store: Store, private provider: DecisionProvider, private rules = new PhaseRules(), private options: Options = {}) {
     this.now = options.now ?? Date.now;
     if (!Number.isSafeInteger(options.maxRunning ?? 3) || (options.maxRunning ?? 3) < 1 || (options.maxRunning ?? 3) > 100 ||
-      !Number.isSafeInteger(options.timeoutMs ?? 30_000) || (options.timeoutMs ?? 30_000) < 1 || (options.timeoutMs ?? 30_000) > 120_000)
+      !Number.isSafeInteger(options.timeoutMs ?? 30_000) || (options.timeoutMs ?? 30_000) < 1 || (options.timeoutMs ?? 30_000) > 600_000)
       throw new Error('Invalid phase worker limits.');
   }
   submit(input: {attemptId:string;playerId:string;revision:number;phaseId:string;requestId:string;action:unknown}): Promise<StoredReceipt> {
