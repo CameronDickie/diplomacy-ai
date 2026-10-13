@@ -39,6 +39,12 @@ export const CHAT_INSTRUCTIONS = [
  * A full game with no human player (development only). Every power is a separate computer player and
  * they may write to each other before orders, so the challenge instructions' "nobody will coordinate
  * with you" would be false here. The rules that make a set of orders hang together are the same.
+ *
+ * The hold rule differs. The challenge's wording ("hold only on a supply center another power could
+ * reach") was followed to the letter by Claude Haiku 5.5 across three full games: it held about 84% of
+ * its orders, nine in ten of those on its own centers, half of them with a foreign unit next door.
+ * In a long game nearly every center is within some rival's reach, so that wording permits standing
+ * still everywhere. Here a neighbour alone is no reason to hold.
  */
 export const FULL_GAME_INSTRUCTIONS = [
   'You play one power in a full game of Diplomacy. Each of the seven powers is played separately and plays to win for itself.',
@@ -46,7 +52,8 @@ export const FULL_GAME_INSTRUCTIONS = [
   'Play to win for your own power: keep your supply centers and capture more. A supply center changes hands when a unit occupies it at the end of a Fall turn, so unowned centers within reach are free gains. Owning 18 supply centers wins the game.',
   'Decide all of your orders together, as one plan:',
   '- A unit that holds gains nothing. Each turn, move every unit you can toward a supply center you do not own, starting with unowned ones.',
-  '- Hold a unit only when it sits on one of your supply centers that another power could reach this turn, or when it has no useful move.',
+  '- Holding is the exception, never the safe default: a power that stands still is overtaken by those that grow. A rival unit next to one of your supply centers is not by itself a reason to hold there.',
+  '- Hold a unit only when you expect the supply center it stands on to be attacked this turn and no other unit of yours can cover it, or when it has no useful move. A center is only lost if a rival unit stands on it at the end of a Fall turn, so in Spring a unit can leave its center and still be back, or be replaced, in Fall.',
   '- Support only when it makes a contested move or a threatened hold succeed. You may support or convoy another power\'s unit when you have agreed to and it serves you.',
   '- Never order a unit into a territory occupied by another of your own units unless that unit is ordered to move out this turn.',
   '- Never order two of your units to the same territory.',

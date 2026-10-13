@@ -369,3 +369,16 @@ test('a record states the code and the standing orders instructions it was playe
   const version = harnessVersion();
   assert.ok(version.commit === null || /^[0-9a-f]{40}$/.test(version.commit));
 });
+
+test('a full game\'s hold rule makes holding the exception; the challenge keeps its own pinned wording',() => {
+  const challengeRule = 'Hold a unit only when it sits on one of your supply centers that another power could reach this turn';
+  assert.ok(OPPONENT_INSTRUCTIONS.includes(challengeRule));
+  for (const key of ['luna','haiku'] as const) for (const kind of ['ORDERS','UNIT_ORDERS'] as const) {
+    const body = OPPONENT_CONTRACTS[key].buildFullGameRequest({ context: 'x' },kind).body;
+    assert.ok(!body.includes(challengeRule));
+    assert.ok(body.includes('A rival unit next to one of your supply centers is not by itself a reason to hold there.'));
+    assert.ok(body.includes('in Spring a unit can leave its center'));
+  }
+  // The challenge's request is byte for byte what its preset pins.
+  assert.ok(OPPONENT_CONTRACTS.haiku.buildRequest({ context: 'x' }).body.includes(challengeRule));
+});

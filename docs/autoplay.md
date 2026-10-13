@@ -50,6 +50,28 @@ unknown and its worst-case cost held):
 
 Retreat and build phases have only the decision round.
 
+### The hold rule
+
+The standing orders instructions are the challenge's, with two differences:
+powers are told that the others play for themselves and may write to them, and
+the rule about holding is worded differently.
+
+The challenge says to hold a unit "only when it sits on one of your supply
+centers that another power could reach this turn, or when it has no useful
+move". In the first three live games Claude Haiku 5.5 held about 84% of its
+orders whichever powers it played. Nine in ten of those holds were on its own
+supply centers, and about half of those had a foreign unit next door, which is
+what that wording permits. Late in a game nearly every center is within some
+rival's reach.
+
+From the fourth game on, a full game says instead that holding is the
+exception, that a rival unit next to a center is not by itself a reason to
+hold, and that a center is only lost if a rival stands on it at the end of a
+Fall turn. Nothing else in the instructions changed with it, so the fourth
+game's hold rate can be read against the first three. The record's
+`run.harness.instructionsHash` tells the two wordings apart; games recorded
+before that field existed used the old one.
+
 What a power is shown:
 
 - the public board and last phase's public results, the same for everyone,
