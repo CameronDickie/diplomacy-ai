@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { Coast, GameState, Order, TerritoryId, Unit } from '@diplomacy/shared';
+import type { Coast, GameState, Order, Power, TerritoryId, Unit } from '@diplomacy/shared';
 import { POWER_COLORS, TERRITORY_BY_ID, territoryName } from '../lib/game.js';
 
 interface Props {
@@ -11,6 +11,8 @@ interface Props {
   replayStandoffs?: TerritoryId[];
   unitAnimationFrom?: Unit[];
   unitAnimationKey?: string | null;
+  /** Land provinces without a supply center, shaded lightly in the color of the power that last stood there. */
+  heldTerritories?: Partial<Record<TerritoryId, Power>>;
   onSelectTerritory: (territory: TerritoryId, point?: { x: number; y: number }) => void;
   onClearSelection: () => void;
 }
@@ -43,6 +45,7 @@ export function MapGraph({
   replayStandoffs = [],
   unitAnimationFrom,
   unitAnimationKey,
+  heldTerritories,
   onSelectTerritory,
   onClearSelection,
 }: Props) {
@@ -134,8 +137,11 @@ export function MapGraph({
 
         const territoryState = gameState?.territories[territory];
         const pendingCapture = pendingByTerritory.get(territory);
+        // A province without a center keeps a softened color of the power that last stood there.
+        const held = !territoryState?.owner && !definition.isSupplyCenter ? heldTerritories?.[territory] : undefined;
         const color = territoryState?.owner
           ? POWER_COLORS[territoryState.owner]
+          : held ? mixColors(POWER_COLORS[held], '#b5a98e', 0.45)
           : definition.type === 'SEA'
             ? '#32647d'
             : '#b5a98e';
@@ -169,6 +175,7 @@ export function MapGraph({
         shape.classList.toggle('controlled-supply', Boolean(territoryState?.owner && definition.isSupplyCenter));
         shape.classList.toggle('controlled-non-supply', Boolean(territoryState?.owner && !definition.isSupplyCenter));
         shape.classList.toggle('pending-capture', Boolean(pendingCapture));
+        shape.classList.toggle('held-non-supply', Boolean(held));
         shape.style.setProperty('fill', fill, 'important');
         shape.style.setProperty(
           'fill-opacity',
@@ -180,7 +187,9 @@ export function MapGraph({
                 ? '0.72'
                 : territoryState?.owner
                   ? '0.56'
-                  : '0.46',
+                  : held
+                    ? '0.5'
+                    : '0.46',
           'important'
         );
         shape.style.setProperty('stroke', '#17232b', 'important');
@@ -256,6 +265,7 @@ export function MapGraph({
     };
   }, [
     gameState,
+    heldTerritories,
     markup,
     onClearSelection,
     onSelectTerritory,
@@ -578,6 +588,12 @@ function createControlPattern(
   return `url(#${id})`;
 }
 
+/** Two #rrggbb colors blended: `amount` of the second. */
+function mixColors(first: string, second: string, amount: number): string {
+  const channel = (hex: string, i: number) => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+  return `#${[0, 1, 2].map(i => Math.round(channel(first, i) * (1 - amount) + channel(second, i) * amount).toString(16).padStart(2, '0')).join('')}`;
+}
+
 function renderUnits(
   svg: SVGSVGElement,
   units: Unit[],
@@ -637,12 +653,12 @@ function renderUnits(
     ) {
       const previousCenter = territoryCenter(svg, previous.territory, previous.coast);
       if (previousCenter) {
+        // An animated CSS transform replaces the marker's transform attribute while it runs, so both
+        // ends are absolute map positions; offsets from the new place would start from the map's corner.
         marker.animate(
           [
-            {
-              transform: `translate(${previousCenter.x - x}px, ${previousCenter.y - y}px)`,
-            },
-            { transform: 'translate(0, 0)' },
+            { transform: `translate(${previousCenter.x}px, ${previousCenter.y}px)` },
+            { transform: `translate(${x}px, ${y}px)` },
           ],
           {
             duration: 900,

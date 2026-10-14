@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ALL_POWERS, TERRITORIES, type AutoplayGameFile, type AutoplayIndexEntry, type Power } from '@diplomacy/shared';
 import { Shell, type NavItem } from '../challenge/Shell.js';
 import { phaseTitle, title } from '../challenge/text.js';
+import { heldTerritories } from '../lib/game.js';
 import { MapGraph } from '../ui/MapGraph.js';
 import { CenterChart } from './CenterChart.js';
 import { MODEL_NAMES, eliminations, modelKey, modelOf, orderMix, turnsOf, usd, type ModelKey } from './record.js';
@@ -106,6 +107,8 @@ function GameView({ game, at }: { game: AutoplayGameFile; at: number | null }) {
   const shown = result ? turn.report.after : turn.report.before;
   const mapState = useMemo(() => ({ units: shown.units, territories: Object.fromEntries(TERRITORIES.map(t => [t.id, { id: t.id, isSupplyCenter: t.isSupplyCenter, owner: shown.territoryOwners[t.id] }])) }), [shown]);
   const orders = turn.report.phase === 'ORDERS' && !result ? turn.report.resolvedOrders : [];
+  const reports = useMemo(() => turns.map(t => t.report), [turns]);
+  const held = useMemo(() => heldTerritories(reports.slice(0, index), shown.units), [reports, index, shown]);
   return <main id="dip-content">
     <div className="dip-heading viewer-heading"><p className="dip-meta">{game.run.transport === 'live' ? 'Live models' : 'Stand-in models'} · {game.status === 'FINISHED' ? `ended by ${ENDED[game.endedBy ?? ''] ?? 'finishing'}` : game.status.toLowerCase()}</p>
       <h1>{game.run.runId}</h1>
@@ -123,7 +126,7 @@ function GameView({ game, at }: { game: AutoplayGameFile; at: number | null }) {
     </div>
     <div className="dip-play viewer-play">
       <section className="dip-map" aria-label={`Board, ${phaseTitle(turn.report)}`}>
-        <MapGraph gameState={mapState} selectedTerritory={null} selectedUnit={null} validTargets={[]} pendingOrders={orders}
+        <MapGraph gameState={mapState} heldTerritories={held} selectedTerritory={null} selectedUnit={null} validTargets={[]} pendingOrders={orders}
           replayStandoffs={result && turn.report.phase === 'ORDERS' ? turn.report.standoffTerritories : []}
           unitAnimationFrom={result ? turn.report.before.units : undefined} unitAnimationKey={result ? `${turn.report.id}-${animation}` : null}
           onSelectTerritory={ignore} onClearSelection={ignore} />

@@ -1,6 +1,7 @@
 import { useEffect,useMemo,useRef,useState } from 'react';
 import { TERRITORIES,type ChallengeCatalog,type ExhibitionSummary,type OperatorAttemptDetail,type OperatorAttemptRow,type OperatorOverview } from '@diplomacy/shared';
 import { challengeRequest } from '../hooks/useChallenge.js';
+import { heldTerritories } from '../lib/game.js';
 import { MapGraph } from './MapGraph.js';
 
 const usd=(nano:number)=>`$${(nano/1e9).toFixed(4)}`;
@@ -31,6 +32,7 @@ export function OperatorPanel(){
     catch(e){setError((e as Error).message);}
   }
   const report=detail&&step!==null?detail.reports[step]:undefined,shown=report?report.after:detail?.board;
+  const held=useMemo(()=>detail&&shown?heldTerritories(detail.reports.slice(0,step===null?detail.reports.length:step+1),shown.units):{},[detail,step,shown]);
   const mapState=useMemo(()=>shown?{units:shown.units,territories:Object.fromEntries(TERRITORIES.map(t=>[t.id,{id:t.id,isSupplyCenter:t.isSupplyCenter,owner:shown.territoryOwners[t.id]}]))}:null,[shown]);
   if(!overview)return <section className="operator-panel"><p role="status">{error||'Loading operator view…'}</p></section>;
   const o=overview,paidLabel=!o.paidConfigured?`Not enabled in this deployment${o.paid.stopped?' · switch is set to stopped':''}`:o.paid.stopped?`Stopped (pause #${o.paid.episode})`:'Running';
@@ -69,7 +71,7 @@ export function OperatorPanel(){
       <div className="operator-steps"><button disabled={step===null} onClick={()=>setStep(null)}>Current</button>
         {detail.reports.map((r,i)=><button key={r.id} disabled={step===i} onClick={()=>setStep(i)}>{r.year} {r.season} {r.phase}</button>)}
         <button onClick={()=>{watching.current=null;setDetail(null);}}>Close</button></div>
-      <div className="operator-map"><MapGraph gameState={mapState} selectedTerritory={null} selectedUnit={null} validTargets={[]} pendingOrders={report?.phase==='ORDERS'?report.resolvedOrders:[]} onSelectTerritory={()=>{}} onClearSelection={()=>{}}/></div></div>}
+      <div className="operator-map"><MapGraph gameState={mapState} heldTerritories={held} selectedTerritory={null} selectedUnit={null} validTargets={[]} pendingOrders={report?.phase==='ORDERS'?report.resolvedOrders:[]} onSelectTerritory={()=>{}} onClearSelection={()=>{}}/></div></div>}
     <h2>Bot exhibition games</h2>
     <p>Background games with every power played by the practice bot. They cost nothing and do not use player capacity; at most two can be unfinished at once.</p>
     <div className="operator-steps"><button disabled={busy} onClick={()=>{setBusy(true);setError('');void challengeRequest<ChallengeCatalog>('/challenges').then(c=>challengeRequest('/operator/exhibitions',{challengeId:c.challenges[0].id,challengeVersion:c.challenges[0].version})).then(load).catch(e=>setError((e as Error).message)).finally(()=>setBusy(false));}}>Start one on today’s scenario</button></div>

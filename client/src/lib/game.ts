@@ -1,4 +1,4 @@
-import type { Power, TerritoryId, Unit } from '@diplomacy/shared';
+import type { Power, PublicPhaseReport, TerritoryId, Unit } from '@diplomacy/shared';
 import { ADJACENCY, TERRITORIES } from '@diplomacy/shared';
 
 export const POWER_COLORS: Record<Power, string> = {
@@ -124,4 +124,23 @@ function fleetNeighbors(territory: TerritoryId): TerritoryId[] {
   if (!fleet) return [];
   if (Array.isArray(fleet)) return fleet;
   return [...new Set(Object.values(fleet).flat())];
+}
+
+/**
+ * Which power's unit last stood on each land province without a supply center: from the board
+ * before and after each resolved phase given, then the units on the board shown. The map shades
+ * these lightly, so the area each power controls reads as one region between its centers. Seas are
+ * left out: a fleet passing through does not make a sea anyone's.
+ */
+export function heldTerritories(reports: readonly PublicPhaseReport[], shown: readonly Unit[] | null | undefined): Partial<Record<TerritoryId, Power>> {
+  const held: Partial<Record<TerritoryId, Power>> = {};
+  const mark = (units: readonly Unit[]) => {
+    for (const unit of units) {
+      const territory = TERRITORY_BY_ID[unit.territory];
+      if (territory && !territory.isSupplyCenter && territory.type !== 'SEA') held[unit.territory] = unit.power;
+    }
+  };
+  for (const report of reports) { mark(report.before.units); mark(report.after.units); }
+  if (shown) mark(shown);
+  return held;
 }

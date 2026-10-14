@@ -4,7 +4,7 @@ import { HistoryView } from '../challenge/History.js';
 import { Shell, type NavItem } from '../challenge/Shell.js';
 import { useAuth } from '../hooks/useAuth.js';
 import { useGameSocket } from '../hooks/useGameSocket.js';
-import { adjacentTerritories, convoyDestinations, convoyRoute, TERRITORY_BY_ID, territoryName } from '../lib/game.js';
+import { adjacentTerritories, convoyDestinations, convoyRoute, heldTerritories, TERRITORY_BY_ID, territoryName } from '../lib/game.js';
 import { MapGraph } from '../ui/MapGraph.js';
 import { GameView } from './Game.js';
 import { MessagesView } from './Messages.js';
@@ -81,6 +81,9 @@ export function RoomApp() {
     return gameStateFromSnapshot(state, replayReport, replayFrame < 2 ? replayReport.before : replayReport.after);
   }, [state, replayFrame, replayReport]);
   const playing = current === 'play' && !replayReport;
+  // Earlier turns of whatever is shown: the replayed turn's predecessors, or every resolved turn.
+  const held = useMemo(() => { const at = replayReport ? game.phaseHistory.indexOf(replayReport) : -1;
+    return heldTerritories(at >= 0 ? game.phaseHistory.slice(0, at) : game.phaseHistory, displayedState?.units); }, [game.phaseHistory, replayReport, displayedState]);
   const displayedOrders = replayReport ? (replayReport.phase === 'ORDERS' && replayFrame === 1 ? replayReport.resolvedOrders : []) : playing ? pendingOrders : [];
 
   const selectedUnit = useMemo<Unit | null>(() => {
@@ -126,6 +129,7 @@ export function RoomApp() {
   const interactive = playing && Boolean(game.myPower);
   const map = <MapGraph
     gameState={displayedState}
+    heldTerritories={held}
     selectedTerritory={interactive ? selectedTerritory : null}
     selectedUnit={interactive ? selectedUnit : null}
     validTargets={interactive && ordering ? mapTargets : []}

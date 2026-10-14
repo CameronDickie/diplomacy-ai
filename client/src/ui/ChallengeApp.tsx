@@ -9,6 +9,7 @@ import { SetupView } from '../challenge/Setup.js';
 import { Shell, type NavItem } from '../challenge/Shell.js';
 import { title } from '../challenge/text.js';
 import { useOrderEntry } from '../challenge/useOrderEntry.js';
+import { heldTerritories } from '../lib/game.js';
 import { MapGraph } from './MapGraph.js';
 import { OperatorPanel } from './OperatorPanel.js';
 
@@ -55,7 +56,10 @@ export function ChallengeApp() {
   const shown = report ? (replay!.after ? report.after : report.before) : current === 'setup' ? (game.selected?.board ?? a?.board) : entry.board;
   const mapState = useMemo(() => shown ? { units: shown.units, territories: Object.fromEntries(TERRITORIES.map(t => [t.id, { id: t.id, isSupplyCenter: t.isSupplyCenter, owner: shown.territoryOwners[t.id] }])) } : null, [shown]);
   const playing = current === 'play' && !replay;
-  const map = <MapGraph gameState={mapState} selectedTerritory={playing ? entry.selected : null} selectedUnit={playing ? entry.selectedUnit : null}
+  // Earlier turns of whatever is shown: a replay up to the step in view, or this attempt's resolved turns.
+  const held = useMemo(() => !shown ? {} : replay ? heldTerritories(replay.reports.slice(0, replay.index), shown.units)
+    : current === 'setup' ? heldTerritories([], shown.units) : heldTerritories(game.reports, shown.units), [shown, replay, current, game.reports]);
+  const map = <MapGraph gameState={mapState} heldTerritories={held} selectedTerritory={playing ? entry.selected : null} selectedUnit={playing ? entry.selectedUnit : null}
     validTargets={playing && entry.selectedUnit ? entry.options.filter(o => o.unitTerritory === entry.selectedUnit!.territory && o.order.type === 'MOVE').map(o => o.order.targetTerritory!) : []}
     pendingOrders={report?.phase === 'ORDERS' ? report.resolvedOrders : playing ? entry.chosenOrders : []}
     onSelectTerritory={territory => { if (playing && entry.own.some(u => u.territory === territory)) { entry.setSelected(now => now === territory ? null : territory); void game.activity(); } }}
