@@ -73,6 +73,8 @@ export interface AutoplayOptions {
   maxPhases?: number;
   /** How many times one phase waits out a provider that cannot be reached before the run stops (default 12, about ten minutes). */
   maxWaits?: number;
+  /** When a power's own moves block each other, say which and ask once more; the second answer stands (default on). */
+  askAgainWhenBlocked?: boolean;
   /**
    * End the game once no supply center has changed hands for this many years. Unset or 0: never.
    * The game itself is left as it stands, so it can be continued with a larger number or none.
@@ -89,7 +91,7 @@ export interface AutoplayOptions {
 export interface AutoplayResult {
   run: { runId: string; attemptId: string; transport: 'mock' | 'live'; lastYear: number; talkRecipients: number; assignment: Record<Power, string>; planId: string; contextVersion: string;
     /** What the game was played under: code commit (null when unknown), whether harness files differed from it, and the standing orders instructions. A continued game states the latest run's. */
-    harness: { commit: string | null; modified: boolean; instructionsHash: string; ordersInstructions: string; callTimeoutMs: number; stalemateYears: number } };
+    harness: { commit: string | null; modified: boolean; instructionsHash: string; ordersInstructions: string; callTimeoutMs: number; stalemateYears: number; askAgainWhenBlocked: boolean } };
   status: 'FINISHED' | 'WAITING' | 'PAUSED';
   /** How a finished game ended: one power reached 18 supply centers, the last year's Fall settled, or no center changed hands for the stated number of years. */
   endedBy: 'SOLO_WIN' | 'LAST_YEAR' | 'STALEMATE' | null;
@@ -167,7 +169,7 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   const orderCalls = options.orderCalls ?? 6;
   if (!Number.isSafeInteger(orderCalls) || orderCalls < 3 || orderCalls > 10) throw new Error('A power may have between 3 and 10 orders calls for a phase.');
   const turn = (phaseId: string) => phaseId.split(':').slice(-3,-1).reverse().join(' ');
-  const provider = new LunaDecisionProvider(store,rules,main,{ now, plan, transports: options.transports, maxCallsPerPower: orderCalls, timeoutMs: CALL_TIMEOUT_MS,
+  const provider = new LunaDecisionProvider(store,rules,main,{ now, plan, transports: options.transports, maxCallsPerPower: orderCalls, timeoutMs: CALL_TIMEOUT_MS, askAgainWhenSelfBlocked: options.askAgainWhenBlocked ?? true,
     onRejectedDecision: f => {
       const reason = `${f.power} orders call, try ${f.attempt}: answer not usable — ${f.reason}`;
       failures.push({ at: now(), phaseId: f.phaseId, reason }); log(`  ! ${turn(f.phaseId)} · ${reason}`);
@@ -248,7 +250,7 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   return {
     run: { runId, attemptId: id, transport: options.transportKind, lastYear: options.lastYear, talkRecipients,
       assignment: Object.fromEntries(ALL_POWERS.map(p => [p,plan.contractFor(p).preset.model])) as Record<Power, string>, planId: plan.id, contextVersion: CONTEXT_VERSION,
-      harness: { commit: options.harness?.commit ?? null, modified: options.harness?.modified ?? false, ...harnessInstructions(), callTimeoutMs: CALL_TIMEOUT_MS, stalemateYears } },
+      harness: { commit: options.harness?.commit ?? null, modified: options.harness?.modified ?? false, ...harnessInstructions(), callTimeoutMs: CALL_TIMEOUT_MS, stalemateYears, askAgainWhenBlocked: options.askAgainWhenBlocked ?? true } },
     status: attempt.lifecycle === 'ACTIVE' && !stalemate ? (status === 'FINISHED' ? 'WAITING' : status) : 'FINISHED',
     endedBy: stalemate ? 'STALEMATE' : attempt.lifecycle === 'ACTIVE' ? null : ALL_POWERS.some(p => count[p] >= 18) ? 'SOLO_WIN' : 'LAST_YEAR',
     waitingOn: attempt.lifecycle === 'ACTIVE' ? waitingOn : null,

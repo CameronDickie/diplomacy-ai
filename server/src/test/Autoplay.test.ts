@@ -10,7 +10,7 @@ import { CALL_TIMEOUT_MS, DEFAULT_ASSIGNMENT, autoplay, fullGameDefinition, harn
 import { assertDevelopment, harnessVersion, parseAssignment } from '../autoplay/cli.js';
 import { FULL_GAME_UNIT_INSTRUCTIONS, OPPONENT_INSTRUCTIONS } from '../providers/OpponentInstructions.js';
 import { parseMessages, sharedContext, talkLines, type PowerMessage } from '../luna/Context.js';
-import { buildChoices, orderChoices, parseUnitOrders } from '../luna/Choices.js';
+import { buildChoices, orderChoices, parseUnitOrders, selfBlockingMoves } from '../luna/Choices.js';
 import { describeRejection } from '../luna/LunaDecisionProvider.js';
 import { http1Fetch } from '../luna/Http1Fetch.js';
 import { PreflightError, httpLunaTransport, mockOpponentTransport, networkCode, type LunaTransport } from '../luna/Transport.js';
@@ -35,7 +35,9 @@ async function setup(t: test.TestContext, granted = 5_000_000_000) {
     };
     return [key,wrap(key,recording)];
   })) as Record<ModelKey, LunaTransport>;
-  const run = (extra: Partial<Parameters<typeof autoplay>[0]> = {}) => autoplay({ store, runId: 'game-a', lastYear: 1902, transports: transports(), transportKind: 'mock', now: () => 1_800_000_000_000, ...extra });
+  const run = (extra: Partial<Parameters<typeof autoplay>[0]> = {}) => autoplay({ store, runId: 'game-a', lastYear: 1902, transports: transports(), transportKind: 'mock', now: () => 1_800_000_000_000,
+    // The stand-ins often send two units to one place; these tests count calls, so the extra question is asked only where a test turns it on.
+    askAgainWhenBlocked: false, ...extra });
   return { store, sent, transports, run };
 }
 const player = (_attemptId: string) => 'test-operator';
@@ -360,7 +362,7 @@ test('a game with no year to stop at ends as a stalemate once no supply center h
 
 test('a record states the code and the standing orders instructions it was played under, and calls get the longer full-game limit',async t => {
   const f = await setup(t), result = await f.run({ lastYear: 1901, harness: { commit: 'a'.repeat(40), modified: true } });
-  assert.deepEqual(result.run.harness,{ commit: 'a'.repeat(40), modified: true, ...harnessInstructions(), callTimeoutMs: CALL_TIMEOUT_MS, stalemateYears: 0 });
+  assert.deepEqual(result.run.harness,{ commit: 'a'.repeat(40), modified: true, ...harnessInstructions(), callTimeoutMs: CALL_TIMEOUT_MS, stalemateYears: 0, askAgainWhenBlocked: false });
   assert.equal(result.run.harness.ordersInstructions,FULL_GAME_UNIT_INSTRUCTIONS);
   assert.match(result.run.harness.instructionsHash,/^[0-9a-f]{16}$/);
   assert.equal(CALL_TIMEOUT_MS,40_000);
@@ -437,4 +439,33 @@ test('the tools\' plain HTTP/1.1 fetch sends exact bytes on its own connection, 
   const request = OPPONENT_CONTRACTS.luna.buildFullGameRequest({ context: 'x' },'ASK').body;
   const redirected = httpLunaTransport('test-key-not-real',((_url,init) => http1Fetch(`${base}/moved`,init)) as typeof fetch);
   await assert.rejects(redirected.preflight!({ body: request, signal: new AbortController().signal }),(error: unknown) => error instanceof PreflightError && error.detail === 'HTTP 307');
+});
+
+test('orders that block each other are named and asked about once; the second answer stands whatever it says',async t => {
+  assert.deepEqual(selfBlockingMoves(['ANK|MOVE|ARM','CON|HOLD','SMY|MOVE|ARM']),['your units in ANK and SMY were all sent to ARM, where only one can arrive']);
+  assert.deepEqual(selfBlockingMoves(['ANK|MOVE|CON','CON|SUPPORT_HOLD|SMY','SMY|MOVE|ARM']),['your unit in ANK was sent to CON, where your own unit is staying']);
+  assert.deepEqual(selfBlockingMoves(['SPA/SOUTH|MOVE|MAO','GAS|MOVE|MAO','POR|MOVE_VIA_CONVOY|MAO','BRE|MOVE|PAR']),['your units in SPA/SOUTH, GAS and POR were all sent to MAO, where only one can arrive']);
+  // Moving into a place your own unit is leaving, or supporting into it, is fine.
+  assert.deepEqual(selfBlockingMoves(['ANK|MOVE|CON','CON|MOVE|BUL','SMY|SUPPORT_MOVE|ANK|CON']),[]);
+
+  const f = await setup(t), asked: string[] = [];
+  // Turkey's model sends F ANK and A SMY both to Armenia, every time it is asked.
+  const transports = f.transports((key,inner) => async request => {
+    const contract = opponentContract(key), context = contract.contextOf(request.body);
+    if (speaker(context) === 'TURKEY' && contract.buildFullGameRequest({ context },'UNIT_ORDERS').body === request.body && /SPRING 1901, ORDERS phase\./.test(context)) {
+      asked.push(context);
+      return { status: 200, body: contract.mockEnvelope({ serial: 7_000 + asked.length, text: '{"orders":[{"unit":"ANK","choice":0},{"unit":"CON","choice":8},{"unit":"SMY","choice":10}]}', inputTokens: 100, outputTokens: 40 }) };
+    }
+    return inner(request);
+  });
+  const result = await f.run({ transports, lastYear: 1901, askAgainWhenBlocked: true });
+  assert.equal(result.status,'FINISHED'); assert.equal(result.run.harness.askAgainWhenBlocked,true);
+  assert.equal(asked.length,2);
+  assert.ok(!asked[0].includes('could not be used'));
+  assert.match(asked[1],/\nYour previous answer for this turn could not be used: your units in ANK and SMY were all sent to ARM, where only one can arrive\. Those moves fail against each other; give the extra units other orders\. Go through the 3 headings/);
+  const spring = result.record.phases[0];
+  assert.deepEqual(spring.calls.filter(c => c.power === 'TURKEY').map(c => c.outcome),['INVALID_ACTION','VALID']);
+  // The second answer was played as given.
+  assert.deepEqual((spring.report as unknown as { resolvedOrders: Array<{ power: string; type: string; targetTerritory: string }> }).resolvedOrders.filter(o => o.power === 'TURKEY' && o.type === 'MOVE').map(o => o.targetTerritory),['ARM','ARM']);
+  assert.ok(result.record.failures.some(x => /^TURKEY orders call, try 1: answer not usable — your units in ANK and SMY were all sent to ARM/.test(x.reason)));
 });

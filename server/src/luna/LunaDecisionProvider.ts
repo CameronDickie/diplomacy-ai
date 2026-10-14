@@ -9,7 +9,7 @@ import type { ProviderCallIntent, ProviderCallRecord } from '../providers/accoun
 import { LUNA_CONTRACT, type OpponentContract } from '../providers/OpponentContract.js';
 import { singlePlan, type OpponentPlan } from '../providers/OpponentPlan.js';
 import { ProviderCallError, recordedCall } from '../providers/RecordedCall.js';
-import { ChoiceError, forcedAction } from './Choices.js';
+import { ChoiceError, forcedAction, selfBlockingMoves } from './Choices.js';
 import { lunaPrompt, parseMessages, talkPrompt, type PowerMessage } from './Context.js';
 import type { StoredPowerTalk } from '../storage/talks.js';
 import { PreflightError, type LunaTransport } from './Transport.js';
@@ -33,6 +33,8 @@ interface Options {
   transports?: Partial<Record<OpponentContract['key'], LunaTransport>>;
   /** Total provider calls one power may consume for one phase, across every recovery. */
   maxCallsPerPower?: number;
+  /** A full game only: when a power's own moves block each other, say which and ask once more (the second answer stands). */
+  askAgainWhenSelfBlocked?: boolean;
   timeoutMs?: number;
   /** Test seam for narrower workers; production always uses the pinned server preset. */
   maxConcurrentDecisions?: number;
@@ -68,6 +70,8 @@ export class LunaDecisionProvider implements DecisionProvider {
   private readonly plan: OpponentPlan;
   /** Why a power's last orders answer for a phase was rejected, by operation and power. Lost on restart, when a general reminder is used instead. */
   private readonly rejections = new Map<string, string>();
+  /** Powers already asked again this phase because their own moves blocked each other. */
+  private readonly blockedAsked = new Set<string>();
   constructor(private store: Store, private rules: PhaseRules, private transport: LunaTransport, private options: Options = {}) {
     this.now = options.now ?? Date.now;
     this.plan = options.plan ?? singlePlan(options.contract ?? LUNA_CONTRACT);
@@ -253,6 +257,13 @@ export class LunaDecisionProvider implements DecisionProvider {
         try {
           action = prompt.set.toAction(prompt.read(parsed));
           await this.rules.validate(job.board,power,action,callSignal);
+          // A full game asks once more when a power's own moves block each other. The rules allow such orders,
+          // so the second answer stands whatever it says.
+          const blocking = this.options.askAgainWhenSelfBlocked && prompt.byUnit && Array.isArray((action as { orderIds?: unknown }).orderIds) ? selfBlockingMoves((action as { orderIds: string[] }).orderIds) : [];
+          if (blocking.length && !this.blockedAsked.has(`${job.operationId}:${power}`)) {
+            this.blockedAsked.add(`${job.operationId}:${power}`);
+            throw new ChoiceError(`${blocking.slice(0,4).join('; ')}. Those moves fail against each other; give the extra units other orders`);
+          }
         } catch (error) {
           // A unit-by-unit answer explains itself; a bare list of numbers is described from its shape.
           const reason = callSignal.aborted ? null : prompt.byUnit ? (error instanceof ChoiceError ? error.message : 'the rules engine refused the combination') : describeRejection(parsed,prompt.set);

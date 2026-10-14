@@ -50,6 +50,19 @@ unknown and its worst-case cost held):
 
 Retreat and build phases have only the decision round.
 
+An orders answer the rules allow can still have a power's own moves fail
+against each other: two of its units sent to the same place (only one can
+arrive), or a unit sent into a place its own unit is not leaving. The
+instructions forbid both, and the request marks moves two units share, but in
+the fourth live game GPT-6 Luna did it in half of its turns once a power had 14
+or more units; Turkey, one center from winning, sent 9 of its 16 units into
+places another Turkish unit was also going. Such an answer is now refused once:
+the retry names the units that clash (for example "your units in ANK and SMY
+were all sent to ARM, where only one can arrive"). The second answer is played
+as given, whatever it says. The refused answer is billed like any other and
+listed under `record.failures`; `run.harness.askAgainWhenBlocked` records that
+the check was on.
+
 ### The hold rule
 
 The standing orders instructions are the challenge's, with two differences:

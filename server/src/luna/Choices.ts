@@ -108,6 +108,25 @@ export function coherenceIssues(orderIds: readonly string[]): CoherenceIssue[] {
 }
 
 /**
+ * Moves of one power that cannot all succeed because they get in each other's way, in words a
+ * model can act on: two or more of its units sent to the same place (only one can arrive), or a
+ * unit sent into a place another of its units is not leaving. Empty when there are none.
+ */
+export function selfBlockingMoves(orderIds: readonly string[]): string[] {
+  const orders = orderIds.map(id => { const [unit, type, first] = id.split('|'); return { unit, type, first }; });
+  const moving = (o: typeof orders[number]) => o.type === 'MOVE' || o.type === 'MOVE_VIA_CONVOY';
+  const list = (names: string[]) => names.length < 3 ? names.join(' and ') : `${names.slice(0,-1).join(', ')} and ${names.at(-1)}`;
+  const found: string[] = [], into = new Map<string, string[]>();
+  for (const o of orders.filter(moving)) into.set(province(o.first),[...(into.get(province(o.first)) ?? []),o.unit]);
+  for (const [place, units] of into) if (units.length > 1) found.push(`your units in ${list(units)} were all sent to ${place}, where only one can arrive`);
+  for (const o of orders.filter(moving)) {
+    const occupant = orders.find(f => province(f.unit) === province(o.first));
+    if (occupant && !moving(occupant)) found.push(`your unit in ${o.unit} was sent to ${occupant.unit}, where your own unit is staying`);
+  }
+  return found;
+}
+
+/**
  * Movement: exactly one choice per active unit. `legal` is Godip's catalog for this power.
  * `keepPerUnit` trims each unit's list in a fixed order; a unit's HOLD is always first, so a
  * trimmed catalog still admits a fully legal answer.
