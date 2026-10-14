@@ -15,6 +15,8 @@ export interface ChoiceSet {
   choices: Choice[];
   /** Total legal options before any compaction, and how many are listed. */
   coverage: { listed: number; total: number };
+  /** Plain-text hints shown after the choices (a full game's convoys that could be set up for next turn). */
+  notes?: string[];
   toAction(indices: readonly number[]): PhaseAction;
 }
 /** A deterministic legal adjustment for scripted play, independent of the display rule. */
@@ -112,6 +114,25 @@ export function coherenceIssues(orderIds: readonly string[]): CoherenceIssue[] {
  * model can act on: two or more of its units sent to the same place (only one can arrive), or a
  * unit sent into a place another of its units is not leaving. Empty when there are none.
  */
+/**
+ * Convoys of one power that cannot work because their other half is missing: an army sent by
+ * convoy that none of its fleets convoys (fine only if another power agreed to), or a fleet
+ * convoying one of its armies that is not making that move. Empty when there are none.
+ */
+export function convoyMismatches(orderIds: readonly string[]): string[] {
+  const orders = orderIds.map(id => { const [unit, type, first, second] = id.split('|'); return { unit, type, first, second }; });
+  const found: string[] = [];
+  for (const o of orders) {
+    if (o.type === 'MOVE_VIA_CONVOY' && !orders.some(f => f.type === 'CONVOY' && province(f.first) === province(o.unit) && province(f.second ?? '') === province(o.first)))
+      found.push(`your army in ${o.unit} was sent to ${o.first} by convoy, but none of your fleets was ordered to convoy it (keep that only if another power agreed to convoy it)`);
+    if (o.type === 'CONVOY') {
+      const army = orders.find(a => province(a.unit) === province(o.first));
+      if (army && !((army.type === 'MOVE_VIA_CONVOY' || army.type === 'MOVE') && province(army.first) === province(o.second ?? '')))
+        found.push(`your fleet in ${o.unit} was ordered to convoy ${o.first} to ${o.second}, but your army in ${o.first} was not ordered to move there by convoy`);
+    }
+  }
+  return found;
+}
 export function selfBlockingMoves(orderIds: readonly string[]): string[] {
   const orders = orderIds.map(id => { const [unit, type, first] = id.split('|'); return { unit, type, first }; });
   const moving = (o: typeof orders[number]) => o.type === 'MOVE' || o.type === 'MOVE_VIA_CONVOY';
@@ -126,12 +147,56 @@ export function selfBlockingMoves(orderIds: readonly string[]): string[] {
   return found;
 }
 
+type OwnUnit = BoardFixture['units'][number];
+const label = (unit: OwnUnit) => unitLabel(unit.type,unit.territory,unit.coast);
+const fleetNeighbours = (place: string) => { const fleet = ADJACENCY[place as keyof typeof ADJACENCY]?.fleet; return [...new Set((Array.isArray(fleet) ? fleet : Object.values(fleet ?? {}).flat()).map(t => province(t)))]; };
+/**
+ * A convoy takes two orders under two headings, the army's and the fleet's, and neither works alone.
+ * Each says which order of yours it depends on (a full game only).
+ */
+function convoyNote(power: Power, units: readonly OwnUnit[], legal: readonly LegalOption[], id: string): string {
+  const [unit, type, first, second] = id.split('|');
+  if (type === 'MOVE_VIA_CONVOY') {
+    const fleets = legal.filter(o => o.order.power === power && o.id.split('|')[1] === 'CONVOY' && province(o.id.split('|')[2]) === province(unit) && province(o.id.split('|')[3] ?? '') === province(first))
+      .map(o => units.find(u => u.territory === o.unitTerritory)).filter((u): u is OwnUnit => Boolean(u)).map(label);
+    return fleets.length ? ` (arrives only if ${fleets.slice(0,3).join(' or ')} also convoys it there this turn)` : ' (arrives only if another power\'s fleet convoys it there this turn)';
+  }
+  if (type === 'CONVOY') {
+    const army = units.find(u => u.territory === province(first));
+    return army ? ` (works only if ${label(army)} also moves to ${province(second ?? '')} by convoy this turn)` : '';
+  }
+  return '';
+}
+/**
+ * For each of this power's armies on a coast: which fleet move this turn would let it be convoyed
+ * next turn, and to where it could not otherwise go. Models rarely set convoys up a turn ahead.
+ */
+function convoyPlans(power: Power, units: readonly OwnUnit[], legal: readonly LegalOption[]): string[] {
+  const lines: string[] = [];
+  for (const army of units.filter(u => u.type === 'ARMY' && TERRITORY_MAP[u.territory]?.type === 'COASTAL')) {
+    const walk = new Set((ADJACENCY[army.territory as keyof typeof ADJACENCY]?.army ?? []).map(t => province(t)));
+    let shown = 0;
+    for (const sea of fleetNeighbours(army.territory).filter(t => TERRITORY_MAP[t]?.type === 'SEA').sort()) {
+      if (shown >= 2 || lines.length >= 6) break;
+      // A fleet already there can convoy this turn; those orders are in the list above.
+      if (units.some(u => u.type === 'FLEET' && province(u.territory) === sea)) continue;
+      const movers = units.filter(u => u.type === 'FLEET' && legal.some(o => o.unitTerritory === u.territory && o.order.power === power && o.id.split('|')[1] === 'MOVE' && province(o.id.split('|')[2]) === sea));
+      if (!movers.length) continue;
+      const reach = fleetNeighbours(sea).filter(t => TERRITORY_MAP[t]?.type !== 'SEA' && t !== army.territory && !walk.has(t)).sort();
+      if (!reach.length) continue;
+      lines.push(`- ${label(army)}: move ${movers.slice(0,2).map(label).join(' or ')} to ${sea} this turn, and next turn ${label(army)} can be convoyed from there to ${reach.slice(0,6).join(', ')}.`);
+      shown++;
+    }
+  }
+  return lines;
+}
+
 /**
  * Movement: exactly one choice per active unit. `legal` is Godip's catalog for this power.
  * `keepPerUnit` trims each unit's list in a fixed order; a unit's HOLD is always first, so a
  * trimmed catalog still admits a fully legal answer.
  */
-export function orderChoices(board: BoardFixture, power: Power, legal: readonly LegalOption[], keepPerUnit = Number.MAX_SAFE_INTEGER, contested?: ReadonlySet<string>, partners: ReadonlySet<string> = new Set(), shareNotes = true): ChoiceSet | null {
+export function orderChoices(board: BoardFixture, power: Power, legal: readonly LegalOption[], keepPerUnit = Number.MAX_SAFE_INTEGER, contested?: ReadonlySet<string>, partners: ReadonlySet<string> = new Set(), shareNotes = true, convoyNotes = false): ChoiceSet | null {
   const units = board.units.filter(u => u.power === power && !u.mustRetreat).sort((a,b) => a.territory.localeCompare(b.territory));
   if (!units.length) return null;
   if (contested) legal = legal.filter(option => purposeful(option.id,new Set(units.map(u => u.territory)),contested,partners));
@@ -155,11 +220,13 @@ export function orderChoices(board: BoardFixture, power: Power, legal: readonly 
     if (!own.some(o => o.order.type === 'HOLD')) throw new ChoiceError(`No legal HOLD for ${unit.territory}.`);
     // Trimming keeps the hold; the list then shows it last, so standing still is not the first thing offered.
     const listed = own.slice(0,Math.max(1,keepPerUnit)).sort((a,b) => Number(a.order.type === 'HOLD') - Number(b.order.type === 'HOLD')), group = { id: unit.territory, label: unitLabel(unit.type,unit.territory,unit.coast), choices: [] as number[] };
-    for (const option of listed) { group.choices.push(choices.length); choices.push({ group: unit.territory, label: `${option.description || option.id}${destinationNote(board,power,option.id,shareNotes ? rivals : null)}` }); ids.push(option.id); }
+    for (const option of listed) { group.choices.push(choices.length); choices.push({ group: unit.territory, label: `${option.description || option.id}${destinationNote(board,power,option.id,shareNotes ? rivals : null)}${convoyNotes ? convoyNote(power,units,legal,option.id) : ''}` }); ids.push(option.id); }
     groups.push(group);
   }
   const shared = choices.some(c => c.label.includes('shared with ')) ? ' "Shared with" names other units of yours that can move to the same place: send only one of them there, or both fail.' : '';
+  const plans = convoyNotes ? convoyPlans(power,units,legal) : [];
   return { power, phase: 'ORDERS', rule: `Pick exactly one number for each of your ${units.length} unit${units.length === 1 ? '' : 's'}.${shared}`, groups, choices,
+    ...(plans.length ? { notes: ['Convoys you could set up for next turn. Only a fleet at sea next to an army can convoy it; a fleet in a coastal province cannot.',...plans] } : {}),
     coverage: { listed: choices.length, total: legal.filter(o => o.order.power === power && units.some(u => u.territory === o.unitTerritory)).length },
     toAction(indices) {
       const picked = distinct(indices,choices.length);

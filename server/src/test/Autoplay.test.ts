@@ -8,9 +8,9 @@ import { join } from 'node:path';
 import { ALL_POWERS, type Power } from '@diplomacy/shared';
 import { CALL_TIMEOUT_MS, DEFAULT_ASSIGNMENT, autoplay, fullGameDefinition, harnessInstructions, quietYears, type ModelKey } from '../autoplay/Autoplay.js';
 import { assertDevelopment, harnessVersion, parseAssignment } from '../autoplay/cli.js';
-import { FULL_GAME_UNIT_INSTRUCTIONS, OPPONENT_INSTRUCTIONS } from '../providers/OpponentInstructions.js';
+import { ASK_INSTRUCTIONS, FULL_GAME_UNIT_INSTRUCTIONS, OPPONENT_INSTRUCTIONS, REPLY_INSTRUCTIONS } from '../providers/OpponentInstructions.js';
 import { parseMessages, sharedContext, talkLines, type PowerMessage } from '../luna/Context.js';
-import { buildChoices, orderChoices, parseUnitOrders, selfBlockingMoves } from '../luna/Choices.js';
+import { buildChoices, convoyMismatches, orderChoices, parseUnitOrders, selfBlockingMoves } from '../luna/Choices.js';
 import { describeRejection } from '../luna/LunaDecisionProvider.js';
 import { http1Fetch } from '../luna/Http1Fetch.js';
 import { PreflightError, httpLunaTransport, mockOpponentTransport, networkCode, type LunaTransport } from '../luna/Transport.js';
@@ -454,7 +454,10 @@ test('orders that block each other are named and asked about once; the second an
     const contract = opponentContract(key), context = contract.contextOf(request.body);
     if (speaker(context) === 'TURKEY' && contract.buildFullGameRequest({ context },'UNIT_ORDERS').body === request.body && /SPRING 1901, ORDERS phase\./.test(context)) {
       asked.push(context);
-      return { status: 200, body: contract.mockEnvelope({ serial: 7_000 + asked.length, text: '{"orders":[{"unit":"ANK","choice":0},{"unit":"CON","choice":8},{"unit":"SMY","choice":10}]}', inputTokens: 100, outputTokens: 40 }) };
+      // Numbers are looked up by the order's words, so the test does not depend on what else is listed.
+      const pick = (order: string) => Number(new RegExp(`^(\\d+) ${order}( \\(|$)`,'m').exec(context)![1]);
+      const text = JSON.stringify({ orders: [{ unit: 'ANK', choice: pick('ANK moves to ARM') },{ unit: 'CON', choice: pick('CON holds') },{ unit: 'SMY', choice: pick('SMY moves to ARM') }] });
+      return { status: 200, body: contract.mockEnvelope({ serial: 7_000 + asked.length, text, inputTokens: 100, outputTokens: 40 }) };
     }
     return inner(request);
   });
@@ -462,10 +465,29 @@ test('orders that block each other are named and asked about once; the second an
   assert.equal(result.status,'FINISHED'); assert.equal(result.run.harness.askAgainWhenBlocked,true);
   assert.equal(asked.length,2);
   assert.ok(!asked[0].includes('could not be used'));
-  assert.match(asked[1],/\nYour previous answer for this turn could not be used: your units in ANK and SMY were all sent to ARM, where only one can arrive\. Those moves fail against each other; give the extra units other orders\. Go through the 3 headings/);
+  assert.match(asked[1],/\nYour previous answer for this turn could not be used: your units in ANK and SMY were all sent to ARM, where only one can arrive\. Those orders cannot all work as given; change them, or keep them if you meant them, since your next answer is played as it is\. Go through the 3 headings/);
   const spring = result.record.phases[0];
   assert.deepEqual(spring.calls.filter(c => c.power === 'TURKEY').map(c => c.outcome),['INVALID_ACTION','VALID']);
   // The second answer was played as given.
   assert.deepEqual((spring.report as unknown as { resolvedOrders: Array<{ power: string; type: string; targetTerritory: string }> }).resolvedOrders.filter(o => o.power === 'TURKEY' && o.type === 'MOVE').map(o => o.targetTerritory),['ARM','ARM']);
   assert.ok(result.record.failures.some(x => /^TURKEY orders call, try 1: answer not usable — your units in ANK and SMY were all sent to ARM/.test(x.reason)));
+});
+
+test('a full game says only a solo win counts and how convoys work, shows which fleet moves would open a convoy, and asks once about a convoy missing its other half',async t => {
+  for (const text of [FULL_GAME_UNIT_INSTRUCTIONS,ASK_INSTRUCTIONS,REPLY_INSTRUCTIONS]) assert.match(text,/Only a solo win counts/);
+  assert.match(FULL_GAME_UNIT_INSTRUCTIONS,/A fleet in a coastal province cannot convoy/);
+  // The challenge keeps its own pinned instructions.
+  assert.doesNotMatch(OPPONENT_INSTRUCTIONS,/solo win counts|coastal province cannot convoy/);
+
+  assert.deepEqual(convoyMismatches(['LON|MOVE_VIA_CONVOY|NOR','NTH|HOLD']),['your army in LON was sent to NOR by convoy, but none of your fleets was ordered to convoy it (keep that only if another power agreed to convoy it)']);
+  assert.deepEqual(convoyMismatches(['LON|HOLD','NTH|CONVOY|LON|NOR']),['your fleet in NTH was ordered to convoy LON to NOR, but your army in LON was not ordered to move there by convoy']);
+  assert.deepEqual(convoyMismatches(['LON|MOVE_VIA_CONVOY|NOR','NTH|CONVOY|LON|NOR']),[]);
+  // Convoying another power's army is that power's business.
+  assert.deepEqual(convoyMismatches(['NTH|CONVOY|BEL|NOR']),[]);
+
+  const f = await setup(t), result = await f.run({ lastYear: 1901 });
+  assert.equal(result.status,'FINISHED'); assert.equal(result.run.contextVersion,'luna-context-v6');
+  const turkey = f.sent.find(x => x.kind === 'UNIT_ORDERS' && speaker(x.context) === 'TURKEY' && /SPRING 1901, ORDERS phase\./.test(x.context))!.context;
+  // The hint comes before the numbered list, so no line between the headings looks like one.
+  assert.match(turkey,/\nConvoys you could set up for next turn\. Only a fleet at sea next to an army can convoy it; a fleet in a coastal province cannot\.\n- A CON: move F ANK to BLA this turn, and next turn A CON can be convoyed from there to ARM, RUM, SEV\.\nPick exactly one number/);
 });

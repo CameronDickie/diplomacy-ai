@@ -63,6 +63,20 @@ as given, whatever it says. The refused answer is billed like any other and
 listed under `record.failures`; `run.harness.askAgainWhenBlocked` records that
 the check was on.
 
+### Winning, and convoys
+
+Since version 5 of the harness (see [harness-changes.md](harness-changes.md)),
+full-game instructions say that only a solo win counts: ending without 18
+supply centers is a loss, the same as being eliminated. They also explain
+convoys (a fleet at sea orders the convoy, the army the move by convoy, in the
+same turn; a fleet in a coastal province cannot convoy). In the list of
+orders, an army's move by convoy names the fleet that must convoy it and a
+fleet's convoy names the army move it needs; before the list, each army on a
+coast gets up to two lines naming a fleet move this turn that would open a
+convoy next turn. These hints are the first thing dropped if a request is too
+large. An answer whose convoy is missing its other half is asked about once,
+like orders that block each other.
+
 ### The hold rule
 
 The standing orders instructions are the challenge's, with two differences:

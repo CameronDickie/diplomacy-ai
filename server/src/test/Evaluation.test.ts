@@ -33,7 +33,7 @@ test('a mock run needs no key, plays whole attempts, reconciles to the ledger an
   const first=await evaluate(a.base(mockLunaTransport({pick:'seeded',seed:5}))),second=await evaluate(b.base(mockLunaTransport({pick:'seeded',seed:5})));
   assert.equal(stable(first),stable(second));
   assert.deepEqual(first.manifest,{runId:'run-a',transport:'mock',scenario:'tunis-expedition',scenarioVersion:1,script:'early-capture',seed:5,presetId:LUNA_PRESET.id,pricingVersion:LUNA_PRESET.pricingVersion,
-    contextVersion:'luna-context-v5',model:'gpt-6-luna',attemptsRequested:2,maxRecoveries:2,fixtureHash:first.manifest.fixtureHash,presetHash:first.manifest.presetHash,harnessVersion:'luna-evaluation-v4',timingPolicy:'wall-submission-commit-v1'});
+    contextVersion:'luna-context-v6',model:'gpt-6-luna',attemptsRequested:2,maxRecoveries:2,fixtureHash:first.manifest.fixtureHash,presetHash:first.manifest.presetHash,harnessVersion:'luna-evaluation-v4',timingPolicy:'wall-submission-commit-v1'});
   assert.equal(first.attempts.length,2);
   for(const attempt of first.attempts){
     // Each attempt ran to a scored end, not just one phase.

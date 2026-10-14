@@ -4,7 +4,7 @@ import type { PhaseJob } from '../attempts/types.js';
 import { LUNA_CONTRACT, type OpponentContract, type OpponentRequest } from '../providers/OpponentContract.js';
 import { ChoiceError, buildChoices, orderChoices, parseChoices, parseUnitOrders, retreatChoices, type ChoiceSet, type LegalOption } from './Choices.js';
 
-export const CONTEXT_VERSION = 'luna-context-v5';
+export const CONTEXT_VERSION = 'luna-context-v6';
 /** Recent public results are useful but optional: they are the first thing dropped when space is short. */
 const RECENT_LINE_LIMIT = 40;
 const unit = (u: PhaseJob['board']['units'][number]) => `${u.type === 'ARMY' ? 'A' : 'F'} ${u.territory}${u.coast ? `/${u.coast}` : ''}${u.mustRetreat ? ' (dislodged)' : ''}`;
@@ -87,7 +87,8 @@ export interface FullGameTalk { messages: readonly PowerMessage[]; partners: rea
   /** Set when this power's earlier answer for this phase was billed but unusable: what was wrong with it, so the next try can avoid it. */
   correction?: string }
 function ownSection(set: ChoiceSet, human: Power, conversation: readonly string[], talk: readonly string[] = [], correction?: string, byUnit = false): string {
-  const lines = [`You are ${set.power}.`,...conversationSection(human,conversation),...talkSection(talk),set.rule];
+  // Hints come before the numbered list, so nothing between the headings can be mistaken for one.
+  const lines = [`You are ${set.power}.`,...conversationSection(human,conversation),...talkSection(talk),...(set.notes ?? []),set.rule];
   for (const group of set.groups) { lines.push(`${group.label}:`); for (const i of group.choices) lines.push(`${i} ${set.choices[i].label}`); }
   // Server-written, from the shape of the rejected answer only; it never quotes model output.
   if (correction) lines.push(`Your previous answer for this turn could not be used: ${correction}. ${set.phase === 'BUILDS' ? 'Follow the rule above exactly.' : `Go through the ${set.groups.length} headings above in order and take exactly one number from under each: ${set.groups.map(g => g.label).join(', ')}.`}`);
@@ -121,7 +122,7 @@ export interface LunaPrompt {
  */
 export function lunaPrompt(job: Pick<PhaseJob,'board' | 'definition'>, power: Power, legal: readonly LegalOption[], lastReport: PublicPhaseReport | null, contract: OpponentContract = LUNA_CONTRACT, contested?: ReadonlySet<string>, conversation: readonly ConversationMessage[] = [], full?: FullGameTalk): LunaPrompt | null {
   if (!job.definition.opponentPowers.includes(power)) throw new ChoiceError('Only an opponent power is prompted.');
-  const build = (keep: number, shareNotes = false) => job.board.phase === 'ORDERS' ? orderChoices(job.board,power,legal,keep,contested,partners,shareNotes) : job.board.phase === 'RETREATS' ? retreatChoices(job.board,power) : buildChoices(job.board,power);
+  const build = (keep: number, shareNotes = false) => job.board.phase === 'ORDERS' ? orderChoices(job.board,power,legal,keep,contested,partners,shareNotes,shareNotes && Boolean(job.definition.autoplay)) : job.board.phase === 'RETREATS' ? retreatChoices(job.board,power) : buildChoices(job.board,power);
   const talk = conversationLines(conversation,job.definition.humanPower);
   // Having talked with the player, this power may be offered orders that help the player's units.
   // In a full game the same holds for any power it exchanged messages with this turn.
@@ -142,7 +143,7 @@ export function lunaPrompt(job: Pick<PhaseJob,'board' | 'definition'>, power: Po
   // The notes on moves that two of this power's units could both make are worth having but are the first
   // thing given up: they are tried only on the complete request, before anything else is cut.
   const noted = job.board.phase === 'ORDERS' ? build(Number.MAX_SAFE_INTEGER,true)! : null;
-  const candidates = [...(noted && noted.choices.some((c,i) => c.label !== whole.choices[i].label) ? [{ lines: variants[0], shape: shapes[0], set: noted as ChoiceSet }] : []),
+  const candidates = [...(noted && (noted.choices.some((c,i) => c.label !== whole.choices[i].label) || noted.notes?.length) ? [{ lines: variants[0], shape: shapes[0], set: noted as ChoiceSet }] : []),
     ...variants.flatMap(lines => shapes.map(shape => ({ lines, shape, set: null as ChoiceSet | null })))];
   for (const { lines, shape, set: prepared } of candidates) {
     const set = prepared ?? (shape.keep === Number.MAX_SAFE_INTEGER ? whole : build(shape.keep)!);
