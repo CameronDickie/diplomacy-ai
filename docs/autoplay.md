@@ -288,6 +288,9 @@ One JSON file, readable only by you (it holds no keys and no game requests):
 - `record.failures`: every failed message or reply try (power, try number,
   reason, whether it gave up), and why any phase had to wait, with times.
 
+A game continued over several runs has one file per run. `npm run records -- collect FILE...`
+combines them for the [game viewer](game-viewer.md).
+
 Game requests (the board text sent each turn) and the models' reasoning text are
 not stored anywhere, so they are not in the record; the standing instructions,
 which are the same every turn, are. Token counts, including reasoning tokens, are.

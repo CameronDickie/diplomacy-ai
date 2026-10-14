@@ -1,0 +1,43 @@
+/* The game viewer: the challenge's frame and map, plus a chart of supply centers and a turn panel. */
+:root { --viewer-russia: #9d9184; }
+[data-folio-theme='dark'] { --viewer-russia: #f5f5f4; }
+.viewer-heading { padding-bottom: 16px; }
+.viewer-heading h1 { font-size: clamp(32px, 4vw, 52px); overflow-wrap: anywhere; }
+.viewer-chart { margin: 0; padding: 8px 0 0; border-top: 1px solid var(--folio-line); }
+.viewer-chart > svg { display: block; width: 100%; height: clamp(170px, 26vw, 280px); cursor: crosshair; touch-action: none; }
+.viewer-grid { stroke: var(--folio-line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.viewer-win { stroke: var(--folio-accent); stroke-width: 1; stroke-dasharray: 2 4; vector-effect: non-scaling-stroke; }
+.viewer-out-mark { font-size: 16px; font-weight: 700; }
+.viewer-cursor { stroke: var(--folio-ink); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.viewer-axis { fill: var(--folio-muted); font-size: 12px; font-family: 'Source Sans 3', system-ui, sans-serif; }
+.viewer-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 8px 0 4px; font-size: 14px; }
+.viewer-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.viewer-legend small { color: var(--folio-muted); }
+.viewer-legend strong { min-width: 1.4em; font-variant-numeric: tabular-nums; }
+.viewer-legend .is-leading strong { color: var(--folio-accent); }
+.viewer-stepper { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px 0 0; }
+.viewer-stepper strong { flex: 1 1 260px; }
+.dip .viewer-stepper select { width: auto; }
+.dip .viewer-stepper input[type='range'] { flex: 1 1 100%; padding: 0; border: 0; accent-color: var(--folio-accent); }
+.viewer-play { padding-top: 16px; }
+.viewer-panel { display: grid; gap: 0; align-content: start; max-height: min(78dvh, 820px); overflow-y: auto; padding-right: 4px; }
+.viewer-tabs { position: sticky; top: 0; z-index: 1; display: flex; gap: 4px; padding-bottom: 8px; background: var(--folio-paper); border-bottom: 1px solid var(--folio-line); }
+.dip .viewer-tabs button { border: 0; background: none; padding: 6px 10px; border-radius: 0; color: var(--folio-muted); font-weight: 600; font-size: 14px; }
+.dip .viewer-tabs button[aria-selected='true'] { color: var(--folio-ink); box-shadow: inset 0 -2px 0 var(--folio-accent); }
+.viewer-block { padding: 12px 0; border-bottom: 1px solid var(--folio-line); }
+.viewer-block h3 { margin-bottom: 6px; }
+.viewer-block ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 14px; }
+.viewer-block li { display: flex; justify-content: space-between; gap: 12px; }
+.viewer-block li small { color: var(--folio-muted); white-space: nowrap; }
+.viewer-block li.is-failed { color: var(--folio-warning); }
+.viewer-block li.is-failed small { color: inherit; }
+.viewer-power { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.viewer-power i { width: 10px; height: 10px; border-radius: 50%; border: 1px solid var(--folio-control); }
+.viewer-power small { font-weight: 400; color: var(--folio-muted); }
+.viewer-thread p { margin: 0 0 4px; font-size: 14px; }
+.viewer-thread blockquote { margin: 0 0 10px; padding-left: 12px; border-left: 2px solid var(--folio-line); font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.viewer-facts h2 { margin-bottom: 12px; }
+.viewer-facts .dip-facts { margin-top: 20px; }
+.viewer-out { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.viewer-games li > span { display: grid; gap: 2px; }
+@media (max-width: 980px) { .viewer-panel { max-height: none; overflow: visible; } }

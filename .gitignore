@@ -29,3 +29,7 @@ test-results/
 
 # Game records written by the autoplay tool
 autoplay-*.json
+
+# Local backups of game records and the autoplay ledger, and merged records for the viewer
+backups/
+game-records/
