@@ -14,7 +14,7 @@ its own pinned instructions throughout.
 | 2 | 3 | `luna-context-v5` | not stamped |
 | 3 | 4 | `luna-context-v5` | `09a9e11232f3ae2c` |
 | 4 | 5 | `luna-context-v5` | `09a9e11232f3ae2c` |
-| 5 | 6 onward | `luna-context-v6` | `6885cbe55074ee51` |
+| 5 | 6, 7 | `luna-context-v6` | `6885cbe55074ee51` |
 
 ## Version 1: games 1 and 2
 
@@ -62,7 +62,7 @@ wording was not the cause.
   units clash and asked once more. Its second answer is played as given. In
   game 4, Luna did this in half of its turns once a power had 14 or more units.
 
-## Version 5: from game 6
+## Version 5: games 6 and 7
 
 - **Only a solo win counts.** The orders and message instructions say that
   ending the game without 18 supply centers is a loss, the same as being
@@ -84,6 +84,13 @@ wording was not the cause.
 
 The incentive and the convoy help are measured separately: hold rate for the
 first, convoy orders for the second. They could still interact.
+
+Result (games 6 and 7, both to 1950): Haiku held 72% (default seats) and 77%
+(swapped), against 82–84% for the same seats before. Haiku powers led for long
+stretches for the first time (Russia in game 6, Austria in game 7). Convoys:
+in game 6 England (Haiku) had a fleet at sea beside a waiting army in 88% of
+such turns, against 33% in game 4, and made 10 convoy orders instead of 2; in
+game 7 the hints were mostly unused, and Haiku's Italy made one convoy move.
 
 ## Not yet changed
 
