@@ -125,6 +125,14 @@ Two unrelated fixes, measured on different numbers.
   large-power request in five now has its message history or option list
   shortened, against one in fifteen before.
 
+Result (game 10, all Luna, to 1950): units standing on a center not yet owned
+at the start of Fall moved off it 2% of the time, against 44% in game 9. The
+public line also drove the other powers to stop a solo: England reached 17,
+and in Fall 1947 Austria, Italy and Turkey coordinated against the army whose
+center would have won it, taking seven of England's centers in one turn.
+Clashes: 3% of turns for powers with 10–13 units (game 9: 4%); only 8 turns
+with 14 or more units, too few to compare.
+
 ## Not yet changed
 
 - **Memory of conversations.** A power still sees only about the last year of
