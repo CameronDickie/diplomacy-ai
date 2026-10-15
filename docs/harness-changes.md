@@ -14,7 +14,7 @@ its own pinned instructions throughout.
 | 2 | 3 | `luna-context-v5` | not stamped |
 | 3 | 4 | `luna-context-v5` | `09a9e11232f3ae2c` |
 | 4 | 5 | `luna-context-v5` | `09a9e11232f3ae2c` |
-| 5 | 6, 7 | `luna-context-v6` | `6885cbe55074ee51` |
+| 5 | 6 to 9 | `luna-context-v6` | `6885cbe55074ee51` |
 
 ## Version 1: games 1 and 2
 
@@ -62,7 +62,7 @@ wording was not the cause.
   units clash and asked once more. Its second answer is played as given. In
   game 4, Luna did this in half of its turns once a power had 14 or more units.
 
-## Version 5: games 6 and 7
+## Version 5: games 6 to 9
 
 - **Only a solo win counts.** The orders and message instructions say that
   ending the game without 18 supply centers is a loss, the same as being
@@ -91,6 +91,12 @@ stretches for the first time (Russia in game 6, Austria in game 7). Convoys:
 in game 6 England (Haiku) had a fleet at sea beside a waiting army in 88% of
 such turns, against 33% in game 4, and made 10 convoy orders instead of 2; in
 game 7 the hints were mostly unused, and Haiku's Italy made one convoy move.
+
+Games 8 and 9 used the same harness with one model on every seat, as
+baselines. All Haiku: 82% holds, 3 lead changes, no convoys. All Luna: 15%
+holds, 14 lead changes, 24 armies moved by convoy (7 arrived), and a power with
+14 or more units still sent two units to one place in 38% of its turns after
+the ask-once check.
 
 ## Not yet changed
 
