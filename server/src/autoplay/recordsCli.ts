@@ -31,7 +31,8 @@ async function main() {
     console.log(`${merged.run.runId}: ${group.length} file${group.length === 1 ? '' : 's'} → ${into}/${basename(out)} · ${merged.summary.phases} phases · ${merged.record.failures.length} failures`);
   }
   const entries = [];
-  for (const name of (await readdir(folder)).filter(n => n.endsWith('.json') && n !== 'index.json').sort()) {
+  // Number-aware, so live-10 comes after live-9 rather than after live-1.
+  for (const name of (await readdir(folder)).filter(n => n.endsWith('.json') && n !== 'index.json').sort((a,b) => a.localeCompare(b,'en',{ numeric: true }))) {
     const path = resolve(folder,name);
     entries.push(indexEntry(name,(await stat(path)).size,JSON.parse(await readFile(path,'utf8')) as AutoplayGameFile));
   }
