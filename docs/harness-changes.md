@@ -15,6 +15,7 @@ its own pinned instructions throughout.
 | 3 | 4 | `luna-context-v5` | `09a9e11232f3ae2c` |
 | 4 | 5 | `luna-context-v5` | `09a9e11232f3ae2c` |
 | 5 | 6 to 9 | `luna-context-v6` | `6885cbe55074ee51` |
+| 6 | from 10 | `luna-context-v7` | `eea263560b16613d` |
 
 ## Version 1: games 1 and 2
 
@@ -97,6 +98,32 @@ baselines. All Haiku: 82% holds, 3 lead changes, no convoys. All Luna: 15%
 holds, 14 lead changes, 24 armies moved by convoy (7 arrived), and a power with
 14 or more units still sent two units to one place in 38% of its turns after
 the ask-once check.
+
+## Version 6: from game 10
+
+Two unrelated fixes, measured on different numbers.
+
+- **Centers about to change hands.** In games 4, 6, 7 and 9, when a Luna unit
+  stood on a center its power did not own yet at the start of a Fall turn, it
+  moved off in 40–61% of cases, giving up the center it had walked into in
+  Spring. Now, in a Fall turn:
+  - every request says which centers change hands if the units now on them
+    stay (the text version of the map's stripes);
+  - a power's request lists the centers it is about to take, and each order of
+    such a unit says "staying takes BUL after this Fall" or "leaving gives up
+    BUL";
+  - one instruction line: a unit takes a center only by still being there when
+    the Fall turn ends.
+- **Clash warnings are never cut.** The "shared with" notes on moves two of a
+  power's units could both make were the first thing cut from a long request,
+  which is exactly when a power is large. Rebuilding game 9's requests from
+  powers with 10 or more units showed the notes cut in 34 of 89, and those
+  turns clashed 26% of the time against 4% with the notes. In full games the
+  notes are now kept; message history, recent results, convoy plans and long
+  option lists give way first, and the notes go only if nothing else fits
+  (it did not happen when game 9 and game 4 were rebuilt). The cost: about one
+  large-power request in five now has its message history or option list
+  shortened, against one in fifteen before.
 
 ## Not yet changed
 

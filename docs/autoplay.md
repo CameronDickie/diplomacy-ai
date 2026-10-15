@@ -63,6 +63,15 @@ as given, whatever it says. The refused answer is billed like any other and
 listed under `record.failures`; `run.harness.askAgainWhenBlocked` records that
 the check was on.
 
+### Fall captures, and moves that clash
+
+Since version 6, in a Fall orders turn every request says which supply centers
+change hands if the units on them stay, a power's own list names the centers
+it is about to take, and each order of such a unit says whether it keeps or
+gives up the center. In full games the notes on moves two of a power's units
+could both make ("shared with") are kept in every request; other parts of a
+long request are cut first.
+
 ### Winning, and convoys
 
 Since version 5 of the harness (see [harness-changes.md](harness-changes.md)),

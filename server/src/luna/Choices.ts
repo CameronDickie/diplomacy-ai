@@ -147,6 +147,23 @@ export function selfBlockingMoves(orderIds: readonly string[]): string[] {
   return found;
 }
 
+/**
+ * The supply centers that change hands after this Fall if the units now on them stay: a unit standing
+ * on a center its power does not own. Models moved such units away in about half of these cases,
+ * giving up a center they had walked into in Spring. Empty outside a Fall orders phase.
+ */
+export function pendingCaptures(board: BoardFixture): Array<{ center: string; power: Power; from: Power | null; unit: string }> {
+  if (board.season !== 'FALL' || board.phase !== 'ORDERS') return [];
+  return board.units.filter(u => !u.mustRetreat && TERRITORY_MAP[u.territory]?.isSupplyCenter && board.territoryOwners[u.territory] !== u.power)
+    .map(u => ({ center: u.territory, power: u.power, from: board.territoryOwners[u.territory] ?? null, unit: unitLabel(u.type,u.territory,u.coast) }))
+    .sort((a,b) => a.center.localeCompare(b.center));
+}
+/** On each order of a unit about to take a center this Fall: whether it keeps the center or gives it up. */
+function captureNote(board: BoardFixture, power: Power, id: string): string {
+  const [unit, type] = id.split('|'), place = province(unit);
+  if (!pendingCaptures(board).some(c => c.power === power && c.center === place)) return '';
+  return type === 'MOVE' || type === 'MOVE_VIA_CONVOY' ? ` (leaving gives up ${place}, which becomes yours after this Fall if this unit stays)` : ` (staying takes ${place} after this Fall)`;
+}
 type OwnUnit = BoardFixture['units'][number];
 const label = (unit: OwnUnit) => unitLabel(unit.type,unit.territory,unit.coast);
 const fleetNeighbours = (place: string) => { const fleet = ADJACENCY[place as keyof typeof ADJACENCY]?.fleet; return [...new Set((Array.isArray(fleet) ? fleet : Object.values(fleet ?? {}).flat()).map(t => province(t)))]; };
@@ -196,7 +213,7 @@ function convoyPlans(power: Power, units: readonly OwnUnit[], legal: readonly Le
  * `keepPerUnit` trims each unit's list in a fixed order; a unit's HOLD is always first, so a
  * trimmed catalog still admits a fully legal answer.
  */
-export function orderChoices(board: BoardFixture, power: Power, legal: readonly LegalOption[], keepPerUnit = Number.MAX_SAFE_INTEGER, contested?: ReadonlySet<string>, partners: ReadonlySet<string> = new Set(), shareNotes = true, convoyNotes = false): ChoiceSet | null {
+export function orderChoices(board: BoardFixture, power: Power, legal: readonly LegalOption[], keepPerUnit = Number.MAX_SAFE_INTEGER, contested?: ReadonlySet<string>, partners: ReadonlySet<string> = new Set(), shareNotes = true, fullGame: { convoys?: boolean; captures?: boolean } = {}): ChoiceSet | null {
   const units = board.units.filter(u => u.power === power && !u.mustRetreat).sort((a,b) => a.territory.localeCompare(b.territory));
   if (!units.length) return null;
   if (contested) legal = legal.filter(option => purposeful(option.id,new Set(units.map(u => u.territory)),contested,partners));
@@ -220,13 +237,16 @@ export function orderChoices(board: BoardFixture, power: Power, legal: readonly 
     if (!own.some(o => o.order.type === 'HOLD')) throw new ChoiceError(`No legal HOLD for ${unit.territory}.`);
     // Trimming keeps the hold; the list then shows it last, so standing still is not the first thing offered.
     const listed = own.slice(0,Math.max(1,keepPerUnit)).sort((a,b) => Number(a.order.type === 'HOLD') - Number(b.order.type === 'HOLD')), group = { id: unit.territory, label: unitLabel(unit.type,unit.territory,unit.coast), choices: [] as number[] };
-    for (const option of listed) { group.choices.push(choices.length); choices.push({ group: unit.territory, label: `${option.description || option.id}${destinationNote(board,power,option.id,shareNotes ? rivals : null)}${convoyNotes ? convoyNote(power,units,legal,option.id) : ''}` }); ids.push(option.id); }
+    for (const option of listed) { group.choices.push(choices.length); choices.push({ group: unit.territory, label: `${option.description || option.id}${destinationNote(board,power,option.id,shareNotes ? rivals : null)}${fullGame.convoys ? convoyNote(power,units,legal,option.id) : ''}${fullGame.captures ? captureNote(board,power,option.id) : ''}` }); ids.push(option.id); }
     groups.push(group);
   }
   const shared = choices.some(c => c.label.includes('shared with ')) ? ' "Shared with" names other units of yours that can move to the same place: send only one of them there, or both fail.' : '';
-  const plans = convoyNotes ? convoyPlans(power,units,legal) : [];
+  const plans = fullGame.convoys ? convoyPlans(power,units,legal) : [];
+  const taking = fullGame.captures ? pendingCaptures(board).filter(c => c.power === power) : [];
   return { power, phase: 'ORDERS', rule: `Pick exactly one number for each of your ${units.length} unit${units.length === 1 ? '' : 's'}.${shared}`, groups, choices,
-    ...(plans.length ? { notes: ['Convoys you could set up for next turn. Only a fleet at sea next to an army can convoy it; a fleet in a coastal province cannot.',...plans] } : {}),
+    ...(plans.length || taking.length ? { notes: [
+      ...(taking.length ? [`Supply centers that become yours after this Fall only if the unit on each is still there when the turn ends: ${taking.map(c => `${c.center} (${c.unit})`).join(', ')}. Moving that unit away gives the center up unless another of your units moves in.`] : []),
+      ...(plans.length ? ['Convoys you could set up for next turn. Only a fleet at sea next to an army can convoy it; a fleet in a coastal province cannot.',...plans] : [])] } : {}),
     coverage: { listed: choices.length, total: legal.filter(o => o.order.power === power && units.some(u => u.territory === o.unitTerritory)).length },
     toAction(indices) {
       const picked = distinct(indices,choices.length);

@@ -10,7 +10,7 @@ import { CALL_TIMEOUT_MS, DEFAULT_ASSIGNMENT, autoplay, fullGameDefinition, harn
 import { assertDevelopment, harnessVersion, parseAssignment } from '../autoplay/cli.js';
 import { ASK_INSTRUCTIONS, FULL_GAME_UNIT_INSTRUCTIONS, OPPONENT_INSTRUCTIONS, REPLY_INSTRUCTIONS } from '../providers/OpponentInstructions.js';
 import { parseMessages, sharedContext, talkLines, type PowerMessage } from '../luna/Context.js';
-import { buildChoices, convoyMismatches, orderChoices, parseUnitOrders, selfBlockingMoves } from '../luna/Choices.js';
+import { buildChoices, convoyMismatches, orderChoices, parseUnitOrders, pendingCaptures, selfBlockingMoves } from '../luna/Choices.js';
 import { describeRejection } from '../luna/LunaDecisionProvider.js';
 import { http1Fetch } from '../luna/Http1Fetch.js';
 import { PreflightError, httpLunaTransport, mockOpponentTransport, networkCode, type LunaTransport } from '../luna/Transport.js';
@@ -486,8 +486,31 @@ test('a full game says only a solo win counts and how convoys work, shows which 
   assert.deepEqual(convoyMismatches(['NTH|CONVOY|BEL|NOR']),[]);
 
   const f = await setup(t), result = await f.run({ lastYear: 1901 });
-  assert.equal(result.status,'FINISHED'); assert.equal(result.run.contextVersion,'luna-context-v6');
+  assert.equal(result.status,'FINISHED'); assert.equal(result.run.contextVersion,'luna-context-v7');
   const turkey = f.sent.find(x => x.kind === 'UNIT_ORDERS' && speaker(x.context) === 'TURKEY' && /SPRING 1901, ORDERS phase\./.test(x.context))!.context;
   // The hint comes before the numbered list, so no line between the headings looks like one.
   assert.match(turkey,/\nConvoys you could set up for next turn\. Only a fleet at sea next to an army can convoy it; a fleet in a coastal province cannot\.\n- A CON: move F ANK to BLA this turn, and next turn A CON can be convoyed from there to ARM, RUM, SEV\.\nPick exactly one number/);
+});
+
+test('in a Fall turn a full game says which centers are about to change hands, and what staying or leaving does to each',() => {
+  const definition = fullGameDefinition(1950), unit = (power: string, territory: string) => ({ id: `${power}-${territory}`, power, type: 'ARMY', territory, coast: null, mustRetreat: false, retreatOptions: [], retreatCoasts: {} });
+  // Turkey stands on unowned Bulgaria and on Austria's Serbia; Austria stands on its own Vienna.
+  const board = (season: string) => ({ year: 1905, season, phase: 'ORDERS', units: [unit('TURKEY','BUL'),unit('TURKEY','SER'),unit('AUSTRIA','VIE')],
+    territoryOwners: { SER: 'AUSTRIA', VIE: 'AUSTRIA', BUL: null } }) as never;
+  assert.deepEqual(pendingCaptures(board('FALL')),[{ center: 'BUL', power: 'TURKEY', from: null, unit: 'A BUL' },{ center: 'SER', power: 'TURKEY', from: 'AUSTRIA', unit: 'A SER' }]);
+  assert.deepEqual(pendingCaptures(board('SPRING')),[]);
+  // Every power is told, as the map shows it.
+  assert.match(sharedContext({ board: board('FALL'), definition },null),/\nThis Fall decides who owns supply centers\. If the units now on them are still there when the turn ends: BUL becomes TURKEY's \(now unowned\); SER becomes TURKEY's \(now AUSTRIA's\)\.\n/);
+  assert.ok(!sharedContext({ board: board('SPRING'), definition },null).includes('This Fall decides'));
+  assert.ok(!sharedContext({ board: board('FALL'), definition: TUNIS_PILOT_V1 },null).includes('This Fall decides'));
+  const option = (from: string, type: string, to?: string) => ({ id: to ? `${from}|${type}|${to}` : `${from}|${type}`, unitTerritory: from, description: to ? `${from} moves to ${to}` : `${from} holds`, order: { power: 'TURKEY', type, unitTerritory: from, targetTerritory: to } });
+  const legal = [option('BUL','HOLD'),option('BUL','MOVE','RUM'),option('SER','HOLD'),option('SER','MOVE','ALB')] as never;
+  const set = orderChoices(board('FALL'),'TURKEY',legal,undefined,undefined,undefined,true,{ captures: true })!;
+  assert.deepEqual(set.choices.map(c => c.label),['BUL moves to RUM (unowned supply center) (leaving gives up BUL, which becomes yours after this Fall if this unit stays)','BUL holds (staying takes BUL after this Fall)',
+    'SER moves to ALB (leaving gives up SER, which becomes yours after this Fall if this unit stays)','SER holds (staying takes SER after this Fall)']);
+  assert.deepEqual(set.notes,['Supply centers that become yours after this Fall only if the unit on each is still there when the turn ends: BUL (A BUL), SER (A SER). Moving that unit away gives the center up unless another of your units moves in.']);
+  // Without the full-game notes, the list is as before.
+  assert.ok(!orderChoices(board('FALL'),'TURKEY',legal)!.choices.some(c => c.label.includes('after this Fall')));
+  assert.match(FULL_GAME_UNIT_INSTRUCTIONS,/takes it only by still being there when the turn ends/);
+  assert.doesNotMatch(OPPONENT_INSTRUCTIONS,/takes it only by still being there/);
 });

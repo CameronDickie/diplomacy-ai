@@ -2,9 +2,9 @@ import { ALL_POWERS, TERRITORIES } from '@diplomacy/shared';
 import type { Power, PublicPhaseReport } from '@diplomacy/shared';
 import type { PhaseJob } from '../attempts/types.js';
 import { LUNA_CONTRACT, type OpponentContract, type OpponentRequest } from '../providers/OpponentContract.js';
-import { ChoiceError, buildChoices, orderChoices, parseChoices, parseUnitOrders, retreatChoices, type ChoiceSet, type LegalOption } from './Choices.js';
+import { ChoiceError, buildChoices, orderChoices, parseChoices, pendingCaptures, parseUnitOrders, retreatChoices, type ChoiceSet, type LegalOption } from './Choices.js';
 
-export const CONTEXT_VERSION = 'luna-context-v6';
+export const CONTEXT_VERSION = 'luna-context-v7';
 /** Recent public results are useful but optional: they are the first thing dropped when space is short. */
 const RECENT_LINE_LIMIT = 40;
 const unit = (u: PhaseJob['board']['units'][number]) => `${u.type === 'ARMY' ? 'A' : 'F'} ${u.territory}${u.coast ? `/${u.coast}` : ''}${u.mustRetreat ? ' (dislodged)' : ''}`;
@@ -30,6 +30,9 @@ export function sharedContext(job: Pick<PhaseJob,'board' | 'definition'>, lastRe
     lines.push(`Standings (18 supply centers win): ${standing.map(s => `${s.power} ${s.centers}`).join(', ')}.`);
     if (leader.centers > (second?.centers ?? 0) && leader.centers >= 10 && leader.centers < 18)
       lines.push(`${leader.power} leads and needs ${18 - leader.centers} more supply center${18 - leader.centers === 1 ? '' : 's'} to win. If ${leader.power} reaches 18 the game ends and every other power has lost.`);
+    // Who owns what is settled at the end of each Fall: said outright, as the map's stripes show it to a person.
+    const taking = pendingCaptures(board);
+    if (taking.length) lines.push(`This Fall decides who owns supply centers. If the units now on them are still there when the turn ends: ${taking.map(c => `${c.center} becomes ${c.power}'s (${c.from ? `now ${c.from}'s` : 'now unowned'})`).join('; ')}.`);
   }
   lines.push('Supply centers:');
   const centers = (owner: Power | null) => TERRITORIES.filter(t => t.isSupplyCenter && (board.territoryOwners[t.id] ?? null) === owner).map(t => t.id).sort().join(' ') || '-';
@@ -122,7 +125,9 @@ export interface LunaPrompt {
  */
 export function lunaPrompt(job: Pick<PhaseJob,'board' | 'definition'>, power: Power, legal: readonly LegalOption[], lastReport: PublicPhaseReport | null, contract: OpponentContract = LUNA_CONTRACT, contested?: ReadonlySet<string>, conversation: readonly ConversationMessage[] = [], full?: FullGameTalk): LunaPrompt | null {
   if (!job.definition.opponentPowers.includes(power)) throw new ChoiceError('Only an opponent power is prompted.');
-  const build = (keep: number, shareNotes = false) => job.board.phase === 'ORDERS' ? orderChoices(job.board,power,legal,keep,contested,partners,shareNotes,shareNotes && Boolean(job.definition.autoplay)) : job.board.phase === 'RETREATS' ? retreatChoices(job.board,power) : buildChoices(job.board,power);
+  // In a full game the notes on moves two units share, and on centers about to be taken, are always wanted: requests
+  // that lost them for length clashed far more often. Only the convoy plans are an optional extra.
+  const build = (keep: number, convoys = false, notes = autoplay) => job.board.phase === 'ORDERS' ? orderChoices(job.board,power,legal,keep,contested,partners,notes,{ convoys: convoys && autoplay, captures: autoplay && notes }) : job.board.phase === 'RETREATS' ? retreatChoices(job.board,power) : buildChoices(job.board,power);
   const talk = conversationLines(conversation,job.definition.humanPower);
   // Having talked with the player, this power may be offered orders that help the player's units.
   // In a full game the same holds for any power it exchanged messages with this turn.
@@ -142,9 +147,11 @@ export function lunaPrompt(job: Pick<PhaseJob,'board' | 'definition'>, power: Po
   const variants = said.length ? [said,talkLines(power,full!.messages,TALK_BYTES / 4),[]] : [said];
   // The notes on moves that two of this power's units could both make are worth having but are the first
   // thing given up: they are tried only on the complete request, before anything else is cut.
-  const noted = job.board.phase === 'ORDERS' ? build(Number.MAX_SAFE_INTEGER,true)! : null;
+  const noted = job.board.phase === 'ORDERS' ? (autoplay ? build(Number.MAX_SAFE_INTEGER,true) : build(Number.MAX_SAFE_INTEGER,false,true))! : null;
   const candidates = [...(noted && (noted.choices.some((c,i) => c.label !== whole.choices[i].label) || noted.notes?.length) ? [{ lines: variants[0], shape: shapes[0], set: noted as ChoiceSet }] : []),
-    ...variants.flatMap(lines => shapes.map(shape => ({ lines, shape, set: null as ChoiceSet | null })))];
+    ...variants.flatMap(lines => shapes.map(shape => ({ lines, shape, set: null as ChoiceSet | null }))),
+    // Only if nothing else fits does a full game give up its notes.
+    ...(autoplay && job.board.phase === 'ORDERS' ? shapes.map(shape => ({ lines: variants.at(-1)!, shape, set: build(shape.keep,false,false) as ChoiceSet | null })) : [])];
   for (const { lines, shape, set: prepared } of candidates) {
     const set = prepared ?? (shape.keep === Number.MAX_SAFE_INTEGER ? whole : build(shape.keep)!);
     // The schema allows at most 34 indices and index values up to 100,000.
@@ -155,7 +162,7 @@ export function lunaPrompt(job: Pick<PhaseJob,'board' | 'definition'>, power: Po
     const request = autoplay ? contract.buildFullGameRequest({ context },byUnit ? 'UNIT_ORDERS' : 'ORDERS') : contract.buildRequest({ context }), requestBytes = Buffer.byteLength(request.body,'utf8');
     if (requestBytes > contract.preset.maxRequestBytes) continue;
     return { power, set, byUnit, read: byUnit ? parsed => parseUnitOrders(parsed,set) : parseChoices, context, request, maxCostNanousd: contract.reservationNanousd(contract.preset.maxInputTokens),
-      measured: { contextBytes, requestBytes, sharedBytes: Buffer.byteLength(shared,'utf8'), listed: set.coverage.listed, total: set.coverage.total, recentLines: shape.recent, compacted: shape !== shapes[0] || lines !== variants[0], shareNotes: set === noted } };
+      measured: { contextBytes, requestBytes, sharedBytes: Buffer.byteLength(shared,'utf8'), listed: set.coverage.listed, total: set.coverage.total, recentLines: shape.recent, compacted: shape !== shapes[0] || lines !== variants[0], shareNotes: set.choices.some(c => c.label.includes('shared with ')) } };
   }
   throw new ChoiceError('This position cannot be described within the request limits.');
 }
