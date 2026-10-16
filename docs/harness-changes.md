@@ -192,6 +192,14 @@ call doubled (263 → 574), holds stayed at 87%, successful moves fell to 133
 (210 in game 12), and fewer moves were reversed the next turn (32% against
 49%). Supports rose slightly (5% → 7%). Cost USD 2.45 against 1.97.
 
+Result (game 14, all Luna with memory, medium effort): Russia won in 1921,
+the earliest win in any game. Reasoning tokens per call rose about fourfold
+(380 → 1,565). Large powers (14+ units) clashed in 5% of turns (game 11: 30%;
+games 9–10: 38–50%); self-blocking refusals fell from 15 to 2; supports rose
+to 30% of orders (21%); 7 of 13 convoys arrived; holds stayed low (19%).
+England was eliminated for the first time in any game. Cost USD 1.19, the same
+as game 11 for half the years.
+
 ## Not yet changed
 
 - **Draws.** Letting powers propose a draw that every survivor must accept
