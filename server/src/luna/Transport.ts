@@ -165,7 +165,7 @@ export function mockOpponentTransport(contract: OpponentContract, options: MockO
     // A full game's orders are answered unit by unit, naming each heading beside its number.
     const keyed = body === contract.buildFullGameRequest({ context: text },'UNIT_ORDERS').body;
     const headings = own.split('\n').filter(line => /:$/.test(line)).map(line => line.slice(0,-1).replace(/^[AF] /,'').split('/')[0]);
-    const output = JSON.stringify(keyed ? { orders: choices.map((choice,i) => ({ unit: headings[i], choice })) } : { choices }), input = Math.ceil(Buffer.byteLength(body) / 4), out = Math.ceil(output.length / 3) + 16;
+    const output = JSON.stringify(keyed ? { orders: choices.map((choice,i) => ({ unit: headings[i], choice })), note: `(stand-in, no model was asked) ${/\nYou are ([A-Z]+)\./.exec(text)?.[1] ?? 'This power'} wrote this note.` } : { choices }), input = Math.ceil(Buffer.byteLength(body) / 4), out = Math.ceil(output.length / 3) + 16;
     return { status: 200, body: contract.mockEnvelope({ serial: ++serial, text: output, inputTokens: input, outputTokens: out }) };
   };
 }

@@ -63,6 +63,16 @@ as given, whatever it says. The refused answer is billed like any other and
 listed under `record.failures`; `run.harness.askAgainWhenBlocked` records that
 the check was on.
 
+### Memory: threads and notes
+
+Since version 7, a power writing to or answering others sees its whole
+conversation with each of them, one thread per power (12,000 bytes shared,
+newest kept if longer). With its orders it also writes itself a private note
+(`{"orders":[…],"note":"…"}`, at most 300 characters kept), and its recent
+notes are shown back to it in every later request. Notes are stored with the
+call that produced them (table `power_notes`), only for accepted answers, and
+exported per phase under `record.phases[].notes`.
+
 ### Fall captures, and moves that clash
 
 Since version 6, in a Fall orders turn every request says which supply centers

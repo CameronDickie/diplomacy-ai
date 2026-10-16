@@ -22,6 +22,7 @@ export function TurnPanel({ game, turn, tab, onTab }: { game: AutoplayGameFile; 
     </div>
     {tab === 'orders' && (powers.length === 0 ? <p className="dip-muted">Nothing changed in this step.</p> : powers.map(p =>
       <section key={p} className="viewer-block"><Badge game={game} power={p} />
+        {turn.notes.filter(n => n.power === p).map((n, i) => <p key={i} className="viewer-note"><span className="dip-muted">Private note:</span> {n.note}</p>)}
         <ul>{rows.filter(r => r.power === p).map((r, i) => <li key={i} className={r.failed ? 'is-failed' : ''}>{r.text}<small>{r.result}</small></li>)}</ul></section>))}
     {tab === 'messages' && (asks.length === 0 ? <p className="dip-muted">{turn.report.phase === 'ORDERS' ? 'Nobody wrote to anyone this turn.' : 'Powers write to each other only before orders.'}</p>
       : asks.map((ask, i) => {

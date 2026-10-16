@@ -99,6 +99,9 @@ export interface StoreOperations {
   /** One power's messages to other powers before an orders phase, kept with the call that produced them. */
   savePowerTalk: { input: { callId:string; messages:Array<{ to:Power; body:string }>; now:number }; output: null };
   powerTalks: { input: { attemptId:string }; output: Array<import('./talks.js').StoredPowerTalk> };
+  /** A full-game power's private note to itself, written with its orders and kept with the call that produced it. */
+  savePowerNote: { input: { callId:string; note:string; now:number }; output: null };
+  powerNotes: { input: { attemptId:string }; output: Array<import('./notes.js').StoredPowerNote> };
   chatMessages: { input: { attemptId:string }; output: Array<import('./chat.js').StoredChatMessage> };
   providerDecisions: { input: { operationId:string }; output: Array<{ callId:string; power:Power; action:PhaseAction }> };
   fundingTotals: { input: {}; output: FundingTotals };

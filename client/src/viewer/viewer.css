@@ -41,3 +41,5 @@
 .viewer-out { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .viewer-games li > span { display: grid; gap: 2px; }
 @media (max-width: 980px) { .viewer-panel { max-height: none; overflow: visible; } }
+.viewer-note { margin: 6px 0 0; font-size: 14px; font-style: italic; overflow-wrap: anywhere; }
+.viewer-note span { font-style: normal; }

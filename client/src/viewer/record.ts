@@ -4,6 +4,8 @@ import { ALL_POWERS, TERRITORIES, type AutoplayGameFile, type PlaytestCall, type
 export interface Turn {
   index: number; phaseId: string; report: PublicPhaseReport; calls: PlaytestCall[]; talk: PlaytestTalkCall[];
   failures: AutoplayGameFile['record']['failures']; centers: Record<Power, number>;
+  /** Private notes powers wrote to themselves with this turn's orders (games from harness version 7 on). */
+  notes: Array<{ power: Power; note: string }>;
 }
 const SUPPLY = TERRITORIES.filter(t => t.isSupplyCenter).map(t => t.id);
 export const centersOf = (owners: Record<string, string | null>) =>
@@ -14,7 +16,7 @@ export function turnsOf(game: AutoplayGameFile): Turn[] {
   for (const f of game.record.failures) failures.set(f.phaseId, [...(failures.get(f.phaseId) ?? []), f]);
   // A phase still waiting has calls but no report, so nothing to show on the board.
   return game.record.phases.filter(p => p.report).map((p, index) => ({ index, phaseId: p.phaseId, report: p.report!, calls: p.calls, talk: p.talk ?? [],
-    failures: failures.get(p.phaseId) ?? [], centers: centersOf(p.report!.after.territoryOwners) }));
+    failures: failures.get(p.phaseId) ?? [], centers: centersOf(p.report!.after.territoryOwners), notes: p.notes ?? [] }));
 }
 
 export type ModelKey = 'luna' | 'haiku' | 'other';

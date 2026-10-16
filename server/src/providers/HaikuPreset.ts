@@ -36,8 +36,9 @@ const MESSAGES_SCHEMA = { type: 'object', properties: { messages: { type: 'array
   required: ['messages'], additionalProperties: false } as const;
 /** The three pinned requests of a model-only full game: its orders, its opening messages, its replies. Development only. */
 const UNIT_ORDERS_SCHEMA = { type: 'object', properties: { orders: { type: 'array',
-  items: { type: 'object', properties: { unit: { type: 'string' }, choice: { type: 'integer' } }, required: ['unit', 'choice'], additionalProperties: false } } },
-  required: ['orders'], additionalProperties: false } as const;
+  items: { type: 'object', properties: { unit: { type: 'string' }, choice: { type: 'integer' } }, required: ['unit', 'choice'], additionalProperties: false } },
+    note: { type: 'string' } },
+  required: ['orders', 'note'], additionalProperties: false } as const;
 export function buildHaikuFullGameRequest(input: { context: string }, kind: FullGameRequestKind) {
   if (kind === 'UNIT_ORDERS') return build(input,FULL_GAME_UNIT_INSTRUCTIONS,UNIT_ORDERS_SCHEMA);
   return kind === 'ORDERS' ? build(input,FULL_GAME_INSTRUCTIONS,ORDERS_SCHEMA) : build(input,kind === 'ASK' ? ASK_INSTRUCTIONS : REPLY_INSTRUCTIONS,MESSAGES_SCHEMA);

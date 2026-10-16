@@ -69,7 +69,8 @@ export interface GameRecord {
   exportedAt:string; note:string;
   attempt:{id:string;mode:ChallengeMode;lifecycle:string;execution:string;challengeId:string;challengeVersion:number;humanPower:Power;objective:string;preset:{id:string;pricingVersion:string}|null;score:unknown};
   opponents:Record<string,string>;
-  phases:Array<{phaseId:string;report:PublicPhaseReport|null;calls:PlaytestCall[];talk?:PlaytestTalkCall[]}>;
+  /** `notes`: in a full game, the private notes powers wrote to themselves with their orders that phase. */
+  phases:Array<{phaseId:string;report:PublicPhaseReport|null;calls:PlaytestCall[];talk?:PlaytestTalkCall[];notes?:Array<{power:Power;note:string}>}>;
   chat:Array<{at:string;power:Power;from:'PLAYER'|'OPPONENT';body:string;reply:string|null;phaseId:string}>;
   failures:Array<{at:string;phaseId:string;reason:string}>;
   models:Record<string,PlaytestModelTotals>;

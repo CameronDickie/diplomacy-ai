@@ -35,7 +35,8 @@ half the size of the originals. `game-records/` is git-ignored.
   whose unit last stood there (on every map in the app, not only here), so each
   power's area reads as one region. Striped supply centers still mean a center
   about to change hands.
-- **The turn in words**: each power's orders and whether they worked, the
+- **The turn in words**: each power's orders and whether they worked (with the
+  private note it wrote that turn, for games from harness version 7 on), the
   messages powers sent each other with each reply, and every call with its
   outcome, tokens, time and cost, plus any failures recorded for that phase.
 - **The whole game**: each model's orders by kind (hold, move, support,

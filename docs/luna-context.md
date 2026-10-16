@@ -6,7 +6,7 @@ engine then checks. It contains no transport and makes no provider call.
 
 ## What a request contains
 
-`Context.ts` (`luna-context-v7`) writes plain text in two parts:
+`Context.ts` (`luna-context-v8`) writes plain text in two parts:
 
 1. **Shared prefix**, identical for all six opponents in a phase so the provider
    can cache it: season and phase, the scenario's pinned objective, supply

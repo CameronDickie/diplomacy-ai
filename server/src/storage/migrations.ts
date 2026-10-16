@@ -248,6 +248,14 @@ CREATE TABLE power_talks (
 ) STRICT;
 CREATE INDEX power_talks_attempt ON power_talks(attempt_id,created_at);
 CREATE TRIGGER power_talks_immutable BEFORE UPDATE ON power_talks BEGIN SELECT RAISE(ABORT,'immutable power talk'); END;
+` }, { version: 16, sql: `
+CREATE TABLE power_notes (
+ call_id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
+ phase_id TEXT NOT NULL, power TEXT NOT NULL,
+ note TEXT NOT NULL CHECK(length(note) BETWEEN 1 AND 400), created_at INTEGER NOT NULL
+) STRICT;
+CREATE INDEX power_notes_attempt ON power_notes(attempt_id,created_at);
+CREATE TRIGGER power_notes_immutable BEFORE UPDATE ON power_notes BEGIN SELECT RAISE(ABORT,'immutable power note'); END;
 ` }];
 
 export function verifyMigrationHistory(db: DatabaseSync, requireExisting = false): number {

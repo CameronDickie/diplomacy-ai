@@ -9,7 +9,7 @@ import type { ProviderCallIntent, ProviderCallRecord } from '../providers/accoun
 import { LUNA_CONTRACT, type OpponentContract } from '../providers/OpponentContract.js';
 import { singlePlan, type OpponentPlan } from '../providers/OpponentPlan.js';
 import { ProviderCallError, recordedCall } from '../providers/RecordedCall.js';
-import { ChoiceError, convoyMismatches, forcedAction, selfBlockingMoves } from './Choices.js';
+import { ChoiceError, convoyMismatches, forcedAction, noteOf, selfBlockingMoves } from './Choices.js';
 import { lunaPrompt, parseMessages, talkPrompt, type PowerMessage } from './Context.js';
 import type { StoredPowerTalk } from '../storage/talks.js';
 import { PreflightError, type LunaTransport } from './Transport.js';
@@ -133,7 +133,9 @@ export class LunaDecisionProvider implements DecisionProvider {
       if (job.board.phase === 'ORDERS') { await this.negotiate(job,last,calls,lanes,signal); await settle(); }
       const said = await this.store.call('powerTalks',{ attemptId: job.attemptId });
       const messages = said.flatMap(t => t.messages.map((m): PowerMessage => ({ when: turnOf(t.phaseId), from: t.power, to: m.to, body: m.body })));
-      full = power => ({ messages, partners: [...new Set(said.filter(t => t.operationId === job.operationId).flatMap(t => t.power === power ? t.messages.map(m => m.to) : t.messages.some(m => m.to === power) ? [t.power] : []))] });
+      // Each power's own notes from earlier turns of this game.
+      const notes = (await this.store.call('powerNotes',{ attemptId: job.attemptId })).map(n => ({ power: n.power, when: turnOf(n.phaseId), note: n.note }));
+      full = power => ({ messages, notes: notes.filter(n => n.power === power), partners: [...new Set(said.filter(t => t.operationId === job.operationId).flatMap(t => t.power === power ? t.messages.map(m => m.to) : t.messages.some(m => m.to === power) ? [t.power] : []))] });
     }
     await lanes.each(job.definition.opponentPowers,async power => {
       const legal = await legalOf(power), contested = job.board.phase === 'ORDERS' ? await contestedFor(power) : undefined;
@@ -203,6 +205,7 @@ export class LunaDecisionProvider implements DecisionProvider {
     const alive = job.definition.opponentPowers.filter(p => job.board.units.some(u => u.power === p && !u.mustRetreat));
     const round = async (kind: 'ASK' | 'REPLY', powers: readonly Power[], othersOf: (power: Power, said: StoredPowerTalk[]) => Power[]) => {
       const said = await this.store.call('powerTalks',{ attemptId: job.attemptId });
+      const notes = (await this.store.call('powerNotes',{ attemptId: job.attemptId })).map(n => ({ power: n.power, when: turnOf(n.phaseId), note: n.note }));
       const history = said.flatMap(t => t.messages.map((m): PowerMessage => ({ when: turnOf(t.phaseId), from: t.power, to: m.to, body: m.body })));
       await lanes.each(powers,async power => {
         const done = said.find(t => t.operationId === job.operationId && t.kind === kind && t.power === power);
@@ -210,7 +213,7 @@ export class LunaDecisionProvider implements DecisionProvider {
         let earlier = calls.filter(c => c.power === power && c.role === kind);
         const others = othersOf(power,said), limit = 1 + (this.options.talk!.retries ?? 2), sentCalls = () => earlier.filter(c => c.dispatchedAt !== null).length;
         if (!others.length) return;
-        const contract = this.plan.contractFor(power), prompt = talkPrompt(job,power,last,kind,others,history,this.options.talk!.maxRecipients,contract);
+        const contract = this.plan.contractFor(power), prompt = talkPrompt(job,power,last,kind,others,history,this.options.talk!.maxRecipients,contract,notes.filter(n => n.power === power));
         // Calls that left the process count against the limit across every run of this phase; `tries` also
         // bounds failures that never left it (a token count that failed).
         for (let tries = 0; tries < limit && sentCalls() < limit && !lanes.state.failed; tries++) {
@@ -276,6 +279,9 @@ export class LunaDecisionProvider implements DecisionProvider {
         callSignal.throwIfAborted();
         // Stored before the call is finished, so an interruption between the two cannot lose a paid answer.
         await this.store.call('saveProviderDecision',{ callId: id, action, now: this.now() });
+        // A full game's private note travels with the accepted orders; a rejected answer's note is discarded with it.
+        const note = prompt.byUnit ? noteOf(parsed) : null;
+        if (note) await this.store.call('savePowerNote',{ callId: id, note, now: this.now() });
         await this.options.boundary?.('decided',power,id);
         return action;
       } },earlier,signal,sibling,halted);

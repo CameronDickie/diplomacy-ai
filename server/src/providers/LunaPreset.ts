@@ -32,8 +32,10 @@ const MESSAGES_FORMAT = { type: 'json_schema', name: 'diplomacy_messages', stric
   required: ['messages'], additionalProperties: false } } as const;
 const UNIT_ORDERS_FORMAT = { type: 'json_schema', name: 'diplomacy_unit_orders', strict: true,
   schema: { type: 'object', properties: { orders: { type: 'array', maxItems: 34,
-    items: { type: 'object', properties: { unit: { type: 'string' }, choice: { type: 'integer' } }, required: ['unit', 'choice'], additionalProperties: false } } },
-  required: ['orders'], additionalProperties: false } } as const;
+    items: { type: 'object', properties: { unit: { type: 'string' }, choice: { type: 'integer' } }, required: ['unit', 'choice'], additionalProperties: false } },
+    // A short private note the power writes to itself for later turns (it may be empty).
+    note: { type: 'string' } },
+  required: ['orders', 'note'], additionalProperties: false } } as const;
 /**
  * The pinned requests of a model-only full game: its orders (one entry per unit), its retreats and
  * builds (a list of numbers), its opening messages, its replies. Development only.

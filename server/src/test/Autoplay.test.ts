@@ -9,8 +9,8 @@ import { ALL_POWERS, type Power } from '@diplomacy/shared';
 import { CALL_TIMEOUT_MS, DEFAULT_ASSIGNMENT, autoplay, fullGameDefinition, harnessInstructions, quietYears, type ModelKey } from '../autoplay/Autoplay.js';
 import { assertDevelopment, harnessVersion, parseAssignment } from '../autoplay/cli.js';
 import { ASK_INSTRUCTIONS, FULL_GAME_UNIT_INSTRUCTIONS, OPPONENT_INSTRUCTIONS, REPLY_INSTRUCTIONS } from '../providers/OpponentInstructions.js';
-import { parseMessages, sharedContext, talkLines, type PowerMessage } from '../luna/Context.js';
-import { buildChoices, convoyMismatches, orderChoices, parseUnitOrders, pendingCaptures, selfBlockingMoves } from '../luna/Choices.js';
+import { noteLines, parseMessages, sharedContext, talkLines, threadLines, type PowerMessage } from '../luna/Context.js';
+import { buildChoices, convoyMismatches, noteOf, orderChoices, parseUnitOrders, pendingCaptures, selfBlockingMoves } from '../luna/Choices.js';
 import { describeRejection } from '../luna/LunaDecisionProvider.js';
 import { http1Fetch } from '../luna/Http1Fetch.js';
 import { PreflightError, httpLunaTransport, mockOpponentTransport, networkCode, type LunaTransport } from '../luna/Transport.js';
@@ -83,16 +83,23 @@ test('what powers said reaches their own later requests and nobody else\'s',asyn
   assert.ok(f.sent.every(s => s.context.includes('Full game: each of the seven powers is played separately') && !s.context.includes('played by a human')));
   for (const { context } of f.sent) {
     const me = speaker(context);
-    // A request only ever shows messages this power sent or received.
-    for (const line of context.split('\n').filter(l => /^\[[A-Z]+ \d{4}\] /.test(l))) assert.match(line,/^\[[A-Z]+ \d{4}\] (You to [A-Z]+|[A-Z]+ to you): /,`${me}: ${line}`);
+    // A request only ever shows messages this power sent or received: in an orders request as one list, in a
+    // message request as one thread per power, each holding only that power and this one. Its own notes are separate.
+    let section: string | null = null;
+    for (const line of context.split('\n')) {
+      const thread = /^Your conversation with ([A-Z]+), oldest first:$/.exec(line);
+      if (thread || /^Your own private notes/.test(line) || /^Your private messages with other powers, oldest first/.test(line)) { section = thread ? thread[1] : /notes/.test(line) ? 'NOTES' : 'LIST'; continue; }
+      if (!/^\[[A-Z]+ \d{4}\] /.test(line) || section === 'NOTES') continue;
+      assert.match(line,section === 'LIST' ? /^\[[A-Z]+ \d{4}\] (You to [A-Z]+|[A-Z]+ to you): / : new RegExp(`^\\[[A-Z]+ \\d{4}\\] (You|${section}): `),`${me}: ${line}`);
+    }
   }
   // Orders are asked for unit by unit; retreats and builds remain a plain list of numbers.
-  assert.ok(orders.every(s => s.context.includes('ORDERS phase') && /\nAnswer with \{"orders":\[\{"unit":"[A-Z]{3}","choice":\d+\}, \.\.\.\]\}: one entry for each heading above/.test(s.context)));
+  assert.ok(orders.every(s => s.context.includes('ORDERS phase') && /\nAnswer with \{"orders":\[\{"unit":"[A-Z]{3}","choice":\d+\}, \.\.\.\],"note":"\.\.\."\}: one entry for each heading above/.test(s.context)));
   assert.ok(f.sent.filter(s => s.kind === 'ORDERS').every(s => !s.context.includes('ORDERS phase') && s.context.includes('Answer with {"choices":[...]}')));
   // A reply request shows the message it answers; an opening request of the first turn has none to show.
   const firstAsk = f.sent.find(s => s.kind === 'ASK')!, firstReply = f.sent.find(s => s.kind === 'REPLY')!;
-  assert.ok(!firstAsk.context.includes(' to you: ')); assert.match(firstAsk.context,/\nYou may write to up to 3 of: /);
-  assert.ok(firstReply.context.includes(' to you: ')); assert.match(firstReply.context,/\nReply to: /);
+  assert.ok(!firstAsk.context.includes('Your conversation with ')); assert.match(firstAsk.context,/\nYou have not exchanged messages with [A-Z]+ yet\./); assert.match(firstAsk.context,/\nYou may write to up to 3 of: /);
+  assert.match(firstReply.context,/\nYour conversation with [A-Z]+, oldest first:\n\[SPRING 1901\] (You|[A-Z]+): /); assert.match(firstReply.context,/\nReply to: /);
 });
 
 test('continuing a run buys nothing twice, and a run cannot be continued with other models or another last year',async t => {
@@ -486,7 +493,7 @@ test('a full game says only a solo win counts and how convoys work, shows which 
   assert.deepEqual(convoyMismatches(['NTH|CONVOY|BEL|NOR']),[]);
 
   const f = await setup(t), result = await f.run({ lastYear: 1901 });
-  assert.equal(result.status,'FINISHED'); assert.equal(result.run.contextVersion,'luna-context-v7');
+  assert.equal(result.status,'FINISHED'); assert.equal(result.run.contextVersion,'luna-context-v8');
   const turkey = f.sent.find(x => x.kind === 'UNIT_ORDERS' && speaker(x.context) === 'TURKEY' && /SPRING 1901, ORDERS phase\./.test(x.context))!.context;
   // The hint comes before the numbered list, so no line between the headings looks like one.
   assert.match(turkey,/\nConvoys you could set up for next turn\. Only a fleet at sea next to an army can convoy it; a fleet in a coastal province cannot\.\n- A CON: move F ANK to BLA this turn, and next turn A CON can be convoyed from there to ARM, RUM, SEV\.\nPick exactly one number/);
@@ -513,4 +520,28 @@ test('in a Fall turn a full game says which centers are about to change hands, a
   assert.ok(!orderChoices(board('FALL'),'TURKEY',legal)!.choices.some(c => c.label.includes('after this Fall')));
   assert.match(FULL_GAME_UNIT_INSTRUCTIONS,/takes it only by still being there when the turn ends/);
   assert.doesNotMatch(OPPONENT_INSTRUCTIONS,/takes it only by still being there/);
+});
+
+test('a power keeps a private note with its orders that only it is shown later, and writes to others with their whole thread in view',async t => {
+  assert.equal(noteOf({ orders: [], note: '  Promised  France\nBelgium.  ' }),'Promised France Belgium.');
+  assert.equal(noteOf({ orders: [], note: '   ' }),null); assert.equal(noteOf({ orders: [] }),null); assert.equal(noteOf({ orders: [], note: 'x'.repeat(900) })!.length,400);
+  // Threads are per power, oldest first; a long thread keeps its newest messages within its share of the budget.
+  const said: PowerMessage[] = [{ when: 'SPRING 1901', from: 'FRANCE', to: 'ENGLAND', body: 'old' },{ when: 'SPRING 1901', from: 'GERMANY', to: 'ENGLAND', body: 'hi' },
+    { when: 'FALL 1930', from: 'ENGLAND', to: 'FRANCE', body: 'new' },{ when: 'FALL 1930', from: 'ITALY', to: 'RUSSIA', body: 'not mine' }];
+  assert.deepEqual(threadLines('ENGLAND',said,['FRANCE','ITALY']),['Your conversation with FRANCE, oldest first:','[SPRING 1901] FRANCE: old','[FALL 1930] You: new','You have not exchanged messages with ITALY yet.']);
+  assert.deepEqual(threadLines('ENGLAND',said,['FRANCE'],40),['Your conversation with FRANCE, oldest first:','[FALL 1930] You: new']);
+  assert.deepEqual(noteLines([{ when: 'FALL 1905', note: 'a' },{ when: 'FALL 1906', note: 'b' }],18),['Your own private notes from earlier turns, oldest first. Only you can see them:','[FALL 1906] b']);
+
+  const f = await setup(t), result = await f.run();
+  // Every power's orders call wrote a note; the record has them by phase.
+  const spring = result.record.phases.find(p => p.report?.phase === 'ORDERS')!;
+  assert.deepEqual(spring.notes!.map(n => n.power).sort(),[...ALL_POWERS].sort());
+  assert.ok(spring.notes!.every(n => n.note === `(stand-in, no model was asked) ${n.power} wrote this note.`));
+  // Later requests show a power its own notes and nobody else's, in orders and message requests alike.
+  const later = f.sent.filter(x => x.context.includes('Your own private notes'));
+  assert.ok(later.some(x => x.kind === 'UNIT_ORDERS') && later.some(x => x.kind === 'ASK') && later.some(x => x.kind === 'REPLY'));
+  for (const { context } of later) for (const line of context.split('\n').filter(l => l.includes('wrote this note.'))) assert.match(line,new RegExp(` ${speaker(context)} wrote this note\\.$`));
+  // A note is never stored for a message call, and only once per orders call.
+  const ask = (await f.store.call('providerCallsForAttempt',{ attemptId: result.run.attemptId })).find(c => c.role === 'ASK')!;
+  await assert.rejects(f.store.call('savePowerNote',{ callId: ask.id, note: 'x', now: 1 }),/Invalid power note/);
 });

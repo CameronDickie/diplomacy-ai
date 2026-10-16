@@ -15,7 +15,8 @@ its own pinned instructions throughout.
 | 3 | 4 | `luna-context-v5` | `09a9e11232f3ae2c` |
 | 4 | 5 | `luna-context-v5` | `09a9e11232f3ae2c` |
 | 5 | 6 to 9 | `luna-context-v6` | `6885cbe55074ee51` |
-| 6 | from 10 | `luna-context-v7` | `eea263560b16613d` |
+| 6 | 10 | `luna-context-v7` | `eea263560b16613d` |
+| 7 | from 11 | `luna-context-v8` | `8434bf6012a2b346` |
 
 ## Version 1: games 1 and 2
 
@@ -99,7 +100,7 @@ holds, 14 lead changes, 24 armies moved by convoy (7 arrived), and a power with
 14 or more units still sent two units to one place in 38% of its turns after
 the ask-once check.
 
-## Version 6: from game 10
+## Version 6: game 10
 
 Two unrelated fixes, measured on different numbers.
 
@@ -133,9 +134,31 @@ center would have won it, taking seven of England's centers in one turn.
 Clashes: 3% of turns for powers with 10–13 units (game 9: 4%); only 8 turns
 with 14 or more units, too few to compare.
 
+## Version 7: from game 11
+
+Memory. Until now a power saw only its newest messages across all partners,
+cut at 6,000 bytes: about the last year. Nobody could hold anyone to a promise
+made a decade earlier, and in the all-Haiku game Germany paced a fleet back and
+forth across the Baltic for decades, like a player with no plan it could
+remember.
+
+- **Whole threads.** When a power writes to others or answers them, it now sees
+  its conversation with each of those powers as a separate thread, oldest
+  first. The threads share 12,000 bytes; a thread longer than its share keeps
+  its newest messages. Orders requests keep the previous single list of recent
+  messages.
+- **A private notebook.** With its orders, each power writes itself a note of
+  at most 300 characters (its plan, promises made and received, who kept
+  theirs). Its own notes from earlier turns, the newest within 2,000 bytes
+  (about the last six), are shown in every later request it gets: orders,
+  messages and replies. Nobody else sees them. The notes are in the game record
+  and in the viewer, beside each power's orders.
+
+What to measure: how often messages refer back to earlier turns, whether
+powers keep what they promised, and whether a power's moves follow the plan in
+its notes.
+
 ## Not yet changed
 
-- **Memory of conversations.** A power still sees only about the last year of
-  its messages, across all partners. Options under consideration: show a
-  power its whole thread with the power it is answering, or let each power keep
-  a short private notebook of agreements.
+- **Draws.** Letting powers propose a draw that every survivor must accept
+  (DIC-93).

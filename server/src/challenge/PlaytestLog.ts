@@ -64,9 +64,10 @@ export async function playtestLog(store: Store, attemptId: string): Promise<Play
  */
 export async function gameRecord(store: Store, attempt: StoredAttempt, challenge: StoredChallenge, opponents: Record<string, string>,
     failures: ReadonlyArray<{ at: number; phaseId: string; reason: string }>, now: number): Promise<GameRecord> {
-  const [log, reports, chat] = await Promise.all([playtestLog(store,attempt.id),store.call('reports',{ attemptId: attempt.id }),store.call('chatMessages',{ attemptId: attempt.id })]);
+  const [log, reports, chat, notes] = await Promise.all([playtestLog(store,attempt.id),store.call('reports',{ attemptId: attempt.id }),store.call('chatMessages',{ attemptId: attempt.id }),store.call('powerNotes',{ attemptId: attempt.id })]);
+  const notesOf = (phaseId: string) => notes.filter(n => n.phaseId === phaseId).map(n => ({ power: n.power, note: n.note }));
   const iso = (ms: number) => new Date(ms).toISOString(), calls = new Map(log.phases.map(p => [p.phaseId,p.calls])), talks = new Map(log.phases.map(p => [p.phaseId,p.talk]));
-  const withTalk = <T extends { phaseId: string }>(phase: T) => talks.get(phase.phaseId) ? { ...phase, talk: talks.get(phase.phaseId) } : phase;
+  const withTalk = <T extends { phaseId: string }>(phase: T) => ({ ...phase, ...(talks.get(phase.phaseId) ? { talk: talks.get(phase.phaseId) } : {}), ...(notesOf(phase.phaseId).length ? { notes: notesOf(phase.phaseId) } : {}) });
   // Reports are in play order; a phase's calls are matched by its place in the game.
   const key = (r: PublicPhaseReport) => `:${r.year}:${r.season}:${r.phase}`;
   const phases: GameRecord['phases'] = reports.map(report => { const id = [...calls.keys()].find(k => k.endsWith(key(report))) ?? key(report).slice(1); const found = calls.get(id) ?? []; calls.delete(id); return withTalk({ phaseId: id, report, calls: found }); });

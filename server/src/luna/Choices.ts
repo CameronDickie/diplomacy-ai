@@ -340,9 +340,18 @@ const unitKey = (name: string) => name.trim().toUpperCase().replace(/^(?:A|F|ARM
  * that unit's own heading, and every unit must appear exactly once. Anything else is refused with a
  * message that says which unit and why, in terms of the list; that message is safe to show the model.
  */
+/** A power's private note in its orders answer, tidied and cut to length; null when it wrote none. */
+export function noteOf(value: unknown): string | null {
+  const note = (value as { note?: unknown } | null)?.note;
+  if (typeof note !== 'string') return null;
+  const text = note.replace(/\s+/g,' ').trim().slice(0,400);
+  return text || null;
+}
 export function parseUnitOrders(value: unknown, set: ChoiceSet): number[] {
-  const v = value as { orders?: unknown };
-  if (!v || typeof v !== 'object' || Array.isArray(v) || Object.keys(v).length !== 1 || !Array.isArray(v.orders) || v.orders.length > 34) throw new ChoiceError('the answer was not {"orders":[{"unit","choice"}]}');
+  const v = value as { orders?: unknown; note?: unknown };
+  // The private note is read separately (`noteOf`); it never affects which orders are given.
+  const keys = Object.keys(v ?? {}).filter(k => k !== 'note');
+  if (!v || typeof v !== 'object' || Array.isArray(v) || keys.length !== 1 || !Array.isArray(v.orders) || v.orders.length > 34 || (v.note !== undefined && typeof v.note !== 'string')) throw new ChoiceError('the answer was not {"orders":[{"unit","choice"}]}');
   const byUnit = new Map(set.groups.map(g => [unitKey(g.id),g])), picked = new Map<string, number>(), problems: string[] = [];
   for (const entry of v.orders as Array<{ unit?: unknown; choice?: unknown }>) {
     if (!entry || typeof entry !== 'object' || typeof entry.unit !== 'string' || !Number.isSafeInteger(entry.choice)) throw new ChoiceError('the answer was not {"orders":[{"unit","choice"}]}');
