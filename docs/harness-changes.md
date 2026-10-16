@@ -158,6 +158,15 @@ What to measure: how often messages refer back to earlier turns, whether
 powers keep what they promised, and whether a power's moves follow the plan in
 its notes.
 
+Result (game 11, all Luna): Austria won in Fall 1941, the first solo win since
+game 3. Every power wrote notes (434, averaging 227 characters): concrete
+plans, promises made and broken (including its own), and standing distrust.
+Messages referring back to earlier turns rose only from 3% to 4%; the memory
+shows in the notes more than in the talk. The game also found a harness bug:
+a win counted after Fall retreats left the game in a retreats phase with
+nobody retreating, so every recovery failed. Fixed in PR #77; the game was
+finished from its saved decisions with no new model calls.
+
 ## Not yet changed
 
 - **Draws.** Letting powers propose a draw that every survivor must accept
