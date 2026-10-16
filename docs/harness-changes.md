@@ -187,6 +187,11 @@ limits. The instructions and context are unchanged (fingerprint
 `8434bf6012a2b346`); the record states the effort in `run.harness.effort`, and
 a game cannot be continued at a different effort.
 
+Result (game 13, all Haiku with memory, medium effort): reasoning tokens per
+call doubled (263 → 574), holds stayed at 87%, successful moves fell to 133
+(210 in game 12), and fewer moves were reversed the next turn (32% against
+49%). Supports rose slightly (5% → 7%). Cost USD 2.45 against 1.97.
+
 ## Not yet changed
 
 - **Draws.** Letting powers propose a draw that every survivor must accept
