@@ -4,7 +4,7 @@ import type { GameRecord } from './challenge.js';
 /** What a full game was played under, as stamped into its record. Absent from records made before the stamp existed. */
 export interface AutoplayHarness {
   commit: string | null; modified: boolean; instructionsHash: string; ordersInstructions: string;
-  callTimeoutMs: number; stalemateYears: number; askAgainWhenBlocked?: boolean;
+  callTimeoutMs: number; stalemateYears: number; askAgainWhenBlocked?: boolean; effort?: 'low' | 'medium' | 'high';
 }
 /** One file the autoplay tool wrote for a game; a game continued over several runs has several. */
 export interface AutoplayPart { file: string; exportedAt: string; status: string; commit: string | null; instructionsHash: string | null; failures: number }

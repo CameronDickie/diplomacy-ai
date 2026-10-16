@@ -13,6 +13,7 @@ import { CONTEXT_VERSION } from '../luna/Context.js';
 import { LunaDecisionError, LunaDecisionProvider } from '../luna/LunaDecisionProvider.js';
 import type { LunaTransport } from '../luna/Transport.js';
 import { opponentContract, type OpponentContract } from '../providers/OpponentContract.js';
+import { EFFORTS, type Effort } from '../providers/LunaPreset.js';
 import { mixedPlan } from '../providers/OpponentPlan.js';
 import { hashToken, type Store } from '../storage/Store.js';
 import type { StoredAttempt } from '../storage/contracts.js';
@@ -33,6 +34,9 @@ export const FIRST_YEAR = 1901, LATEST_LAST_YEAR = 1999;
 export const CALL_TIMEOUT_MS = 40_000;
 /** Messages, replies and orders, each with room for a retry at the longer call limit. */
 const PHASE_TIMEOUT_MS = 300_000;
+/** More reasoning takes longer: the call and phase limits at each effort. */
+export const EFFORT_LIMITS: Readonly<Record<Effort, { callMs: number; phaseMs: number }>> = Object.freeze({
+  low: { callMs: CALL_TIMEOUT_MS, phaseMs: PHASE_TIMEOUT_MS }, medium: { callMs: 90_000, phaseMs: 600_000 }, high: { callMs: 120_000, phaseMs: 600_000 } });
 
 /** The standing orders instructions a game is played under, and a short fingerprint to compare games by. */
 export const harnessInstructions = () => ({ ordersInstructions: FULL_GAME_UNIT_INSTRUCTIONS,
@@ -75,6 +79,8 @@ export interface AutoplayOptions {
   maxWaits?: number;
   /** When a power's own moves block each other, say which and ask once more; the second answer stands (default on). */
   askAgainWhenBlocked?: boolean;
+  /** The reasoning effort every request is sent at (default low, as in the challenge). A game keeps one effort throughout. */
+  effort?: Effort;
   /**
    * End the game once no supply center has changed hands for this many years. Unset or 0: never.
    * The game itself is left as it stands, so it can be continued with a larger number or none.
@@ -91,7 +97,7 @@ export interface AutoplayOptions {
 export interface AutoplayResult {
   run: { runId: string; attemptId: string; transport: 'mock' | 'live'; lastYear: number; talkRecipients: number; assignment: Record<Power, string>; planId: string; contextVersion: string;
     /** What the game was played under: code commit (null when unknown), whether harness files differed from it, and the standing orders instructions. A continued game states the latest run's. */
-    harness: { commit: string | null; modified: boolean; instructionsHash: string; ordersInstructions: string; callTimeoutMs: number; stalemateYears: number; askAgainWhenBlocked: boolean } };
+    harness: { commit: string | null; modified: boolean; instructionsHash: string; ordersInstructions: string; callTimeoutMs: number; stalemateYears: number; askAgainWhenBlocked: boolean; effort: Effort } };
   status: 'FINISHED' | 'WAITING' | 'PAUSED';
   /** How a finished game ended: one power reached 18 supply centers, the last year's Fall settled, or no center changed hands for the stated number of years. */
   endedBy: 'SOLO_WIN' | 'LAST_YEAR' | 'STALEMATE' | null;
@@ -137,6 +143,9 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   if (!Number.isSafeInteger(maxRecoveries) || maxRecoveries < 0 || maxRecoveries > 10) throw new Error('Recovery limit must be between 0 and 10.');
   const stalemateYears = options.stalemateYears ?? 0;
   if (!Number.isSafeInteger(stalemateYears) || stalemateYears < 0 || stalemateYears > 99) throw new Error('The stalemate limit must be between 0 and 99 years.');
+  const effort = options.effort ?? 'low';
+  if (!EFFORTS.includes(effort)) throw new Error('Reasoning effort must be low, medium or high.');
+  const limits = EFFORT_LIMITS[effort];
   const assignment = options.assignment ?? DEFAULT_ASSIGNMENT;
   if (ALL_POWERS.some(p => !assignment[p])) throw new Error('Every power needs a model.');
   const plan = mixedPlan(assignment,opponentContract(assignment.AUSTRIA));
@@ -157,6 +166,13 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   if (attempt && (attempt.preset?.id !== plan.id || attempt.preset?.pricingVersion !== plan.pricingVersion))
     throw new Error('This run was started with different models or prices. Continue it with the same assignment, or choose a new run ID.');
   if (attempt && (attempt.challengeId !== definition.id)) throw new Error('This run was started with a different last year. Continue it with the same one, or choose a new run ID.');
+  // Each call reserved the worst case at the output ceiling of its effort, so the last one says which effort the game was played at.
+  const lastCall = attempt ? (await store.call('providerCallsForAttempt',{ attemptId: attempt.id })).filter(c => c.role !== 'CHAT').sort((a,b) => b.createdAt - a.createdAt)[0] : undefined;
+  if (lastCall) {
+    const contract = plan.contractFor(lastCall.power);
+    if (lastCall.maxCostNanousd !== contract.reservationNanousd(contract.preset.maxInputTokens,contract.fullGameOutputTokens[effort]))
+      throw new Error('This run was played at a different reasoning effort. Continue it with the same --effort, or choose a new run ID.');
+  }
   // Checked here, before anything is created: starting against an empty or paused ledger would otherwise pause it for everything.
   if ((await store.call('paidState',{})).stopped) throw new Error('Sponsored play is paused in this database (a grant ran out, or it was paused). Record a grant if needed, then run again with --resume-paid.');
   if (!attempt && (await store.call('fundingTotals',{})).availableNanousd < plan.reservationNanousd * plan.maxConcurrentDecisions)
@@ -169,7 +185,7 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   const orderCalls = options.orderCalls ?? 6;
   if (!Number.isSafeInteger(orderCalls) || orderCalls < 3 || orderCalls > 10) throw new Error('A power may have between 3 and 10 orders calls for a phase.');
   const turn = (phaseId: string) => phaseId.split(':').slice(-3,-1).reverse().join(' ');
-  const provider = new LunaDecisionProvider(store,rules,main,{ now, plan, transports: options.transports, maxCallsPerPower: orderCalls, timeoutMs: CALL_TIMEOUT_MS, askAgainWhenSelfBlocked: options.askAgainWhenBlocked ?? true,
+  const provider = new LunaDecisionProvider(store,rules,main,{ now, plan, transports: options.transports, maxCallsPerPower: orderCalls, timeoutMs: limits.callMs, askAgainWhenSelfBlocked: options.askAgainWhenBlocked ?? true, effort,
     onRejectedDecision: f => {
       const reason = `${f.power} orders call, try ${f.attempt}: answer not usable — ${f.reason}`;
       failures.push({ at: now(), phaseId: f.phaseId, reason }); log(`  ! ${turn(f.phaseId)} · ${reason}`);
@@ -192,11 +208,11 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
     }
     seen = reports.length; quiet = quietYears(reports);
   };
-  const service = new AttemptService(store,provider,rules,{ now, maxRunning: 1, timeoutMs: PHASE_TIMEOUT_MS,
+  const service = new AttemptService(store,provider,rules,{ now, maxRunning: 1, timeoutMs: limits.phaseMs,
     boundary: async stage => { if (stage === 'committed') await announce().catch(() => {}); },
     onPhaseFailure: (job,error) => failures.push({ at: now(), phaseId: job.phaseId,
       // Never the raw error: it may carry request content.
-      reason: error instanceof LunaDecisionError ? `${error.power}: ${error.code}${error.detail ? ` (${error.detail})` : ''}` : error instanceof Error && /deadline/i.test(error.message) ? 'The phase ran past its five-minute deadline.' : 'The phase was interrupted.' }) });
+      reason: error instanceof LunaDecisionError ? `${error.power}: ${error.code}${error.detail ? ` (${error.detail})` : ''}` : error instanceof Error && /deadline/i.test(error.message) ? `The phase ran past its ${limits.phaseMs / 60_000}-minute deadline.` : 'The phase was interrupted.' }) });
   const recoveries = new Map<string, number>(), waits = new Map<string, number>(), maxWaits = options.maxWaits ?? 12;
   let status: AutoplayResult['status'] = 'FINISHED', waitingOn: string | null = null, stalemate = false;
   try {
@@ -250,7 +266,7 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   return {
     run: { runId, attemptId: id, transport: options.transportKind, lastYear: options.lastYear, talkRecipients,
       assignment: Object.fromEntries(ALL_POWERS.map(p => [p,plan.contractFor(p).preset.model])) as Record<Power, string>, planId: plan.id, contextVersion: CONTEXT_VERSION,
-      harness: { commit: options.harness?.commit ?? null, modified: options.harness?.modified ?? false, ...harnessInstructions(), callTimeoutMs: CALL_TIMEOUT_MS, stalemateYears, askAgainWhenBlocked: options.askAgainWhenBlocked ?? true } },
+      harness: { commit: options.harness?.commit ?? null, modified: options.harness?.modified ?? false, ...harnessInstructions(), callTimeoutMs: limits.callMs, stalemateYears, askAgainWhenBlocked: options.askAgainWhenBlocked ?? true, effort } },
     status: attempt.lifecycle === 'ACTIVE' && !stalemate ? (status === 'FINISHED' ? 'WAITING' : status) : 'FINISHED',
     endedBy: stalemate ? 'STALEMATE' : attempt.lifecycle === 'ACTIVE' ? null : ALL_POWERS.some(p => count[p] >= 18) ? 'SOLO_WIN' : 'LAST_YEAR',
     waitingOn: attempt.lifecycle === 'ACTIVE' ? waitingOn : null,

@@ -9,6 +9,7 @@ import type { ProviderCallIntent, ProviderCallRecord } from '../providers/accoun
 import { LUNA_CONTRACT, type OpponentContract } from '../providers/OpponentContract.js';
 import { singlePlan, type OpponentPlan } from '../providers/OpponentPlan.js';
 import { ProviderCallError, recordedCall } from '../providers/RecordedCall.js';
+import type { Effort } from '../providers/LunaPreset.js';
 import { ChoiceError, convoyMismatches, forcedAction, noteOf, selfBlockingMoves } from './Choices.js';
 import { lunaPrompt, parseMessages, talkPrompt, type PowerMessage } from './Context.js';
 import type { StoredPowerTalk } from '../storage/talks.js';
@@ -35,6 +36,8 @@ interface Options {
   maxCallsPerPower?: number;
   /** A full game only: when a power's own moves block each other, say which and ask once more (the second answer stands). */
   askAgainWhenSelfBlocked?: boolean;
+  /** A full game only: the reasoning effort every request is sent at (default low). */
+  effort?: Effort;
   timeoutMs?: number;
   /** Test seam for narrower workers; production always uses the pinned server preset. */
   maxConcurrentDecisions?: number;
@@ -135,7 +138,7 @@ export class LunaDecisionProvider implements DecisionProvider {
       const messages = said.flatMap(t => t.messages.map((m): PowerMessage => ({ when: turnOf(t.phaseId), from: t.power, to: m.to, body: m.body })));
       // Each power's own notes from earlier turns of this game.
       const notes = (await this.store.call('powerNotes',{ attemptId: job.attemptId })).map(n => ({ power: n.power, when: turnOf(n.phaseId), note: n.note }));
-      full = power => ({ messages, notes: notes.filter(n => n.power === power), partners: [...new Set(said.filter(t => t.operationId === job.operationId).flatMap(t => t.power === power ? t.messages.map(m => m.to) : t.messages.some(m => m.to === power) ? [t.power] : []))] });
+      full = power => ({ messages, effort: this.options.effort ?? 'low', notes: notes.filter(n => n.power === power), partners: [...new Set(said.filter(t => t.operationId === job.operationId).flatMap(t => t.power === power ? t.messages.map(m => m.to) : t.messages.some(m => m.to === power) ? [t.power] : []))] });
     }
     await lanes.each(job.definition.opponentPowers,async power => {
       const legal = await legalOf(power), contested = job.board.phase === 'ORDERS' ? await contestedFor(power) : undefined;
@@ -213,13 +216,13 @@ export class LunaDecisionProvider implements DecisionProvider {
         let earlier = calls.filter(c => c.power === power && c.role === kind);
         const others = othersOf(power,said), limit = 1 + (this.options.talk!.retries ?? 2), sentCalls = () => earlier.filter(c => c.dispatchedAt !== null).length;
         if (!others.length) return;
-        const contract = this.plan.contractFor(power), prompt = talkPrompt(job,power,last,kind,others,history,this.options.talk!.maxRecipients,contract,notes.filter(n => n.power === power));
+        const contract = this.plan.contractFor(power), prompt = talkPrompt(job,power,last,kind,others,history,this.options.talk!.maxRecipients,contract,notes.filter(n => n.power === power),this.options.effort ?? 'low');
         // Calls that left the process count against the limit across every run of this phase; `tries` also
         // bounds failures that never left it (a token count that failed).
         for (let tries = 0; tries < limit && sentCalls() < limit && !lanes.state.failed; tries++) {
           signal.throwIfAborted();
           try {
-            await lanes.call((sibling,halted) => this.call(job,power,{ role: kind, id: n => `${job.operationId}:${power}:${kind.toLowerCase()}:${n}`, limit, request: prompt.request, maxCostNanousd: prompt.maxCostNanousd,
+            await lanes.call((sibling,halted) => this.call(job,power,{ role: kind, id: n => `${job.operationId}:${power}:${kind.toLowerCase()}:${n}`, limit, request: prompt.request, maxCostNanousd: prompt.maxCostNanousd, maxOutputTokens: prompt.maxOutputTokens,
               validate: async (parsed,_signal,id) => { await this.store.call('savePowerTalk',{ callId: id, messages: parseMessages(parsed,prompt.allowed,prompt.max), now: this.now() }); } },earlier,signal,sibling,halted));
             return;
           } catch (error) {
@@ -254,7 +257,7 @@ export class LunaDecisionProvider implements DecisionProvider {
 
   private ask(job: DecisionContext['job'], power: Power, prompt: NonNullable<ReturnType<typeof lunaPrompt>>, earlier: ProviderCallRecord[], signal: AbortSignal,
       sibling: () => Promise<boolean> = async () => false, halted: () => boolean = () => false): Promise<PhaseAction> {
-    return this.call(job,power,{ role: job.board.phase, id: n => `${job.operationId}:${power}:${n}`, limit: this.options.maxCallsPerPower ?? 3, request: prompt.request, maxCostNanousd: prompt.maxCostNanousd,
+    return this.call(job,power,{ role: job.board.phase, id: n => `${job.operationId}:${power}:${n}`, limit: this.options.maxCallsPerPower ?? 3, request: prompt.request, maxCostNanousd: prompt.maxCostNanousd, maxOutputTokens: prompt.maxOutputTokens,
       validate: async (parsed,callSignal,id) => {
         let action: PhaseAction;
         try {
@@ -289,7 +292,7 @@ export class LunaDecisionProvider implements DecisionProvider {
 
   /** One reserved, recorded call for one power: reuse an unsent hold for exactly this request, otherwise reserve, count, dispatch and check. */
   private async call<T>(job: DecisionContext['job'], power: Power, spec: { role: ProviderCallIntent['role']; id: (ordinal: number) => string; limit: number;
-      request: { body: string; requestHash: string; pricingVersion: string }; maxCostNanousd: number; validate: (parsed: unknown, signal: AbortSignal, id: string) => Promise<T> },
+      request: { body: string; requestHash: string; pricingVersion: string }; maxCostNanousd: number; maxOutputTokens: number; validate: (parsed: unknown, signal: AbortSignal, id: string) => Promise<T> },
       earlier: ProviderCallRecord[], signal: AbortSignal, sibling: () => Promise<boolean> = async () => false, halted: () => boolean = () => false): Promise<T> {
     const prompt = spec;
     const fail = (code: LunaFailure): never => { throw new LunaDecisionError(code,power); };
@@ -345,7 +348,7 @@ export class LunaDecisionProvider implements DecisionProvider {
     }
     try {
       return await recordedCall({ store: this.store, id, signal, timeoutMs: this.options.timeoutMs ?? contract.preset.timeoutMs, now: this.now,
-        transport: async s => { const response = await transport({ body: prompt.request.body, signal: s }); return contract.normalizeResponse(response.body,response.status); },
+        transport: async s => { const response = await transport({ body: prompt.request.body, signal: s }); return contract.normalizeResponse(response.body,response.status,prompt.maxOutputTokens); },
         validate: (parsed,callSignal) => spec.validate(parsed,callSignal,id) });
     } catch (error) {
       if (error instanceof LunaDecisionError) throw error;

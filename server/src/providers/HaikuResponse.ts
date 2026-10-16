@@ -45,7 +45,8 @@ function priceUsage(value: unknown): ProviderUsage | null {
  * billing fields before JSON parsing or legal validation. No raw errors, refusal detail, thinking
  * or provider metadata escape this projection. Only standard-tier `claude-haiku-5-5` is priced.
  */
-export function normalizeHaikuResponse(value: unknown, httpStatus = 200): ProviderResponse {
+/** `maxOutputTokens`: the ceiling the request was sent with (a full game at a higher reasoning effort allows more). */
+export function normalizeHaikuResponse(value: unknown, httpStatus = 200, maxOutputTokens: number = HAIKU_PRESET.maxOutputTokens): ProviderResponse {
   const r = object(value);
   const responseId = typeof r?.id === 'string' && /^[A-Za-z0-9:_-]{1,100}$/.test(r.id) ? r.id : null;
   const pricedContract = r?.type === 'message' && r?.model === HAIKU_PRESET.model && object(r?.usage)?.service_tier === HAIKU_PRESET.serviceTier;
@@ -58,7 +59,7 @@ export function normalizeHaikuResponse(value: unknown, httpStatus = 200): Provid
     usage = null; return result('ERROR');
   }
   if (!Number.isInteger(httpStatus) || httpStatus < 200 || httpStatus >= 300 || !usage
-    || usage.inputTokens > HAIKU_PRESET.maxInputTokens || usage.outputTokens > HAIKU_PRESET.maxOutputTokens) return result('ERROR');
+    || usage.inputTokens > HAIKU_PRESET.maxInputTokens || usage.outputTokens > maxOutputTokens) return result('ERROR');
   // A safety decline is a normal, billed answer. It is checked before the content is read.
   if (r.stop_reason === 'refusal') return result('REFUSED');
   // Thinking spent the whole cap before the answer was finished.

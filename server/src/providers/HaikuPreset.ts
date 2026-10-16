@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { ASK_INSTRUCTIONS, CHAT_INSTRUCTIONS, FULL_GAME_INSTRUCTIONS, FULL_GAME_UNIT_INSTRUCTIONS, OPPONENT_INSTRUCTIONS, REPLY_INSTRUCTIONS } from './OpponentInstructions.js';
-import { FULL_GAME_REQUEST_KINDS, type FullGameRequestKind } from './LunaPreset.js';
+import { EFFORTS, FULL_GAME_REQUEST_KINDS, type Effort, type FullGameRequestKind } from './LunaPreset.js';
 
 /** Version the whole contract whenever settings, schema or prices change. */
 export const HAIKU_PRESET = Object.freeze({
@@ -39,23 +39,27 @@ const UNIT_ORDERS_SCHEMA = { type: 'object', properties: { orders: { type: 'arra
   items: { type: 'object', properties: { unit: { type: 'string' }, choice: { type: 'integer' } }, required: ['unit', 'choice'], additionalProperties: false } },
     note: { type: 'string' } },
   required: ['orders', 'note'], additionalProperties: false } as const;
-export function buildHaikuFullGameRequest(input: { context: string }, kind: FullGameRequestKind) {
-  if (kind === 'UNIT_ORDERS') return build(input,FULL_GAME_UNIT_INSTRUCTIONS,UNIT_ORDERS_SCHEMA);
-  return kind === 'ORDERS' ? build(input,FULL_GAME_INSTRUCTIONS,ORDERS_SCHEMA) : build(input,kind === 'ASK' ? ASK_INSTRUCTIONS : REPLY_INSTRUCTIONS,MESSAGES_SCHEMA);
+/** A full game's output ceiling per reasoning effort; thinking counts toward it. */
+export const HAIKU_FULL_GAME_OUTPUT: Readonly<Record<Effort, number>> = Object.freeze({ low: HAIKU_PRESET.maxOutputTokens, medium: 8_192, high: 16_384 });
+export function buildHaikuFullGameRequest(input: { context: string }, kind: FullGameRequestKind, effort: Effort = 'low') {
+  const at = { effort, maxOutputTokens: HAIKU_FULL_GAME_OUTPUT[effort] };
+  if (kind === 'UNIT_ORDERS') return build(input,FULL_GAME_UNIT_INSTRUCTIONS,UNIT_ORDERS_SCHEMA,at);
+  return kind === 'ORDERS' ? build(input,FULL_GAME_INSTRUCTIONS,ORDERS_SCHEMA,at) : build(input,kind === 'ASK' ? ASK_INSTRUCTIONS : REPLY_INSTRUCTIONS,MESSAGES_SCHEMA,at);
 }
 /** Every serialized request this preset may send for a context. A transport refuses anything else. */
 export const haikuRequestBodies = (input: { context: string }): string[] =>
-  [buildHaikuRequest(input).body, buildHaikuChatRequest(input).body, ...FULL_GAME_REQUEST_KINDS.map(kind => buildHaikuFullGameRequest(input,kind).body)];
-function build(input: { context: string }, system: string, schema: typeof ORDERS_SCHEMA | typeof REPLY_SCHEMA | typeof MESSAGES_SCHEMA | typeof UNIT_ORDERS_SCHEMA) {
+  [buildHaikuRequest(input).body, buildHaikuChatRequest(input).body, ...EFFORTS.flatMap(effort => FULL_GAME_REQUEST_KINDS.map(kind => buildHaikuFullGameRequest(input,kind,effort).body))];
+function build(input: { context: string }, system: string, schema: typeof ORDERS_SCHEMA | typeof REPLY_SCHEMA | typeof MESSAGES_SCHEMA | typeof UNIT_ORDERS_SCHEMA,
+    at: { effort: Effort; maxOutputTokens: number } = { effort: HAIKU_PRESET.effort, maxOutputTokens: HAIKU_PRESET.maxOutputTokens }) {
   if (!input || typeof input !== 'object' || Object.keys(input).length !== 1 || !Object.hasOwn(input, 'context')
     || typeof input.context !== 'string' || !input.context.trim()
     || Buffer.byteLength(input.context, 'utf8') > HAIKU_PRESET.maxContextBytes) {
     throw new Error('Invalid or oversized Haiku context.');
   }
   const body = JSON.stringify({
-    model: HAIKU_PRESET.model, max_tokens: HAIKU_PRESET.maxOutputTokens, stream: false,
+    model: HAIKU_PRESET.model, max_tokens: at.maxOutputTokens, stream: false,
     thinking: { type: 'adaptive' },
-    output_config: { effort: HAIKU_PRESET.effort, format: { type: 'json_schema', schema } },
+    output_config: { effort: at.effort, format: { type: 'json_schema', schema } },
     system,
     messages: [{ role: 'user', content: input.context }],
   });
@@ -65,12 +69,13 @@ function build(input: { context: string }, system: string, schema: typeof ORDERS
 }
 
 /** Requires a verified input count/bound for this exact serialized request, NOT chars/4. */
-export function haikuReservationNanousd(inputTokens: number): number {
+export function haikuReservationNanousd(inputTokens: number, outputTokens: number = HAIKU_PRESET.maxOutputTokens): number {
   if (!Number.isSafeInteger(inputTokens) || inputTokens < 1 || inputTokens > HAIKU_PRESET.maxInputTokens) {
     throw new Error('Haiku input token bound is unavailable or exceeds the preset.');
   }
   // Never assume a cache hit; the dearest input rate is a one-hour cache write.
-  return inputTokens * HAIKU_PRESET.cacheWrite1hNanousd + HAIKU_PRESET.maxOutputTokens * HAIKU_PRESET.outputNanousd;
+  if (!Object.values(HAIKU_FULL_GAME_OUTPUT).includes(outputTokens)) throw new Error('Haiku output ceiling is not one the preset allows.');
+  return inputTokens * HAIKU_PRESET.cacheWrite1hNanousd + outputTokens * HAIKU_PRESET.outputNanousd;
 }
 
 export const haikuContextOf = (body: string): string => String(JSON.parse(body).messages[0].content);

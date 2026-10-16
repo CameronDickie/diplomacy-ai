@@ -41,15 +41,24 @@ const UNIT_ORDERS_FORMAT = { type: 'json_schema', name: 'diplomacy_unit_orders',
  * builds (a list of numbers), its opening messages, its replies. Development only.
  */
 export type FullGameRequestKind = 'ORDERS' | 'UNIT_ORDERS' | 'ASK' | 'REPLY';
+/**
+ * A model-only full game may be played at a higher reasoning effort than the challenge's pinned low.
+ * Reasoning counts toward the output ceiling, so each effort has its own; the reservation follows it.
+ */
+export type Effort = 'low' | 'medium' | 'high';
+export const EFFORTS: readonly Effort[] = ['low','medium','high'];
+export const LUNA_FULL_GAME_OUTPUT: Readonly<Record<Effort, number>> = Object.freeze({ low: LUNA_PRESET.maxOutputTokens, medium: 8_192, high: 16_384 });
 export const FULL_GAME_REQUEST_KINDS: readonly FullGameRequestKind[] = ['ORDERS','UNIT_ORDERS','ASK','REPLY'];
-export function buildLunaFullGameRequest(input: { context: string }, kind: FullGameRequestKind) {
-  if (kind === 'UNIT_ORDERS') return build(input,FULL_GAME_UNIT_INSTRUCTIONS,UNIT_ORDERS_FORMAT);
-  return kind === 'ORDERS' ? build(input,FULL_GAME_INSTRUCTIONS,ORDERS_FORMAT) : build(input,kind === 'ASK' ? ASK_INSTRUCTIONS : REPLY_INSTRUCTIONS,MESSAGES_FORMAT);
+export function buildLunaFullGameRequest(input: { context: string }, kind: FullGameRequestKind, effort: Effort = 'low') {
+  const at = { effort, maxOutputTokens: LUNA_FULL_GAME_OUTPUT[effort] };
+  if (kind === 'UNIT_ORDERS') return build(input,FULL_GAME_UNIT_INSTRUCTIONS,UNIT_ORDERS_FORMAT,at);
+  return kind === 'ORDERS' ? build(input,FULL_GAME_INSTRUCTIONS,ORDERS_FORMAT,at) : build(input,kind === 'ASK' ? ASK_INSTRUCTIONS : REPLY_INSTRUCTIONS,MESSAGES_FORMAT,at);
 }
 /** Every serialized request this preset may send for a context. A transport refuses anything else. */
 export const lunaRequestBodies = (input: { context: string }): string[] =>
-  [buildLunaRequest(input).body, buildLunaChatRequest(input).body, ...FULL_GAME_REQUEST_KINDS.map(kind => buildLunaFullGameRequest(input,kind).body)];
-function build(input: { context: string }, instructions: string, format: typeof ORDERS_FORMAT | typeof REPLY_FORMAT | typeof MESSAGES_FORMAT | typeof UNIT_ORDERS_FORMAT) {
+  [buildLunaRequest(input).body, buildLunaChatRequest(input).body, ...EFFORTS.flatMap(effort => FULL_GAME_REQUEST_KINDS.map(kind => buildLunaFullGameRequest(input,kind,effort).body))];
+function build(input: { context: string }, instructions: string, format: typeof ORDERS_FORMAT | typeof REPLY_FORMAT | typeof MESSAGES_FORMAT | typeof UNIT_ORDERS_FORMAT,
+    at: { effort: Effort; maxOutputTokens: number } = { effort: LUNA_PRESET.reasoningEffort, maxOutputTokens: LUNA_PRESET.maxOutputTokens }) {
   if (!input || typeof input !== 'object' || Object.keys(input).length !== 1 || !Object.hasOwn(input, 'context')
     || typeof input.context !== 'string' || !input.context.trim()
     || Buffer.byteLength(input.context, 'utf8') > LUNA_PRESET.maxContextBytes) {
@@ -57,7 +66,7 @@ function build(input: { context: string }, instructions: string, format: typeof 
   }
   const body = JSON.stringify({
     model: LUNA_PRESET.model, service_tier: LUNA_PRESET.serviceTier,
-    reasoning: { effort: LUNA_PRESET.reasoningEffort }, max_output_tokens: LUNA_PRESET.maxOutputTokens,
+    reasoning: { effort: at.effort }, max_output_tokens: at.maxOutputTokens,
     store: false, background: false, stream: false, truncation: 'disabled',
     tools: [], tool_choice: 'none', instructions,
     input: [{ role: 'user', content: [{ type: 'input_text', text: input.context }] }],
@@ -69,10 +78,11 @@ function build(input: { context: string }, instructions: string, format: typeof 
 }
 
 /** Requires a verified input count/bound for this exact serialized request, NOT chars/4. */
-export function lunaReservationNanousd(inputTokens: number): number {
+export function lunaReservationNanousd(inputTokens: number, outputTokens: number = LUNA_PRESET.maxOutputTokens): number {
   if (!Number.isSafeInteger(inputTokens) || inputTokens < 1 || inputTokens > LUNA_PRESET.maxInputTokens) {
     throw new Error('Luna input token bound is unavailable or exceeds the preset.');
   }
   // Never assume a cache hit; a cache write is more expensive than ordinary input.
-  return inputTokens * LUNA_PRESET.cacheWriteNanousd + LUNA_PRESET.maxOutputTokens * LUNA_PRESET.outputNanousd;
+  if (!Object.values(LUNA_FULL_GAME_OUTPUT).includes(outputTokens)) throw new Error('Luna output ceiling is not one the preset allows.');
+  return inputTokens * LUNA_PRESET.cacheWriteNanousd + outputTokens * LUNA_PRESET.outputNanousd;
 }

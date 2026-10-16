@@ -7,10 +7,11 @@ import { shutdownGodip } from '../adjudication/GodipAdjudicator.js';
 import { keyVariable, liveTransport } from '../evaluation/cli.js';
 import { mockOpponentTransport, type LunaTransport } from '../luna/Transport.js';
 import { OPPONENT_CONTRACTS, opponentContract } from '../providers/OpponentContract.js';
+import type { Effort } from '../providers/LunaPreset.js';
 import { Store } from '../storage/Store.js';
 import { DEFAULT_ASSIGNMENT, LATEST_LAST_YEAR, autoplay, type AutoplayResult, type ModelKey } from './Autoplay.js';
 
-const USAGE = `Usage: autoplay --db DATABASE --run RUN_ID [--until 1908|win] [--models AUSTRIA=luna,ENGLAND=haiku,...] [--messages 3] [--message-retries 2] [--order-calls 6] [--stalemate-years 10] [--max-phases N] [--attempt-cap USD] [--resume-paid] [--seed 1] [--out FILE]
+const USAGE = `Usage: autoplay --db DATABASE --run RUN_ID [--until 1908|win] [--models AUSTRIA=luna,ENGLAND=haiku,...] [--messages 3] [--message-retries 2] [--order-calls 6] [--stalemate-years 10] [--effort low|medium|high] [--max-phases N] [--attempt-cap USD] [--resume-paid] [--seed 1] [--out FILE]
        Plays one full game with a model on every power. Free stand-in models unless --live is given.
        add --live --authorization-ref REFERENCE to call the real providers (see docs/autoplay.md)`;
 
@@ -48,7 +49,7 @@ export function format(result: AutoplayResult): string {
   return [
     `Run ${result.run.runId} · ${result.run.transport.toUpperCase()} transport · ${result.run.lastYear === LATEST_LAST_YEAR ? 'until a power wins' : `to Fall ${result.run.lastYear}`} · messages to up to ${result.run.talkRecipients} powers`,
     `Models: ${ALL_POWERS.map(p => `${p} ${result.run.assignment[p]}`).join(', ')}`,
-    `Harness: ${result.run.harness.commit ? `commit ${result.run.harness.commit.slice(0,7)}${result.run.harness.modified ? ' with uncommitted changes' : ''}` : 'commit unknown'} · orders instructions ${result.run.harness.instructionsHash}`,
+    `Harness: ${result.run.harness.commit ? `commit ${result.run.harness.commit.slice(0,7)}${result.run.harness.modified ? ' with uncommitted changes' : ''}` : 'commit unknown'} · orders instructions ${result.run.harness.instructionsHash} · ${result.run.harness.effort} reasoning effort`,
     `Status ${result.status}${result.endedBy === 'SOLO_WIN' ? ' · ended by a solo win' : result.endedBy === 'LAST_YEAR' ? ` · ended after Fall ${result.run.lastYear}` : result.endedBy === 'STALEMATE' ? ` · ended as a stalemate: no supply center changed hands for ${result.run.harness.stalemateYears} years` : ''}${result.waitingOn ? ` · ${result.waitingOn}` : ''}`,
     ...(result.record.failures.length ? [`Failures recorded: ${result.record.failures.length} (listed under record.failures)`] : []),
     `Reached ${s.season} ${s.year} after ${s.phases} phases${s.winner ? ` · ${s.winner} won` : ''}`,
@@ -62,7 +63,7 @@ export function format(result: AutoplayResult): string {
 
 async function main() {
   assertDevelopment(process.env);
-  const { values } = parseArgs({ options: { db: { type: 'string' }, run: { type: 'string' }, until: { type: 'string', default: '1908' }, models: { type: 'string' }, messages: { type: 'string', default: '3' }, 'message-retries': { type: 'string', default: '2' }, 'order-calls': { type: 'string', default: '6' }, 'stalemate-years': { type: 'string' },
+  const { values } = parseArgs({ options: { db: { type: 'string' }, run: { type: 'string' }, until: { type: 'string', default: '1908' }, models: { type: 'string' }, messages: { type: 'string', default: '3' }, 'message-retries': { type: 'string', default: '2' }, 'order-calls': { type: 'string', default: '6' }, 'stalemate-years': { type: 'string' }, effort: { type: 'string', default: 'low' },
     'max-phases': { type: 'string' }, 'attempt-cap': { type: 'string' }, seed: { type: 'string', default: '1' }, out: { type: 'string' }, live: { type: 'boolean', default: false }, 'resume-paid': { type: 'boolean', default: false }, 'authorization-ref': { type: 'string' } }, strict: true });
   if (!values.db || !values.run) throw new Error(USAGE);
   const db = resolve(values.db), lastYear = values.until === 'win' ? LATEST_LAST_YEAR : Number(values.until), talkRecipients = Number(values.messages), messageRetries = Number(values['message-retries']), orderCalls = Number(values['order-calls']), seed = Number(values.seed);
@@ -93,7 +94,7 @@ async function main() {
     if (values['resume-paid']) await store.call('setPaidStopped',{ stopped: false, operatorId: 'autoplay-cli', now: Date.now() });
     const funds = await store.call('fundingTotals',{});
     console.log(`Funding: USD ${(funds.availableNanousd / 1e9).toFixed(4)} available · this game may spend up to USD ${(funds.attemptCapNanousd / 1e9).toFixed(2)}${values.live ? '' : ' (stand-in models: only numbers)'}`);
-    const result = await autoplay({ store, runId: values.run, lastYear, assignment, transports, transportKind: values.live ? 'live' : 'mock', talkRecipients, messageRetries, orderCalls, maxPhases, stalemateYears, harness: harnessVersion(), signal: stop.signal, log: line => console.log(line) });
+    const result = await autoplay({ store, runId: values.run, lastYear, assignment, transports, transportKind: values.live ? 'live' : 'mock', talkRecipients, messageRetries, orderCalls, maxPhases, stalemateYears, effort: values.effort as Effort, harness: harnessVersion(), signal: stop.signal, log: line => console.log(line) });
     console.log(`\n${format(result)}`);
     // The record holds no keys and no game requests (only the standing instructions); it is still private game data, so only its owner may read it.
     await writeFile(out,`${JSON.stringify(result,null,2)}\n`,{ mode: 0o600 });

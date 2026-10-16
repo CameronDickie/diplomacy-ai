@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { LUNA_PRESET, lunaRequestBodies } from '../providers/LunaPreset.js';
+import { EFFORTS, type FullGameRequestKind, LUNA_PRESET, lunaRequestBodies } from '../providers/LunaPreset.js';
 import { LUNA_CONTRACT, type OpponentContract } from '../providers/OpponentContract.js';
 
 export interface LunaResponse { status: number; body: unknown }
@@ -142,7 +142,9 @@ export function mockOpponentTransport(contract: OpponentContract, options: MockO
       const speaker = /\nYou are ([A-Z]+)\./.exec(text)?.[1] ?? 'This power', reply = JSON.stringify({ reply: `(stand-in reply, no model was asked) ${speaker} has read your message.` });
       return { status: 200, body: contract.mockEnvelope({ serial: ++serial, text: reply, inputTokens: Math.ceil(Buffer.byteLength(body) / 4), outputTokens: Math.ceil(reply.length / 3) + 16 }) };
     }
-    for (const kind of ['ASK','REPLY'] as const) if (body === contract.buildFullGameRequest({ context: text },kind).body) {
+    // A full game may be played at any reasoning effort; the stand-in answers the same way at each.
+    const isKind = (kind: FullGameRequestKind) => EFFORTS.some(effort => body === contract.buildFullGameRequest({ context: text },kind,effort).body);
+    for (const kind of ['ASK','REPLY'] as const) if (isKind(kind)) {
       // A stand-in diplomat: it writes to the first powers it may (or a seeded few), and answers everyone who wrote.
       const speaker = /\nYou are ([A-Z]+)\./.exec(text)?.[1] ?? 'This power';
       const line = kind === 'ASK' ? /\nYou may write to up to (\d+) of: ([A-Z, ]+)\./.exec(text) : /\nReply to: ([A-Z, ]+)\./.exec(text);
@@ -163,7 +165,7 @@ export function mockOpponentTransport(contract: OpponentContract, options: MockO
     const choose = (list: number[]) => options.pick === 'seeded' ? list[Math.floor(random() * list.length)] : list.find(n => holds.has(n)) ?? list[0];
     const choices = exactly ? groups.flat().slice(0,Number(exactly[1])) : upTo ? groups.slice(0,Number(upTo[1])).map(choose) : groups.filter(g => g.length).map(choose);
     // A full game's orders are answered unit by unit, naming each heading beside its number.
-    const keyed = body === contract.buildFullGameRequest({ context: text },'UNIT_ORDERS').body;
+    const keyed = isKind('UNIT_ORDERS');
     const headings = own.split('\n').filter(line => /:$/.test(line)).map(line => line.slice(0,-1).replace(/^[AF] /,'').split('/')[0]);
     const output = JSON.stringify(keyed ? { orders: choices.map((choice,i) => ({ unit: headings[i], choice })), note: `(stand-in, no model was asked) ${/\nYou are ([A-Z]+)\./.exec(text)?.[1] ?? 'This power'} wrote this note.` } : { choices }), input = Math.ceil(Buffer.byteLength(body) / 4), out = Math.ceil(output.length / 3) + 16;
     return { status: 200, body: contract.mockEnvelope({ serial: ++serial, text: output, inputTokens: input, outputTokens: out }) };

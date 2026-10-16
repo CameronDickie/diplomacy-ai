@@ -25,12 +25,13 @@ async function setup(t: test.TestContext, granted = 5_000_000_000) {
   await store.call('setFundingPolicy',{ attemptCapNanousd: 5_000_000_000, ceilingLimitNanousd: null, now: 1 });
   t.after(async () => { await store.close(); await rm(dir,{ recursive: true, force: true }); });
   /** Stand-in models that also record every request each model was sent. */
-  const sent: Array<{ key: ModelKey; context: string; kind: 'ORDERS' | 'UNIT_ORDERS' | 'ASK' | 'REPLY' }> = [];
+  const sent: Array<{ key: ModelKey; context: string; kind: 'ORDERS' | 'UNIT_ORDERS' | 'ASK' | 'REPLY'; effort: 'low' | 'medium' | 'high' }> = [];
   const transports = (wrap: (key: ModelKey, inner: LunaTransport) => LunaTransport = (_key,inner) => inner) => Object.fromEntries((['luna','haiku'] as const).map(key => {
     const contract = opponentContract(key), inner = mockOpponentTransport(contract,{ pick: 'seeded', seed: 3 });
     const recording: LunaTransport = async request => {
       const context = contract.contextOf(request.body);
-      sent.push({ key, context, kind: (['ORDERS','UNIT_ORDERS','ASK','REPLY'] as const).find(kind => contract.buildFullGameRequest({ context },kind).body === request.body)! });
+      sent.push({ key, context, effort: (['low','medium','high'] as const).find(effort => (['ORDERS','UNIT_ORDERS','ASK','REPLY'] as const).some(kind => contract.buildFullGameRequest({ context },kind,effort).body === request.body))!,
+        kind: (['ORDERS','UNIT_ORDERS','ASK','REPLY'] as const).find(kind => (['low','medium','high'] as const).some(effort => contract.buildFullGameRequest({ context },kind,effort).body === request.body))! });
       return inner(request);
     };
     return [key,wrap(key,recording)];
@@ -369,7 +370,7 @@ test('a game with no year to stop at ends as a stalemate once no supply center h
 
 test('a record states the code and the standing orders instructions it was played under, and calls get the longer full-game limit',async t => {
   const f = await setup(t), result = await f.run({ lastYear: 1901, harness: { commit: 'a'.repeat(40), modified: true } });
-  assert.deepEqual(result.run.harness,{ commit: 'a'.repeat(40), modified: true, ...harnessInstructions(), callTimeoutMs: CALL_TIMEOUT_MS, stalemateYears: 0, askAgainWhenBlocked: false });
+  assert.deepEqual(result.run.harness,{ commit: 'a'.repeat(40), modified: true, ...harnessInstructions(), callTimeoutMs: CALL_TIMEOUT_MS, stalemateYears: 0, askAgainWhenBlocked: false, effort: 'low' });
   assert.equal(result.run.harness.ordersInstructions,FULL_GAME_UNIT_INSTRUCTIONS);
   assert.match(result.run.harness.instructionsHash,/^[0-9a-f]{16}$/);
   assert.equal(CALL_TIMEOUT_MS,40_000);
@@ -544,4 +545,32 @@ test('a power keeps a private note with its orders that only it is shown later, 
   // A note is never stored for a message call, and only once per orders call.
   const ask = (await f.store.call('providerCallsForAttempt',{ attemptId: result.run.attemptId })).find(c => c.role === 'ASK')!;
   await assert.rejects(f.store.call('savePowerNote',{ callId: ask.id, note: 'x', now: 1 }),/Invalid power note/);
+});
+
+test('a full game can be played at a higher reasoning effort: every request, reservation and limit follows it, and a game keeps one effort',async t => {
+  for (const key of ['luna','haiku'] as const) {
+    const contract = OPPONENT_CONTRACTS[key], low = JSON.parse(contract.buildFullGameRequest({ context: 'x' },'UNIT_ORDERS').body), medium = JSON.parse(contract.buildFullGameRequest({ context: 'x' },'UNIT_ORDERS','medium').body);
+    const effortOf = (b: { reasoning?: { effort: string }; output_config?: { effort: string } }) => b.reasoning?.effort ?? b.output_config?.effort;
+    const ceilingOf = (b: { max_output_tokens?: number; max_tokens?: number }) => b.max_output_tokens ?? b.max_tokens;
+    assert.equal(effortOf(low),'low'); assert.equal(effortOf(medium),'medium'); assert.equal(ceilingOf(medium),contract.fullGameOutputTokens.medium);
+    assert.ok(contract.fullGameOutputTokens.medium > contract.fullGameOutputTokens.low);
+    // The worst case reserved grows with the ceiling; the challenge's request is untouched.
+    assert.ok(contract.reservationNanousd(contract.preset.maxInputTokens,contract.fullGameOutputTokens.medium) > contract.reservationNanousd(contract.preset.maxInputTokens));
+    assert.equal(effortOf(JSON.parse(contract.buildRequest({ context: 'x' }).body)),'low');
+    assert.throws(() => contract.reservationNanousd(1000,5000),/ceiling/);
+  }
+  // A bill above the low ceiling is an error unless the request allowed it.
+  const bill = (outputTokens: number) => OPPONENT_CONTRACTS.luna.mockEnvelope({ serial: 1, text: '{"choices":[]}', inputTokens: 100, outputTokens });
+  assert.equal(OPPONENT_CONTRACTS.luna.normalizeResponse(bill(5000),200).status,'ERROR');
+  assert.equal(OPPONENT_CONTRACTS.luna.normalizeResponse(bill(5000),200,8192).status,'COMPLETED');
+
+  const f = await setup(t), result = await f.run({ lastYear: 1901, effort: 'medium' });
+  assert.equal(result.status,'FINISHED'); assert.equal(result.run.harness.effort,'medium'); assert.equal(result.run.harness.callTimeoutMs,90_000);
+  assert.ok(f.sent.length > 0 && f.sent.every(x => x.effort === 'medium'));
+  // Continuing the same game at another effort is refused before anything is bought.
+  const before = f.sent.length;
+  await assert.rejects(f.run({ lastYear: 1901, effort: 'high' }),/different reasoning effort/);
+  await assert.rejects(f.run({ lastYear: 1901 }),/different reasoning effort/);
+  assert.equal(f.sent.length,before);
+  await assert.rejects(f.run({ runId: 'game-z', effort: 'extreme' as never }),/low, medium or high/);
 });

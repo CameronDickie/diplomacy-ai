@@ -167,6 +167,26 @@ a win counted after Fall retreats left the game in a retreats phase with
 nobody retreating, so every recovery failed. Fixed in PR #77; the game was
 finished from its saved decisions with no new model calls.
 
+Result (game 12, all Haiku): no winner, and Haiku became more static than in
+game 8 (version 5): 87% holds against 82%, half as many successful moves, and
+49% of moves reversed the next turn (39% in game 8). Haiku's notes are a ledger
+of non-aggression pacts ("all hold… Pacts: France (…), Russia (…)"); 97% use
+defensive words, 40% mention attacking (Luna in game 11: 86%). Whole threads
+made Haiku's message requests much longer (up to 8,000 tokens), and the game
+cost USD 1.97 against 1.34. Three things changed since game 8 (capture
+notices, kept clash warnings, memory), so this is not memory alone.
+
+## Reasoning effort (an option, from game 13)
+
+Every game so far ran both models at their lowest reasoning effort, the
+setting the challenge pins. `--effort medium` or `high` now sends every request
+of a full game at that effort, with a larger output ceiling (reasoning counts
+toward it: GPT-6 Luna 2,048 → 8,192 / 16,384 tokens, Claude Haiku 5.5 4,096 →
+8,192 / 16,384), a matching worst-case reservation per call, and longer time
+limits. The instructions and context are unchanged (fingerprint
+`8434bf6012a2b346`); the record states the effort in `run.harness.effort`, and
+a game cannot be continued at a different effort.
+
 ## Not yet changed
 
 - **Draws.** Letting powers propose a draw that every survivor must accept

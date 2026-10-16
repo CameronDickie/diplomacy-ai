@@ -30,7 +30,8 @@ function priceUsage(value: unknown): ProviderUsage | null {
  * refusal text, reasoning, annotations or provider metadata escape this projection.
  * Only the preset's global endpoint / Standard service is priced by this adapter.
  */
-export function normalizeLunaResponse(value: unknown, httpStatus = 200): ProviderResponse {
+/** `maxOutputTokens`: the ceiling the request was sent with (a full game at a higher reasoning effort allows more). */
+export function normalizeLunaResponse(value: unknown, httpStatus = 200, maxOutputTokens: number = LUNA_PRESET.maxOutputTokens): ProviderResponse {
   const r = object(value);
   const responseId = typeof r?.id === 'string' && /^[A-Za-z0-9:_-]{1,100}$/.test(r.id) ? r.id : null;
   const pricedContract = r?.model === LUNA_PRESET.model && r?.service_tier === LUNA_PRESET.serviceTier;
@@ -43,7 +44,7 @@ export function normalizeLunaResponse(value: unknown, httpStatus = 200): Provide
     usage = null; return result('ERROR');
   }
   if (!Number.isInteger(httpStatus) || httpStatus < 200 || httpStatus >= 300 || !usage
-    || usage.inputTokens > LUNA_PRESET.maxInputTokens || usage.outputTokens > LUNA_PRESET.maxOutputTokens) return result('ERROR');
+    || usage.inputTokens > LUNA_PRESET.maxInputTokens || usage.outputTokens > maxOutputTokens) return result('ERROR');
   if (r.status === 'incomplete') return result('INCOMPLETE');
   if (r.status !== 'completed' || r.error != null || !Array.isArray(r.output)) return result('ERROR');
   const messages = items.filter(item => object(item)?.type === 'message').map(object);

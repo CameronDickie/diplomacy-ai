@@ -227,6 +227,7 @@ is 15). With stand-in models both are only numbers.
 | -- | -- |
 | `--run ID` | names the game. Running again with the same id **continues** it; nothing already bought is bought again |
 | `--until YEAR` or `--until win` | the game ends after this year's Fall (default 1908) or on a solo win, whichever is first. `win` plays until a power has 18 centers: there is no year limit to speak of (it stops at 1999), so a game with no winner ends as a stalemate (below), on Ctrl-C, or when its spending cap is reached |
+| `--effort low\|medium\|high` | the reasoning effort every request of the game is sent at (default `low`, as in the challenge). Higher effort raises each call's output ceiling (reasoning counts toward it), the worst case reserved per call, and the time limits (90 s per call and 10 minutes per phase at `medium`, 120 s and 10 minutes at `high`). A game keeps one effort: continuing it with another is refused |
 | `--stalemate-years N` | end the run once no supply center has changed hands for N years (default 10 with `--until win`, otherwise off; 0 is off) |
 | `--models AUSTRIA=luna,ENGLAND=haiku` | per-power models. Default: Austria, France, Italy, Turkey on Luna; England, Germany, Russia on Haiku |
 | `--messages N` | how many powers each power may write to per turn (0–6, default 3) |

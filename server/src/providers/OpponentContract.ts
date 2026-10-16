@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { canonicalJson } from '../fixtures/BoardFixture.js';
-import { HAIKU_PRESET, buildHaikuChatRequest, buildHaikuFullGameRequest, buildHaikuRequest, haikuContextOf, haikuReservationNanousd, mockHaikuEnvelope } from './HaikuPreset.js';
+import { HAIKU_FULL_GAME_OUTPUT, HAIKU_PRESET, buildHaikuChatRequest, buildHaikuFullGameRequest, buildHaikuRequest, haikuContextOf, haikuReservationNanousd, mockHaikuEnvelope } from './HaikuPreset.js';
 import { normalizeHaikuResponse } from './HaikuResponse.js';
-import { LUNA_PRESET, buildLunaChatRequest, buildLunaFullGameRequest, buildLunaRequest, lunaReservationNanousd, type FullGameRequestKind } from './LunaPreset.js';
+import { LUNA_FULL_GAME_OUTPUT, LUNA_PRESET, buildLunaChatRequest, buildLunaFullGameRequest, buildLunaRequest, lunaReservationNanousd, type Effort, type FullGameRequestKind } from './LunaPreset.js';
 import { normalizeLunaResponse } from './LunaResponse.js';
 import type { ProviderResponse } from './RecordedCall.js';
 
@@ -35,11 +35,13 @@ export interface OpponentContract {
   /** The pinned request for one short reply to the player's message. Same model, limits and prices. */
   buildChatRequest(input: { context: string }): OpponentRequest;
   /** A model-only full game's pinned requests: orders, opening messages to other powers, replies. Development only. */
-  buildFullGameRequest(input: { context: string }, kind: FullGameRequestKind): OpponentRequest;
-  /** Worst-case cost of one call given a verified input-token bound. */
-  reservationNanousd(inputTokens: number): number;
+  buildFullGameRequest(input: { context: string }, kind: FullGameRequestKind, effort?: Effort): OpponentRequest;
+  /** A full game's output ceiling at each reasoning effort; the challenge always uses `low`. */
+  fullGameOutputTokens: Readonly<Record<Effort, number>>;
+  /** Worst-case cost of one call given a verified input-token bound, at the output ceiling it was sent with. */
+  reservationNanousd(inputTokens: number, outputTokens?: number): number;
   /** Billing fields and status only; decision JSON is parsed later, after the bill is recorded. */
-  normalizeResponse(body: unknown, httpStatus: number): ProviderResponse;
+  normalizeResponse(body: unknown, httpStatus: number, maxOutputTokens?: number): ProviderResponse;
   /** The game context inside a serialized request, as the model would read it. */
   contextOf(body: string): string;
   /** A provider-shaped answer for the offline stand-in. */
@@ -50,7 +52,7 @@ const hash = (preset: object) => createHash('sha256').update(canonicalJson(prese
 
 export const LUNA_CONTRACT: OpponentContract = Object.freeze({
   key: 'luna' as const, preset: { ...LUNA_PRESET, provider: 'OPENAI' as const }, presetHash: hash(LUNA_PRESET),
-  buildRequest: buildLunaRequest, buildChatRequest: buildLunaChatRequest, buildFullGameRequest: buildLunaFullGameRequest, reservationNanousd: lunaReservationNanousd, normalizeResponse: normalizeLunaResponse,
+  buildRequest: buildLunaRequest, buildChatRequest: buildLunaChatRequest, buildFullGameRequest: buildLunaFullGameRequest, fullGameOutputTokens: LUNA_FULL_GAME_OUTPUT, reservationNanousd: lunaReservationNanousd, normalizeResponse: normalizeLunaResponse,
   contextOf: (body: string) => String(JSON.parse(body).input[0].content[0].text),
   mockEnvelope: ({ serial, text, inputTokens, outputTokens }: { serial: number; text: string; inputTokens: number; outputTokens: number }) => ({
     id: `resp_mock_${serial}_${Date.now().toString(36)}`, model: LUNA_PRESET.model, service_tier: LUNA_PRESET.serviceTier, status: 'completed', error: null,
@@ -60,7 +62,7 @@ export const LUNA_CONTRACT: OpponentContract = Object.freeze({
 
 export const HAIKU_CONTRACT: OpponentContract = Object.freeze({
   key: 'haiku' as const, preset: HAIKU_PRESET, presetHash: hash(HAIKU_PRESET),
-  buildRequest: buildHaikuRequest, buildChatRequest: buildHaikuChatRequest, buildFullGameRequest: buildHaikuFullGameRequest, reservationNanousd: haikuReservationNanousd, normalizeResponse: normalizeHaikuResponse,
+  buildRequest: buildHaikuRequest, buildChatRequest: buildHaikuChatRequest, buildFullGameRequest: buildHaikuFullGameRequest, fullGameOutputTokens: HAIKU_FULL_GAME_OUTPUT, reservationNanousd: haikuReservationNanousd, normalizeResponse: normalizeHaikuResponse,
   contextOf: haikuContextOf, mockEnvelope: mockHaikuEnvelope,
 });
 
