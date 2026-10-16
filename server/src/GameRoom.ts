@@ -1142,6 +1142,9 @@ export class GameRoom {
       if (owned >= 18) {
         this.state.winner = power as Power;
         this.state.status = 'FINISHED';
+        // A win counted after Fall retreats ends the game where a win without retreats does: in the Fall
+        // orders phase, with no unit left to retreat. A RETREATS phase with nobody retreating is not a board.
+        if (this.state.phase === 'RETREATS') this.state.phase = 'ORDERS';
         this.broadcast('game_over', { winner: power as Power, gameState: this.state });
         return;
       }
