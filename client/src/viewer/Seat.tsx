@@ -86,7 +86,10 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
   const held = useMemo(() => heldTerritories(game.record.phases.flatMap(p => p.report ? [p.report] : []), board.units), [game.record.phases, board]);
 
   // A convoy only works with its fleet: an army sent by convoy with no fleet ordered to carry it is not submitted.
-  const ready = entry.complete && entry.convoyWarnings.length === 0;
+  // Builds are limited to the centers you hold beyond your units; disbands must remove exactly the surplus.
+  const built = Object.values(entry.builds).filter(Boolean).length, mustDisband = Math.max(0, -entry.buildDelta);
+  const countsOk = board.phase !== 'BUILDS' || (entry.buildDelta >= 0 ? built <= entry.buildDelta : entry.disbands.length === mustDisband);
+  const ready = entry.complete && entry.convoyWarnings.length === 0 && countsOk;
   async function send(action: () => Promise<unknown>) {
     setBusy(true); setError(null);
     try { await action(); setConfirming(false); onChanged(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -164,11 +167,14 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
             <select disabled={busy} value={entry.retreats[u.id] ?? ''} onChange={e => entry.setRetreats(v => ({ ...v, [u.id]: e.target.value }))}><option value="">Disband</option>
               {u.retreatOptions.flatMap(t => u.retreatCoasts[t]?.length ? u.retreatCoasts[t]!.map(c => `${t}/${c}`) : [t]).map(d => <option key={d} value={d}>{d}</option>)}</select></label>)}
           {board.phase === 'BUILDS' && ordering && <>
-            <p className="dip-small">{entry.buildDelta >= 0 ? `Up to ${entry.buildDelta} build${entry.buildDelta === 1 ? '' : 's'}; unused builds are waived.` : `Choose ${-entry.buildDelta} unit${entry.buildDelta === -1 ? '' : 's'} to disband.`}</p>
-            {entry.buildDelta > 0 ? entry.homes.map(h => <label key={h.id}>Build in {h.name}<select disabled={busy} value={entry.builds[h.id] ?? ''} onChange={e => entry.setBuilds(v => ({ ...v, [h.id]: e.target.value }))}>
+            <p className="dip-small">{entry.buildDelta >= 0
+              ? `You hold ${entry.buildDelta} more supply center${entry.buildDelta === 1 ? '' : 's'} than units, so you may build ${entry.buildDelta === 1 ? 'one unit' : `up to ${entry.buildDelta} units`} in your home centers (${built} chosen). Unused builds are waived.`
+              : `You have ${mustDisband} more unit${mustDisband === 1 ? '' : 's'} than supply centers: choose ${mustDisband} to disband (${entry.disbands.length} chosen).`}</p>
+            {entry.buildDelta > 0 ? entry.homes.map(h => <label key={h.id}>Build in {h.name}<select disabled={busy || (!entry.builds[h.id] && built >= entry.buildDelta)} value={entry.builds[h.id] ?? ''} onChange={e => entry.setBuilds(v => ({ ...v, [h.id]: e.target.value }))}>
               <option value="">No build</option><option value="ARMY">Army</option>{h.type !== 'LAND' && (h.coasts.length ? h.coasts.map(c => <option key={c} value={`FLEET/${c}`}>Fleet · {c} coast</option>) : <option value="FLEET">Fleet</option>)}</select></label>)
-              : entry.own.map(u => <label key={u.id} className="dip-check"><input type="checkbox" disabled={busy} checked={entry.disbands.includes(u.id)}
+              : entry.own.map(u => <label key={u.id} className="dip-check"><input type="checkbox" disabled={busy || (!entry.disbands.includes(u.id) && entry.disbands.length >= mustDisband)} checked={entry.disbands.includes(u.id)}
                 onChange={e => entry.setDisbands(v => e.target.checked ? [...v, u.id] : v.filter(id => id !== u.id))} />{title(u.type)} in {territoryName(u.territory)}</label>)}</>}
+          {board.phase === 'BUILDS' && ordering && entry.buildDelta > 0 && built >= entry.buildDelta && entry.homes.length > built && <p className="dip-small dip-muted">That is all your builds; set one back to "No build" to build elsewhere instead.</p>}
           {entry.convoyHint && <p className="dip-small dip-muted">No convoys are possible this turn. A fleet can carry an army only from a coast that touches the sea the fleet is in (for example, an army in Yorkshire with a fleet in the North Sea), and the fleet must be ordered to convoy it.</p>}
           {entry.convoyWarnings.map(w => <p className="dip-notice" key={w}>{w}</p>)}
           {ordering && entry.convoyWarnings.length > 0 && <p className="dip-small">Pair each convoy with its fleet before submitting.</p>}
