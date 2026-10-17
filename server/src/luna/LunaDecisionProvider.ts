@@ -19,7 +19,7 @@ import { PreflightError, type LunaTransport } from './Transport.js';
 export interface HumanSeat {
   power: Power;
   /** After the models' opening messages are stored: the messages the person sends this turn (possibly none). */
-  talk(context: { attemptId: string; operationId: string; phaseId: string }): Promise<Array<{ to: Power; body: string }>>;
+  talk(context: { attemptId: string; operationId: string; phaseId: string; board: DecisionContext['job']['board'] }): Promise<Array<{ to: Power; body: string }>>;
   /** The person's action for this phase, already checked against the rules. */
   act(context: { attemptId: string; operationId: string; phaseId: string; board: DecisionContext['job']['board'] }): Promise<PhaseAction>;
 }
@@ -275,7 +275,7 @@ export class LunaDecisionProvider implements DecisionProvider {
       // Saved once per phase: a recovered phase reuses what the person already sent.
       const sent = (await this.store.call('powerTalks',{ attemptId: job.attemptId })).some(t => t.operationId === job.operationId && t.power === human.power);
       if (!sent) {
-        const messages = await abortable(human.talk({ attemptId: job.attemptId, operationId: job.operationId, phaseId: job.phaseId }),signal);
+        const messages = await abortable(human.talk({ attemptId: job.attemptId, operationId: job.operationId, phaseId: job.phaseId, board: job.board }),signal);
         await this.store.call('saveHumanTalk',{ attemptId: job.attemptId, operationId: job.operationId, phaseId: job.phaseId, power: human.power,
           messages: messages.filter(m => alive.includes(m.to) && m.to !== human.power), now: this.now() });
       }

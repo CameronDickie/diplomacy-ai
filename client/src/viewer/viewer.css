@@ -57,3 +57,28 @@
 .viewer-seat-panel label.dip-check { display: flex; align-items: center; gap: 8px; }
 .viewer-seat-panel textarea, .viewer-seat-panel select { width: 100%; max-width: 100%; font: inherit; }
 .viewer-your-turn { color: var(--folio-accent); font-weight: 600; }
+.viewer-seat.dip-play { grid-template-columns: minmax(0, 1fr) 420px; }
+.viewer-seat-panel .viewer-tabs { margin-top: 8px; }
+.viewer-chats { list-style: none; margin: 0; padding: 0; }
+.viewer-chats li { border-bottom: 1px solid var(--folio-line); }
+.dip .viewer-chats button { display: grid; gap: 2px; width: 100%; padding: 10px 4px; border: 0; border-radius: 0; background: none; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.dip .viewer-chats button:hover:not(:disabled) { background: var(--folio-wash, rgba(0, 0, 0, 0.04)); }
+.dip .viewer-chats button:disabled { opacity: 0.5; cursor: default; }
+.viewer-chat-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.viewer-chat-tags { display: flex; gap: 6px; font-size: 12px; }
+.viewer-chat-tags b { color: var(--folio-paper); background: var(--folio-accent); padding: 0 6px; border-radius: 8px; font-weight: 600; }
+.viewer-chat-tags em { font-style: normal; color: var(--folio-muted); }
+.viewer-chat-last { color: var(--folio-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.viewer-chat { display: grid; gap: 8px; padding-top: 10px; }
+.viewer-chat h3 { margin: 0; }
+.viewer-chat-log { display: grid; gap: 6px; max-height: 420px; overflow-y: auto; padding: 4px 2px; }
+.viewer-chat-row { display: grid; }
+.viewer-chat-turn { margin: 8px 0 2px; text-align: center; font-size: 12px; color: var(--folio-muted); }
+.viewer-bubble { justify-self: start; max-width: 85%; margin: 0; padding: 8px 10px; border-radius: 12px 12px 12px 2px; background: var(--folio-wash, rgba(0, 0, 0, 0.05)); border: 1px solid var(--folio-line); font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.viewer-bubble.is-mine { justify-self: end; border-radius: 12px 12px 2px 12px; background: color-mix(in srgb, var(--folio-accent) 12%, transparent); }
+.viewer-chat-compose { margin-top: 4px; }
+.viewer-send { display: grid; gap: 8px; padding: 12px 0; border-top: 1px solid var(--folio-line); margin-top: 8px; }
+.viewer-send p { margin: 0; }
+.viewer-orders { display: grid; gap: 4px; }
+@media (max-width: 900px) { .viewer-seat.dip-play { grid-template-columns: minmax(0, 1fr); } }
+.viewer-chat > .dip-link, .viewer-orders > .dip-link { justify-self: start; }

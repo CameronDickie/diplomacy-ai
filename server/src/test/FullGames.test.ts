@@ -83,6 +83,8 @@ test('a person can hold one seat: the game waits for their messages and their or
   // Spring 1901: the models have written first; the game waits for the person's messages.
   const asked = await wait('TALK');
   assert.equal(asked.settings.seat,'FRANCE'); assert.equal(asked.run.assignment.FRANCE,'human');
+  // Legal orders are available while the person writes, so they can plan.
+  assert.ok((await service.legal('seat-a')).options.some(o => o.unitTerritory === 'PAR'));
   await assert.rejects(service.act('seat-a',{ phase: 'ORDERS', orderIds: [] }),/not waiting for your orders/);
   assert.throws(() => service.talk('seat-a',[{ to: 'FRANCE', body: 'myself' }]),/another power/);
   service.talk('seat-a',[{ to: 'ENGLAND', body: 'Stay out of the Channel and I will stay out of Belgium.' }]);

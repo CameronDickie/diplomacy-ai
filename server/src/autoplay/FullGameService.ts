@@ -140,7 +140,7 @@ export class FullGameService {
       log(`  … waiting for you (${kind === 'TALK' ? 'messages' : 'orders'}) · ${phaseId.split(':').slice(-3).reverse().join(' ')}`);
     });
     const human: HumanSeat | undefined = request.seat ? { power: request.seat,
-      talk: context => ask('TALK',context.phaseId), act: context => ask('ACT',context.phaseId,context.board) } : undefined;
+      talk: context => ask('TALK',context.phaseId,context.board), act: context => ask('ACT',context.phaseId,context.board) } : undefined;
     const log = (line: string) => { run.log.push(line); if (run.log.length > LOG_LINES) run.log.splice(0,run.log.length - LOG_LINES); };
     this.running = { runId: request.runId, run };
     this.finished.delete(request.runId);
@@ -161,9 +161,10 @@ export class FullGameService {
     return { runId: request.runId };
   }
 
-  /** The legal orders of the person's units for the orders phase they are being asked for. */
+  /** The legal orders of the person's units for the orders phase in hand, so they can plan while they write. */
   async legal(runId: string) {
-    const pending = this.waiting(runId,'ACT');
+    const pending = this.running?.runId === runId ? this.running.run.pending : null;
+    if (!pending?.board) throw new RequestError('This game is not waiting for you.');
     if (pending.board!.phase !== 'ORDERS') return { options: [] };
     const options = await this.rules.legal(pending.board!,this.running!.run.settings.seat!,new AbortController().signal);
     return { options: options.map(o => ({ id: o.id, unitTerritory: o.unitTerritory, order: o.order, description: o.description })) };
