@@ -1,5 +1,12 @@
 # DIC-49 build baseline
 
+> **Since October 17, 2026, checks run locally.** Hosted GitHub Actions minutes
+> are paid for, so the workflow now runs only when started by hand. Run
+> `scripts/verify.sh` before merging (build, server and engine tests, browser
+> journeys), and `scripts/verify.sh --image` for changes that affect the
+> production image. Local runs use this Mac's Node 26 / Go 1.27; the Node 22 /
+> Go 1.23 family is exercised by the image build.
+
 Recorded September 27, 2026 on an Apple Silicon Mac running macOS 27.0.
 The [GitHub Actions workflow](../.github/workflows/check.yml) uses the same
 repository-root `npm ci` and `npm run check` commands.

@@ -1,9 +1,8 @@
 name: Build and test
 
+# Runs only when started by hand (Actions → Build and test → Run workflow): hosted minutes are paid for.
+# The same checks run locally with scripts/verify.sh (add --image for the production image).
 on:
-  pull_request:
-  push:
-    branches: [master, main, 'codex/**']
   workflow_dispatch:
 
 permissions:
