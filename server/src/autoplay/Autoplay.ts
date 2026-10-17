@@ -12,7 +12,7 @@ import { GameRoom } from '../GameRoom.js';
 import { CONTEXT_VERSION } from '../luna/Context.js';
 import { LunaDecisionError, LunaDecisionProvider } from '../luna/LunaDecisionProvider.js';
 import type { LunaTransport } from '../luna/Transport.js';
-import { opponentContract, type OpponentContract } from '../providers/OpponentContract.js';
+import { OPPONENT_CONTRACTS, opponentContract, type OpponentContract } from '../providers/OpponentContract.js';
 import { EFFORTS, type Effort } from '../providers/LunaPreset.js';
 import { mixedPlan } from '../providers/OpponentPlan.js';
 import { hashToken, type Store } from '../storage/Store.js';
@@ -96,8 +96,8 @@ export interface AutoplayOptions {
 }
 export interface AutoplayResult {
   run: { runId: string; attemptId: string; transport: 'mock' | 'live'; lastYear: number; talkRecipients: number; assignment: Record<Power, string>; planId: string; contextVersion: string;
-    /** What the game was played under: code commit (null when unknown), whether harness files differed from it, and the standing orders instructions. A continued game states the latest run's. */
-    harness: { commit: string | null; modified: boolean; instructionsHash: string; ordersInstructions: string; callTimeoutMs: number; stalemateYears: number; askAgainWhenBlocked: boolean; effort: Effort } };
+    /** What the game was played under: code commit (null when unknown), whether harness files differed from it, and the standing orders instructions. A continued game states the latest run's. Absent when a stored game is described rather than played: what it was played under is not stored. */
+    harness?: { commit: string | null; modified: boolean; instructionsHash: string; ordersInstructions: string; callTimeoutMs: number; stalemateYears: number; askAgainWhenBlocked: boolean; effort: Effort } };
   status: 'FINISHED' | 'WAITING' | 'PAUSED';
   /** How a finished game ended: one power reached 18 supply centers, the last year's Fall settled, or no center changed hands for the stated number of years. */
   endedBy: 'SOLO_WIN' | 'LAST_YEAR' | 'STALEMATE' | null;
@@ -266,17 +266,27 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   } finally { await service.close(); }
 
   attempt = (await store.call('attempt',{ id }))!;
-  const record = await gameRecord(store,attempt,challenge,Object.fromEntries(ALL_POWERS.map(p => [p,plan.contractFor(p).preset.model])),failures,now());
-  const funding = await store.call('attemptFunding',{ attemptId: id }), count = centers(attempt.board);
+  const models = Object.fromEntries(ALL_POWERS.map(p => [p,plan.contractFor(p).preset.model])) as Record<Power, string>;
+  return gameResult(store,attempt,challenge,failures,now(),{
+    run: { runId, attemptId: id, transport: options.transportKind, lastYear: options.lastYear, talkRecipients, assignment: models, planId: plan.id, contextVersion: CONTEXT_VERSION,
+      harness: { commit: options.harness?.commit ?? null, modified: options.harness?.modified ?? false, ...harnessInstructions(), callTimeoutMs: limits.callMs, stalemateYears, askAgainWhenBlocked: options.askAgainWhenBlocked ?? true, effort } },
+    status: attempt.lifecycle === 'ACTIVE' && !stalemate ? (status === 'FINISHED' ? 'WAITING' : status) : 'FINISHED',
+    stalemate, waitingOn });
+}
+
+/** The record and summary of one game as it stands in the database. */
+async function gameResult(store: Store, attempt: StoredAttempt, challenge: NonNullable<Awaited<ReturnType<Store['call']>>> & { definition: ChallengeDefinition },
+    failures: ReadonlyArray<{ at: number; phaseId: string; reason: string }>, now: number,
+    meta: { run: AutoplayResult['run']; status: AutoplayResult['status']; stalemate: boolean; waitingOn: string | null }): Promise<AutoplayResult> {
+  const record = await gameRecord(store,attempt,challenge as never,meta.run.assignment,failures,now);
+  const funding = await store.call('attemptFunding',{ attemptId: attempt.id }), count = centers(attempt.board);
   const decisionCalls = record.phases.flatMap(p => p.calls), talkCalls = record.phases.flatMap(p => p.talk ?? []);
   const peak = (values: Array<number | null>) => Math.max(0,...values.map(v => v ?? 0));
   return {
-    run: { runId, attemptId: id, transport: options.transportKind, lastYear: options.lastYear, talkRecipients,
-      assignment: Object.fromEntries(ALL_POWERS.map(p => [p,plan.contractFor(p).preset.model])) as Record<Power, string>, planId: plan.id, contextVersion: CONTEXT_VERSION,
-      harness: { commit: options.harness?.commit ?? null, modified: options.harness?.modified ?? false, ...harnessInstructions(), callTimeoutMs: limits.callMs, stalemateYears, askAgainWhenBlocked: options.askAgainWhenBlocked ?? true, effort } },
-    status: attempt.lifecycle === 'ACTIVE' && !stalemate ? (status === 'FINISHED' ? 'WAITING' : status) : 'FINISHED',
-    endedBy: stalemate ? 'STALEMATE' : attempt.lifecycle === 'ACTIVE' ? null : ALL_POWERS.some(p => count[p] >= 18) ? 'SOLO_WIN' : 'LAST_YEAR',
-    waitingOn: attempt.lifecycle === 'ACTIVE' ? waitingOn : null,
+    run: meta.run,
+    status: meta.status,
+    endedBy: meta.stalemate ? 'STALEMATE' : attempt.lifecycle === 'ACTIVE' ? null : ALL_POWERS.some(p => count[p] >= 18) ? 'SOLO_WIN' : 'LAST_YEAR',
+    waitingOn: attempt.lifecycle === 'ACTIVE' ? meta.waitingOn : null,
     summary: { phases: record.phases.filter(p => p.report).length, year: attempt.board.year, season: attempt.board.season, centers: count,
       winner: ALL_POWERS.find(p => count[p] >= 18) ?? null,
       calls: decisionCalls.length, validCalls: decisionCalls.filter(c => c.outcome === 'VALID').length, talkCalls: talkCalls.length, messages: talkCalls.reduce((sum,c) => sum + c.messages.length,0),
@@ -284,4 +294,35 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
       peakInputTokens: { orders: peak(decisionCalls.map(c => c.inputTokens)), ask: peak(talkCalls.filter(c => c.round === 'ASK').map(c => c.inputTokens)), reply: peak(talkCalls.filter(c => c.round === 'REPLY').map(c => c.inputTokens)) } },
     record,
   };
+}
+
+/** How a game in the database was set up, read back from its own calls (it is stored nowhere else). */
+export interface GameSettings { assignment: Record<Power, ModelKey>; lastYear: number; effort: Effort; transport: 'mock' | 'live'; talkRecipients: number }
+
+/**
+ * Any full game in the database as a record, whether it is running, paused or finished: what the
+ * development server's game pages show. Its settings are read back from its calls: each power's
+ * model from its latest call, the effort from the worst case that call reserved, stand-in models
+ * from their answers' ids, the message limit from the most any power wrote in one turn.
+ */
+export async function describeGame(store: Store, runId: string, extra: { failures?: ReadonlyArray<{ at: number; phaseId: string; reason: string }>; now?: number } = {}): Promise<(AutoplayResult & { settings: GameSettings }) | null> {
+  if (!/^[a-z0-9-]{3,40}$/.test(runId)) return null;
+  const attempt = await store.call('attempt',{ id: `auto-${runId}` });
+  if (!attempt) return null;
+  const challenge = await store.call('challenge',{ id: attempt.challengeId, version: attempt.challengeVersion });
+  if (!challenge) return null;
+  const calls = (await store.call('providerCallsForAttempt',{ attemptId: attempt.id })).filter(c => c.role !== 'CHAT').sort((a,b) => a.createdAt - b.createdAt);
+  const keyOf = (model: string) => (Object.keys(OPPONENT_CONTRACTS) as ModelKey[]).find(k => OPPONENT_CONTRACTS[k].preset.model === model) ?? 'luna';
+  const assignment = Object.fromEntries(ALL_POWERS.map(p => [p,keyOf(calls.filter(c => c.power === p).at(-1)?.model ?? '')])) as Record<Power, ModelKey>;
+  const last = calls.at(-1), contract = last ? OPPONENT_CONTRACTS[keyOf(last.model)] : undefined;
+  const effort = (contract && EFFORTS.find(e => contract.reservationNanousd(contract.preset.maxInputTokens,contract.fullGameOutputTokens[e]) === last!.maxCostNanousd)) ?? 'low';
+  const transport = calls.some(c => /^(resp|msg)_mock_/.test(c.responseId ?? '')) ? 'mock' : 'live';
+  const talks = await store.call('powerTalks',{ attemptId: attempt.id });
+  const talkRecipients = Math.max(0,...talks.filter(t => t.kind === 'ASK').map(t => t.messages.length)) || 3;
+  const lastYear = Number(/^full-game-to-(\d{4})$/.exec(attempt.challengeId)?.[1] ?? LATEST_LAST_YEAR);
+  const models = Object.fromEntries(ALL_POWERS.map(p => [p,OPPONENT_CONTRACTS[assignment[p]].preset.model])) as Record<Power, string>;
+  const result = await gameResult(store,attempt,challenge as never,extra.failures ?? [],extra.now ?? Date.now(),{
+    run: { runId, attemptId: attempt.id, transport, lastYear, talkRecipients, assignment: models, planId: attempt.preset?.id ?? '', contextVersion: CONTEXT_VERSION },
+    status: attempt.lifecycle === 'ACTIVE' ? 'PAUSED' : 'FINISHED', stalemate: false, waitingOn: null });
+  return { ...result, settings: { assignment, lastYear, effort, transport, talkRecipients } };
 }

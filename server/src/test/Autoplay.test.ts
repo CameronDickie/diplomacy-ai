@@ -371,14 +371,14 @@ test('a game with no year to stop at ends as a stalemate once no supply center h
 test('a record states the code and the standing orders instructions it was played under, and calls get the longer full-game limit',async t => {
   const f = await setup(t), result = await f.run({ lastYear: 1901, harness: { commit: 'a'.repeat(40), modified: true } });
   assert.deepEqual(result.run.harness,{ commit: 'a'.repeat(40), modified: true, ...harnessInstructions(), callTimeoutMs: CALL_TIMEOUT_MS, stalemateYears: 0, askAgainWhenBlocked: false, effort: 'low' });
-  assert.equal(result.run.harness.ordersInstructions,FULL_GAME_UNIT_INSTRUCTIONS);
-  assert.match(result.run.harness.instructionsHash,/^[0-9a-f]{16}$/);
+  assert.equal(result.run.harness!.ordersInstructions,FULL_GAME_UNIT_INSTRUCTIONS);
+  assert.match(result.run.harness!.instructionsHash,/^[0-9a-f]{16}$/);
   assert.equal(CALL_TIMEOUT_MS,40_000);
   // The challenge's own pinned limits are not what changed.
   assert.equal(OPPONENT_CONTRACTS.luna.preset.timeoutMs,20_000); assert.equal(OPPONENT_CONTRACTS.haiku.preset.timeoutMs,20_000);
   assert.notEqual(OPPONENT_INSTRUCTIONS,FULL_GAME_UNIT_INSTRUCTIONS);
   // Unknown without a caller to say; from a checkout, git's full commit id.
-  assert.deepEqual((await f.run({ runId: 'game-b', lastYear: 1901 })).run.harness.commit,null);
+  assert.deepEqual((await f.run({ runId: 'game-b', lastYear: 1901 })).run.harness!.commit,null);
   const version = harnessVersion();
   assert.ok(version.commit === null || /^[0-9a-f]{40}$/.test(version.commit));
 });
@@ -470,7 +470,7 @@ test('orders that block each other are named and asked about once; the second an
     return inner(request);
   });
   const result = await f.run({ transports, lastYear: 1901, askAgainWhenBlocked: true });
-  assert.equal(result.status,'FINISHED'); assert.equal(result.run.harness.askAgainWhenBlocked,true);
+  assert.equal(result.status,'FINISHED'); assert.equal(result.run.harness!.askAgainWhenBlocked,true);
   assert.equal(asked.length,2);
   assert.ok(!asked[0].includes('could not be used'));
   assert.match(asked[1],/\nYour previous answer for this turn could not be used: your units in ANK and SMY were all sent to ARM, where only one can arrive\. Those orders cannot all work as given; change them, or keep them if you meant them, since your next answer is played as it is\. Go through the 3 headings/);
@@ -565,7 +565,7 @@ test('a full game can be played at a higher reasoning effort: every request, res
   assert.equal(OPPONENT_CONTRACTS.luna.normalizeResponse(bill(5000),200,8192).status,'COMPLETED');
 
   const f = await setup(t), result = await f.run({ lastYear: 1901, effort: 'medium' });
-  assert.equal(result.status,'FINISHED'); assert.equal(result.run.harness.effort,'medium'); assert.equal(result.run.harness.callTimeoutMs,90_000);
+  assert.equal(result.status,'FINISHED'); assert.equal(result.run.harness!.effort,'medium'); assert.equal(result.run.harness!.callTimeoutMs,90_000);
   assert.ok(f.sent.length > 0 && f.sent.every(x => x.effort === 'medium'));
   // Continuing the same game at another effort is refused before anything is bought.
   const before = f.sent.length;

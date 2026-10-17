@@ -43,3 +43,11 @@
 @media (max-width: 980px) { .viewer-panel { max-height: none; overflow: visible; } }
 .viewer-note { margin: 6px 0 0; font-size: 14px; font-style: italic; overflow-wrap: anywhere; }
 .viewer-note span { font-style: normal; }
+.dip .viewer-new { display: inline-block; margin-top: 8px; text-decoration: none; }
+.viewer-live { display: grid; gap: 8px; padding: 12px 0 16px; border-top: 1px solid var(--folio-line); }
+.viewer-live p { margin: 0; }
+.viewer-live .is-running { color: var(--folio-accent); }
+.viewer-live .is-running::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--folio-accent); animation: viewer-pulse 1.2s ease-in-out infinite; }
+@keyframes viewer-pulse { 50% { opacity: .3; } }
+.viewer-live-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.viewer-log { max-height: 240px; overflow: auto; margin: 6px 0 0; padding: 10px; border: 1px solid var(--folio-line); border-radius: 8px; font-size: 12px; white-space: pre-wrap; }

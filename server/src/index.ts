@@ -18,6 +18,7 @@ import { GameManager } from './GameManager.js';
 import { attachHandlers } from './handlers/connectionHandler.js';
 import { DiplomacyService } from './diplomacy/DiplomacyService.js';
 import { createIntegrations } from './integrations.js';
+import { FullGameService } from './autoplay/FullGameService.js';
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const rootEnvFile = process.env.DIPLOMACY_ENV_FILE ?? resolve(currentDirectory, '../../.env');
@@ -82,6 +83,12 @@ app.use('/api/auth', auth.router());
 app.use('/api', exhibitions.router(auth));
 app.use('/api/operator', operator.router(auth));
 app.use('/api', challenges.router(auth));
+// Model-only full games, played and watched from the browser: local development only. They use the
+// autoplay ledger (data/autoplay.sqlite by default), never this server's own database.
+const fullGames = config.profile === 'local' && !config.production
+  ? new FullGameService(resolve(currentDirectory, '../..', process.env.DIPLOMACY_AUTOPLAY_DATABASE ?? 'data/autoplay.sqlite'),
+    resolve(currentDirectory, '../..', process.env.DIPLOMACY_STAND_IN_DATABASE ?? 'data/autoplay-stand-in.sqlite')) : null;
+if (fullGames) app.use('/api/full-games', fullGames.router());
 // Never let unknown API URLs fall through to the SPA's index page.
 app.use('/api', (_request, response) => { response.status(404).json({ code: 'NOT_FOUND' }); });
 
@@ -130,6 +137,7 @@ async function shutdown(): Promise<void> {
     await exhibitions.close();
     await operator.close();
     await challenges.close();
+    await fullGames?.close();
     await Promise.all([shutdownGodip(), integrations?.bots.stop(), socketsClosed, store.close()]);
     // Close any remaining private-profile voice connections without starting
     // reconciliation/provider work during shutdown.

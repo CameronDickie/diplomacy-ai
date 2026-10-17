@@ -4,6 +4,45 @@ A development-only page for reviewing full games played by models with no human
 player ([autoplay](autoplay.md)). It is at `/viewer` on the development server
 and appears in the header as **Game viewer** in the local profile only.
 
+## Starting and watching games from the page
+
+The development server can play full games itself, so a game can be started,
+watched as it is played, stopped and continued from the browser instead of the
+terminal.
+
+```bash
+scripts/dev-games.sh
+```
+
+starts the development server and client with the local profile and, for live
+games, the two provider keys read from `playtest.env` (only those two lines;
+nothing is printed). Then open `http://localhost:5173/viewer`.
+
+- **New game** offers the autoplay command's choices: a model per power
+  (Luna, Haiku, Sol, Sonnet), when it ends (a year, or a win with the
+  ten-year stalemate stop), reasoning effort, how many powers each may write
+  to, and stand-in or live models. A live game also asks for the funding grant
+  that authorizes it and a per-game cap (at most USD 15), and warns if the
+  server lacks a provider's key. The page shows each provider's budget.
+- **In the database** lists every full game: those the autoplay command played
+  and those started here. Opening one shows the usual viewer, with its status
+  above: being played (the page refreshes every few seconds and follows the
+  newest turn), paused or waiting (with the reason, and **Continue**), or
+  finished. **Stop after this phase** works like Ctrl-C. A continued game keeps
+  its models, effort and end; the log of the run is shown below the status.
+- One game is played at a time.
+
+Live games use the same ledger as the autoplay command (`data/autoplay.sqlite`,
+or `DIPLOMACY_AUTOPLAY_DATABASE`), so its budgets and checks apply unchanged.
+Stand-in games are kept in a separate database with pretend funds
+(`data/autoplay-stand-in.sqlite`, or `DIPLOMACY_STAND_IN_DATABASE`) so their
+simulated costs never touch the real ledger; a stand-in game continues with
+stand-ins and a live game with live models. A game's settings are read back
+from its own calls, and the failures of a run are kept only by the server that
+ran it. The service exists only in the local profile; every request that
+starts or stops a game needs a trusted browser origin, and the server listens
+only on this machine.
+
 ## Getting games into it
 
 The autoplay tool writes one file per run. A game played over several runs (one
@@ -51,6 +90,7 @@ turn can be linked to directly.
 
 The records are private game data. The Vite development server serves
 `game-records/` at `/game-records/` through a plugin that exists only while
-serving; builds and the production server never include or serve it. A later
+serving; builds and the production server never include or serve it. Games in
+the database come from `/api/full-games`, which only a local-profile server has. A later
 public version would need its own decision about which games and messages to
 publish.

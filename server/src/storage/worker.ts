@@ -202,6 +202,11 @@ async function handle(request: StoreRequest): Promise<unknown> {
     case 'chatFail': return transaction(() => new ChatRepository(db).fail(input));
     case 'savePowerTalk': return transaction(() => new TalkRepository(db).save(input));
     case 'powerTalks': return new TalkRepository(db).list(input.attemptId);
+    case 'fullGames': return db.prepare("SELECT id,lifecycle,execution,board_json,created_at,updated_at FROM attempts WHERE id LIKE 'auto-%' ORDER BY created_at LIMIT 500").all().map(r => {
+      const board = JSON.parse(String(r.board_json)) as { year: number; season: string; phase: string; territoryOwners: Record<string, string | null> };
+      return { id: String(r.id), lifecycle: String(r.lifecycle), execution: String(r.execution), year: board.year, season: board.season, phase: board.phase, territoryOwners: board.territoryOwners,
+        createdAt: Number(r.created_at), updatedAt: Number(r.updated_at) };
+    });
     case 'savePowerNote': return transaction(() => new NoteRepository(db).save(input));
     case 'powerNotes': return new NoteRepository(db).list(input.attemptId);
     case 'chatMessages': return new ChatRepository(db).list(input.attemptId);

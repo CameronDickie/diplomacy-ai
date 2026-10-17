@@ -49,8 +49,8 @@ export function format(result: AutoplayResult): string {
   return [
     `Run ${result.run.runId} · ${result.run.transport.toUpperCase()} transport · ${result.run.lastYear === LATEST_LAST_YEAR ? 'until a power wins' : `to Fall ${result.run.lastYear}`} · messages to up to ${result.run.talkRecipients} powers`,
     `Models: ${ALL_POWERS.map(p => `${p} ${result.run.assignment[p]}`).join(', ')}`,
-    `Harness: ${result.run.harness.commit ? `commit ${result.run.harness.commit.slice(0,7)}${result.run.harness.modified ? ' with uncommitted changes' : ''}` : 'commit unknown'} · orders instructions ${result.run.harness.instructionsHash} · ${result.run.harness.effort} reasoning effort`,
-    `Status ${result.status}${result.endedBy === 'SOLO_WIN' ? ' · ended by a solo win' : result.endedBy === 'LAST_YEAR' ? ` · ended after Fall ${result.run.lastYear}` : result.endedBy === 'STALEMATE' ? ` · ended as a stalemate: no supply center changed hands for ${result.run.harness.stalemateYears} years` : ''}${result.waitingOn ? ` · ${result.waitingOn}` : ''}`,
+    `Harness: ${result.run.harness!.commit ? `commit ${result.run.harness!.commit.slice(0,7)}${result.run.harness!.modified ? ' with uncommitted changes' : ''}` : 'commit unknown'} · orders instructions ${result.run.harness!.instructionsHash} · ${result.run.harness!.effort} reasoning effort`,
+    `Status ${result.status}${result.endedBy === 'SOLO_WIN' ? ' · ended by a solo win' : result.endedBy === 'LAST_YEAR' ? ` · ended after Fall ${result.run.lastYear}` : result.endedBy === 'STALEMATE' ? ` · ended as a stalemate: no supply center changed hands for ${result.run.harness!.stalemateYears} years` : ''}${result.waitingOn ? ` · ${result.waitingOn}` : ''}`,
     ...(result.record.failures.length ? [`Failures recorded: ${result.record.failures.length} (listed under record.failures)`] : []),
     `Reached ${s.season} ${s.year} after ${s.phases} phases${s.winner ? ` · ${s.winner} won` : ''}`,
     `Supply centers: ${ALL_POWERS.map(p => `${p} ${s.centers[p]}`).join(', ')}`,

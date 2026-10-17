@@ -105,6 +105,8 @@ export interface StoreOperations {
   /** One power's messages to other powers before an orders phase, kept with the call that produced them. */
   savePowerTalk: { input: { callId:string; messages:Array<{ to:Power; body:string }>; now:number }; output: null };
   powerTalks: { input: { attemptId:string }; output: Array<import('./talks.js').StoredPowerTalk> };
+  /** Model-only full games (development): every attempt the autoplay tool created, oldest first. */
+  fullGames: { input: {}; output: Array<{ id:string; lifecycle:string; execution:string; year:number; season:string; phase:string; territoryOwners:Record<string,string|null>; createdAt:number; updatedAt:number }> };
   /** A full-game power's private note to itself, written with its orders and kept with the call that produced it. */
   savePowerNote: { input: { callId:string; note:string; now:number }; output: null };
   powerNotes: { input: { attemptId:string }; output: Array<import('./notes.js').StoredPowerNote> };
