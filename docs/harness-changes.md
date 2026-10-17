@@ -215,6 +215,13 @@ sizes the worst-case reservation, since no request writes a cache) and Sol's
 long-context output rate (1.5×, a threshold the input bound keeps requests far
 below). Both are twenty times Luna's and Haiku's prices.
 
+Result (game 15, Sol on Luna's seats against Sonnet on Haiku's, low effort):
+Austria (Sol) won in 1910. Over 1901–1910 Sonnet held 74% (Haiku 73–84% in
+the same seats), Sol 14% with 26% supports. Sonnet used about 2 reasoning
+tokens per call against Sol's 85, so at low effort the two were not thinking
+alike; game 16 repeats it at medium. Cost USD 6.04 (Anthropic 3.08, OpenAI
+2.96).
+
 ## Not yet changed
 
 - **Draws.** Letting powers propose a draw that every survivor must accept
