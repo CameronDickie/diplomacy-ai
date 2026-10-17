@@ -1,5 +1,5 @@
 import type { ProviderUsage } from './accounting.js';
-import { HAIKU_PRESET } from './HaikuPreset.js';
+import { HAIKU_PRESET, type AnthropicPreset } from './HaikuPreset.js';
 import type { ProviderResponse } from './RecordedCall.js';
 
 type ObjectValue = Record<string, unknown>;
@@ -8,6 +8,8 @@ const count = (value: unknown): value is number => Number.isSafeInteger(value) &
 /** The API reports an absent cache figure as null. */
 const optional = (value: unknown): number | null => value == null ? 0 : count(value) ? value : null;
 
+/** Billing and status for one pinned Anthropic model. */
+export function anthropicNormalizer(preset: AnthropicPreset) {
 /**
  * Missing or inconsistent usage is unknown, never zero. Unlike the Responses envelope, `input_tokens`
  * here excludes cached tokens, so the stored input total is the sum of the three input figures.
@@ -33,10 +35,10 @@ function priceUsage(value: unknown): ProviderUsage | null {
   const inputTokens = u.input_tokens + read + written;
   // Requests should never reach the long-prompt rate card, but preserve actual known billing
   // if the provider violates our input bound. The caller must halt on the ERROR status.
-  const multiplier = inputTokens > HAIKU_PRESET.longPromptTokens ? HAIKU_PRESET.longPromptMultiplier : 1;
-  const costNanousd = (u.input_tokens * HAIKU_PRESET.inputNanousd + read * HAIKU_PRESET.cachedInputNanousd
-    + fiveMinute * HAIKU_PRESET.cacheWrite5mNanousd + oneHour * HAIKU_PRESET.cacheWrite1hNanousd
-    + u.output_tokens * HAIKU_PRESET.outputNanousd) * multiplier;
+  const multiplier = inputTokens > preset.longPromptTokens ? preset.longPromptMultiplier : 1;
+  const costNanousd = (u.input_tokens * preset.inputNanousd + read * preset.cachedInputNanousd
+    + fiveMinute * preset.cacheWrite5mNanousd + oneHour * preset.cacheWrite1hNanousd
+    + u.output_tokens * preset.outputNanousd) * multiplier;
   return { inputTokens, cachedInputTokens: read, cacheWriteTokens: written, outputTokens: u.output_tokens, reasoningTokens: thinking, costNanousd };
 }
 
@@ -46,10 +48,10 @@ function priceUsage(value: unknown): ProviderUsage | null {
  * or provider metadata escape this projection. Only standard-tier `claude-haiku-5-5` is priced.
  */
 /** `maxOutputTokens`: the ceiling the request was sent with (a full game at a higher reasoning effort allows more). */
-export function normalizeHaikuResponse(value: unknown, httpStatus = 200, maxOutputTokens: number = HAIKU_PRESET.maxOutputTokens): ProviderResponse {
+return function normalize(value: unknown, httpStatus = 200, maxOutputTokens: number = preset.maxOutputTokens): ProviderResponse {
   const r = object(value);
   const responseId = typeof r?.id === 'string' && /^[A-Za-z0-9:_-]{1,100}$/.test(r.id) ? r.id : null;
-  const pricedContract = r?.type === 'message' && r?.model === HAIKU_PRESET.model && object(r?.usage)?.service_tier === HAIKU_PRESET.serviceTier;
+  const pricedContract = r?.type === 'message' && r?.model === preset.model && object(r?.usage)?.service_tier === preset.serviceTier;
   let usage = pricedContract ? priceUsage(r?.usage) : null;
   const result = (status: ProviderResponse['status'], outputText: string | null = null): ProviderResponse => ({ responseId, usage, status, outputText });
   if (!r || !pricedContract || !responseId) return result('ERROR');
@@ -59,7 +61,7 @@ export function normalizeHaikuResponse(value: unknown, httpStatus = 200, maxOutp
     usage = null; return result('ERROR');
   }
   if (!Number.isInteger(httpStatus) || httpStatus < 200 || httpStatus >= 300 || !usage
-    || usage.inputTokens > HAIKU_PRESET.maxInputTokens || usage.outputTokens > maxOutputTokens) return result('ERROR');
+    || usage.inputTokens > preset.maxInputTokens || usage.outputTokens > maxOutputTokens) return result('ERROR');
   // A safety decline is a normal, billed answer. It is checked before the content is read.
   if (r.stop_reason === 'refusal') return result('REFUSED');
   // Thinking spent the whole cap before the answer was finished.
@@ -67,6 +69,8 @@ export function normalizeHaikuResponse(value: unknown, httpStatus = 200, maxOutp
   if (r.stop_reason !== 'end_turn' || r.role !== 'assistant' || !Array.isArray(r.content)) return result('ERROR');
   // The answer is read by type, never by position: thinking blocks come first.
   const text = blocks.filter(block => block?.type === 'text');
-  if (text.length !== 1 || typeof text[0]?.text !== 'string' || Buffer.byteLength(text[0].text) > HAIKU_PRESET.maxResponseBytes) return result('ERROR');
+  if (text.length !== 1 || typeof text[0]?.text !== 'string' || Buffer.byteLength(text[0].text) > preset.maxResponseBytes) return result('ERROR');
   return result('COMPLETED', text[0].text);
+};
 }
+export const normalizeHaikuResponse = anthropicNormalizer(HAIKU_PRESET);

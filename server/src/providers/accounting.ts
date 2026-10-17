@@ -7,7 +7,8 @@ export interface ProviderCallIntent {
   fence: PhaseFence;
   power: Power;
   provider: 'OPENAI' | 'ANTHROPIC';
-  model: 'gpt-6-luna' | 'claude-haiku-5-5';
+  /** GPT Sol 6.1 and Claude Sonnet 5.5 are used only in model-only full games (development). */
+  model: 'gpt-6-luna' | 'claude-haiku-5-5' | 'gpt-6.1-sol' | 'claude-sonnet-5-5';
   /**
    * CHAT is a reply to one player message; its fence's operation id is that message's id.
    * ASK and REPLY are one power's messages to other powers before an orders phase of a model-only

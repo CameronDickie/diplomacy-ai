@@ -27,7 +27,8 @@ half the size of the originals. `game-records/` is git-ignored.
 ## What it shows
 
 - **A chart of supply centers** after every phase, one line per power: solid for
-  GPT-6 Luna, dashed for Claude Haiku 5.5, ending with a cross where a power is
+  OpenAI's models (GPT-6 Luna, GPT Sol 6.1), dashed for Anthropic's (Claude Haiku
+  5.5, Claude Sonnet 5.5), with the model named in the legend, ending with a cross where a power is
   eliminated. Click or drag on it to move the board.
 - **The board** for the chosen phase: the orders as given, then the result,
   with playback at several speeds. Arrow keys step, space plays and pauses.

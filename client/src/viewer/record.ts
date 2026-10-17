@@ -19,9 +19,11 @@ export function turnsOf(game: AutoplayGameFile): Turn[] {
     failures: failures.get(p.phaseId) ?? [], centers: centersOf(p.report!.after.territoryOwners), notes: p.notes ?? [] }));
 }
 
-export type ModelKey = 'luna' | 'haiku' | 'other';
-export const modelKey = (model: string): ModelKey => /luna/i.test(model) ? 'luna' : /haiku/i.test(model) ? 'haiku' : 'other';
-export const MODEL_NAMES: Record<ModelKey, string> = { luna: 'GPT-6 Luna', haiku: 'Claude Haiku 5.5', other: 'Other model' };
+export type ModelKey = 'luna' | 'haiku' | 'sol' | 'sonnet' | 'other';
+export const modelKey = (model: string): ModelKey => /luna/i.test(model) ? 'luna' : /haiku/i.test(model) ? 'haiku' : /sol/i.test(model) ? 'sol' : /sonnet/i.test(model) ? 'sonnet' : 'other';
+export const MODEL_NAMES: Record<ModelKey, string> = { luna: 'GPT-6 Luna', haiku: 'Claude Haiku 5.5', sol: 'GPT Sol 6.1', sonnet: 'Claude Sonnet 5.5', other: 'Other model' };
+/** Anthropic's models are drawn dashed, OpenAI's solid; the legend names the exact model. */
+export const dashed = (key: ModelKey) => key === 'haiku' || key === 'sonnet';
 export const modelOf = (game: { run: { assignment: Record<Power, string> } }, power: Power): ModelKey => modelKey(game.run.assignment[power] ?? '');
 
 /** Each model's orders by kind, counted from what was actually played. */

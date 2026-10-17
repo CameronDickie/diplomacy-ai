@@ -43,7 +43,7 @@ test('the reservation is the worst case: the dearest input rate for every allowe
   // The two contracts are separate objects with separate prices and identities.
   assert.notEqual(HAIKU_CONTRACT.presetHash,LUNA_CONTRACT.presetHash);
   assert.deepEqual([opponentContract('haiku').preset.provider,opponentContract('luna').preset.provider],['ANTHROPIC','OPENAI']);
-  assert.throws(()=>opponentContract('sonnet'),/Unknown sponsored preset/);
+  assert.throws(()=>opponentContract('opus'),/Unknown sponsored preset/);
 });
 
 test('an answer is read by block type, billed from usage, and thinking is counted as output',()=>{

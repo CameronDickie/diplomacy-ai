@@ -200,6 +200,21 @@ to 30% of orders (21%); 7 of 13 convoys arrived; holds stayed low (19%).
 England was eliminated for the first time in any game. Cost USD 1.19, the same
 as game 11 for half the years.
 
+## Stronger models (an option, from game 15)
+
+GPT Sol 6.1 (`gpt-6.1-sol`) and Claude Sonnet 5.5 (`claude-sonnet-5-5`) can now
+play any power, as each provider's stronger counterpart to Luna and Haiku. Their
+requests are byte for byte the same as the smaller model's of the same
+provider apart from the model name, so instructions and context are unchanged
+(fingerprint `8434bf6012a2b346`). Prices, as given by the owner on 2026-10-17,
+in USD per million tokens: Sol input 2.00, cached input 0.10, cache writes 2.50,
+output 10.00; Sonnet input 2, output 10, cache write 2.50, cache read 0.10. Two
+figures were not given and are assumptions, and neither can apply to these
+requests: Sonnet's one-hour cache write (set at twice input, $4, which only
+sizes the worst-case reservation, since no request writes a cache) and Sol's
+long-context output rate (1.5×, a threshold the input bound keeps requests far
+below). Both are twenty times Luna's and Haiku's prices.
+
 ## Not yet changed
 
 - **Draws.** Letting powers propose a draw that every survivor must accept

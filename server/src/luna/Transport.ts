@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { EFFORTS, type FullGameRequestKind, LUNA_PRESET, lunaRequestBodies } from '../providers/LunaPreset.js';
+import { EFFORTS, LUNA_REQUESTS, type FullGameRequestKind, type OpenAiRequests } from '../providers/LunaPreset.js';
 import { LUNA_CONTRACT, type OpponentContract } from '../providers/OpponentContract.js';
 
 export interface LunaResponse { status: number; body: unknown }
@@ -71,10 +71,13 @@ async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
  * preflight; take the durable dispatch claim afterwards so stop/ban/funding are checked again.
  * Paid operation remains interlocked at application startup.
  */
-export function httpLunaTransport(apiKey: string, request: typeof fetch = fetch): LunaTransport {
+export function httpLunaTransport(apiKey: string, request: typeof fetch = fetch): LunaTransport { return httpOpenAiTransport(apiKey,request,LUNA_REQUESTS,'Luna'); }
+/** The same for any pinned OpenAI model: only its own pinned request bodies are counted and sent. */
+export function httpOpenAiTransport(apiKey: string, request: typeof fetch, requests: OpenAiRequests, name: string): LunaTransport {
+  const preset = requests.preset;
   if (typeof apiKey !== 'string' || apiKey.length < 8) throw new Error('A provider key is required.');
   const headers = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
-  const transport: LunaTransport = async () => { throw new Error('Luna HTTP dispatch requires a successful input-token preflight.'); };
+  const transport: LunaTransport = async () => { throw new Error(`${name} HTTP dispatch requires a successful input-token preflight.`); };
   transport.preflight = async ({ body, signal }) => {
     signal.throwIfAborted();
     // Reject settings/schema/model changes before either endpoint sees them.
@@ -82,35 +85,35 @@ export function httpLunaTransport(apiKey: string, request: typeof fetch = fetch)
     try {
       parsed = JSON.parse(body);
       const context = { context: parsed.input[0].content[0].text };
-      if (!lunaRequestBodies(context).includes(body)
-        || Buffer.byteLength(body,'utf8') > LUNA_PRESET.maxRequestBytes) throw new Error();
-    } catch { throw new Error('Invalid Luna request contract.'); }
+      if (!requests.requestBodies(context).includes(body)
+        || Buffer.byteLength(body,'utf8') > preset.maxRequestBytes) throw new Error();
+    } catch { throw new Error(`Invalid ${name} request contract.`); }
     const countBody = JSON.stringify({ model: parsed.model, input: parsed.input, instructions: parsed.instructions,
       reasoning: parsed.reasoning, text: parsed.text, tools: parsed.tools, tool_choice: parsed.tool_choice, truncation: parsed.truncation });
-    const deadline = AbortSignal.any([signal,AbortSignal.timeout(LUNA_PRESET.countTimeoutMs)]);
+    const deadline = AbortSignal.any([signal,AbortSignal.timeout(preset.countTimeoutMs)]);
     let count: unknown;
     try {
       count = await abortable((async () => {
-        const response = await request(LUNA_PRESET.countEndpoint,{ method: 'POST', signal: deadline, redirect: 'error', headers, body: countBody });
+        const response = await request(preset.countEndpoint,{ method: 'POST', signal: deadline, redirect: 'error', headers, body: countBody });
         // The status first: an error page can be larger than a count, and must not be mistaken for a lost connection.
         if (response.status !== 200) { await response.body?.cancel().catch(() => {}); throw new PreflightError('',`HTTP ${response.status}`); }
-        return await readJson(response,LUNA_PRESET.maxCountResponseBytes);
+        return await readJson(response,preset.maxCountResponseBytes);
       })(),deadline);
     } catch (error) {
-      throw new PreflightError('Luna input-token preflight unavailable.',error instanceof PreflightError ? error.detail : signal.aborted ? 'cancelled' : deadline.aborted ? 'no answer in time' : `no connection${networkCode(error)}`);
+      throw new PreflightError(`${name} input-token preflight unavailable.`,error instanceof PreflightError ? error.detail : signal.aborted ? 'cancelled' : deadline.aborted ? 'no answer in time' : `no connection${networkCode(error)}`);
     }
     const tokens = (count as { input_tokens?: unknown } | null)?.input_tokens;
     if (!count || typeof count !== 'object' || Array.isArray(count) || Object.keys(count).sort().join(',') !== 'input_tokens,object'
       || (count as { object?: unknown }).object !== 'response.input_tokens'
-      || !Number.isSafeInteger(tokens) || (tokens as number) < 1 || (tokens as number) > LUNA_PRESET.maxInputTokens)
-      throw new PreflightError('Luna input-token preflight exceeds its limit or is invalid.','count over the limit or malformed');
+      || !Number.isSafeInteger(tokens) || (tokens as number) < 1 || (tokens as number) > preset.maxInputTokens)
+      throw new PreflightError(`${name} input-token preflight exceeds its limit or is invalid.`,'count over the limit or malformed');
     signal.throwIfAborted();
     let used = false;
     const send: LunaTransport = async ({ body: exact, signal: sendSignal }) => {
-      if (exact !== body || used) throw new Error('Luna preflight does not authorize these bytes or a repeated dispatch.');
+      if (exact !== body || used) throw new Error(`${name} preflight does not authorize these bytes or a repeated dispatch.`);
       sendSignal.throwIfAborted(); used = true;
-      const response = await request(LUNA_PRESET.endpoint,{ method: 'POST', signal: sendSignal, redirect: 'error', headers, body });
-      return { status: response.status, body: await readJson(response,LUNA_PRESET.maxResponseBytes) };
+      const response = await request(preset.endpoint,{ method: 'POST', signal: sendSignal, redirect: 'error', headers, body });
+      return { status: response.status, body: await readJson(response,preset.maxResponseBytes) };
     };
     return { inputTokens: tokens as number, send };
   };

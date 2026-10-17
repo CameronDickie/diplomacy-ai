@@ -1,11 +1,16 @@
 import type { ProviderUsage } from './accounting.js';
 import type { ProviderResponse } from './RecordedCall.js';
-import { LUNA_PRESET } from './LunaPreset.js';
+import { LUNA_PRESET, type OpenAiPreset } from './LunaPreset.js';
 
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): ObjectValue | null => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as ObjectValue : null;
 const count = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= 2_000_000;
 
+/**
+ * Billing and status for one pinned OpenAI model. `longOutputNanousd`: the output rate if a provider
+ * ever bills a request past the long-context threshold, which the input bound should make impossible.
+ */
+export function openAiNormalizer(preset: OpenAiPreset, longOutputNanousd: number) {
 /** Missing/partial usage is unknown, never zero or an optimistic cached-input estimate. */
 function priceUsage(value: unknown): ProviderUsage | null {
   const u = object(value), input = object(u?.input_tokens_details), output = object(u?.output_tokens_details);
@@ -16,9 +21,9 @@ function priceUsage(value: unknown): ProviderUsage | null {
   // Requests should never reach long-context pricing, but preserve actual known billing
   // if a provider violates our input bound. The caller must halt on the ERROR status.
   const inputMultiplier = u.input_tokens > 272_000 ? 2 : 1;
-  const outputRate = u.input_tokens > 272_000 ? 750 : LUNA_PRESET.outputNanousd;
-  const costNanousd = ((u.input_tokens - input.cached_tokens - input.cache_write_tokens) * LUNA_PRESET.inputNanousd
-    + input.cached_tokens * LUNA_PRESET.cachedInputNanousd + input.cache_write_tokens * LUNA_PRESET.cacheWriteNanousd) * inputMultiplier
+  const outputRate = u.input_tokens > 272_000 ? longOutputNanousd : preset.outputNanousd;
+  const costNanousd = ((u.input_tokens - input.cached_tokens - input.cache_write_tokens) * preset.inputNanousd
+    + input.cached_tokens * preset.cachedInputNanousd + input.cache_write_tokens * preset.cacheWriteNanousd) * inputMultiplier
     + u.output_tokens * outputRate;
   return { inputTokens: u.input_tokens, cachedInputTokens: input.cached_tokens, cacheWriteTokens: input.cache_write_tokens,
     outputTokens: u.output_tokens, reasoningTokens: output.reasoning_tokens, costNanousd };
@@ -31,10 +36,10 @@ function priceUsage(value: unknown): ProviderUsage | null {
  * Only the preset's global endpoint / Standard service is priced by this adapter.
  */
 /** `maxOutputTokens`: the ceiling the request was sent with (a full game at a higher reasoning effort allows more). */
-export function normalizeLunaResponse(value: unknown, httpStatus = 200, maxOutputTokens: number = LUNA_PRESET.maxOutputTokens): ProviderResponse {
+return function normalize(value: unknown, httpStatus = 200, maxOutputTokens: number = preset.maxOutputTokens): ProviderResponse {
   const r = object(value);
   const responseId = typeof r?.id === 'string' && /^[A-Za-z0-9:_-]{1,100}$/.test(r.id) ? r.id : null;
-  const pricedContract = r?.model === LUNA_PRESET.model && r?.service_tier === LUNA_PRESET.serviceTier;
+  const pricedContract = r?.model === preset.model && r?.service_tier === preset.serviceTier;
   let usage = pricedContract ? priceUsage(r?.usage) : null;
   const result = (status: ProviderResponse['status'], outputText: string | null = null): ProviderResponse => ({ responseId, usage, status, outputText });
   if (!r || !pricedContract || !responseId) return result('ERROR');
@@ -44,7 +49,7 @@ export function normalizeLunaResponse(value: unknown, httpStatus = 200, maxOutpu
     usage = null; return result('ERROR');
   }
   if (!Number.isInteger(httpStatus) || httpStatus < 200 || httpStatus >= 300 || !usage
-    || usage.inputTokens > LUNA_PRESET.maxInputTokens || usage.outputTokens > maxOutputTokens) return result('ERROR');
+    || usage.inputTokens > preset.maxInputTokens || usage.outputTokens > maxOutputTokens) return result('ERROR');
   if (r.status === 'incomplete') return result('INCOMPLETE');
   if (r.status !== 'completed' || r.error != null || !Array.isArray(r.output)) return result('ERROR');
   const messages = items.filter(item => object(item)?.type === 'message').map(object);
@@ -53,6 +58,8 @@ export function normalizeLunaResponse(value: unknown, httpStatus = 200, maxOutpu
   const content = object(messages[0].content[0]);
   if (content?.type === 'refusal') return result('REFUSED');
   if (content?.type !== 'output_text' || typeof content.text !== 'string'
-    || Buffer.byteLength(content.text) > LUNA_PRESET.maxResponseBytes) return result('ERROR');
+    || Buffer.byteLength(content.text) > preset.maxResponseBytes) return result('ERROR');
   return result('COMPLETED', content.text);
+};
 }
+export const normalizeLunaResponse = openAiNormalizer(LUNA_PRESET,750);

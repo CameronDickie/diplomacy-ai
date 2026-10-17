@@ -4,9 +4,11 @@ import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { DatabaseSync } from 'node:sqlite';
 import { shutdownGodip } from '../adjudication/GodipAdjudicator.js';
-import { anthropicHaikuTransport } from '../luna/HaikuTransport.js';
+import { anthropicHaikuTransport, anthropicTransport } from '../luna/HaikuTransport.js';
+import { SOL_REQUESTS } from '../providers/SolPreset.js';
+import { SONNET_REQUESTS } from '../providers/SonnetPreset.js';
 import { http1Fetch } from '../luna/Http1Fetch.js';
-import { httpLunaTransport, mockOpponentTransport, type LunaTransport } from '../luna/Transport.js';
+import { httpLunaTransport, httpOpenAiTransport, mockOpponentTransport, type LunaTransport } from '../luna/Transport.js';
 import { LUNA_CONTRACT, opponentContract, type OpponentContract } from '../providers/OpponentContract.js';
 import { Store } from '../storage/Store.js';
 import { evaluate, type EvaluationReport } from './Harness.js';
@@ -37,7 +39,9 @@ export function liveTransport(input: { live: boolean; db: string; authorizationR
   } finally { db.close(); }
   // The tools' long runs use plain HTTP/1.1 requests (see http1Fetch); the server keeps the built-in fetch.
   const fetchImpl = input.fetchImpl ?? http1Fetch;
-  return contract.key === 'haiku' ? anthropicHaikuTransport(input.apiKey,fetchImpl) : httpLunaTransport(input.apiKey,fetchImpl);
+  // Each model's transport accepts only that model's own pinned request bodies.
+  return contract.key === 'haiku' ? anthropicHaikuTransport(input.apiKey,fetchImpl) : contract.key === 'sonnet' ? anthropicTransport(input.apiKey,fetchImpl,SONNET_REQUESTS,'Sonnet')
+    : contract.key === 'sol' ? httpOpenAiTransport(input.apiKey,fetchImpl,SOL_REQUESTS,'Sol') : httpLunaTransport(input.apiKey,fetchImpl);
 }
 export function format(report: EvaluationReport): string {
   const s = report.summary, lines = [

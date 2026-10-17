@@ -78,10 +78,13 @@ export async function evaluate(options: EvaluationOptions): Promise<EvaluationRe
   const fixture = await loadScenario(options.scenario,version), definition = challengeDefinition(fixture);
   if (!definition) throw new Error('Scenario has no objective to score.');
   if (!fixture.witnesses.some(w => w.name === options.script)) throw new Error(`Scenario has no script named ${options.script}.`);
+  // Evaluations measure the challenge's own presets; the stronger models exist only for model-only full games.
+  if (contract.preset.model !== 'gpt-6-luna' && contract.preset.model !== 'claude-haiku-5-5') throw new Error('The evaluation harness runs only the challenge presets (luna or haiku).');
+  const model = contract.preset.model;
   const manifest=await store.call('registerEvaluationRun',{manifest:{runId,transport:options.transportKind,scenario:definition.id,scenarioVersion:definition.version,
     fixtureHash:createHash('sha256').update(canonicalJson(fixture)).digest('hex'),script:options.script,seed:options.seed??null,
     presetId:contract.preset.id,pricingVersion:contract.preset.pricingVersion,presetHash:contract.presetHash,
-    contextVersion:CONTEXT_VERSION,model:contract.preset.model,harnessVersion:'luna-evaluation-v4',timingPolicy:'wall-submission-commit-v1',maxRecoveries},now:now()});
+    contextVersion:CONTEXT_VERSION,model,harnessVersion:'luna-evaluation-v4',timingPolicy:'wall-submission-commit-v1',maxRecoveries},now:now()});
   const content = { definition, board: fixture.board };
   await store.call('registerChallenge',{ ...content, hash: createHash('sha256').update(canonicalJson(content)).digest('hex'), now: now() });
   const player = await store.call('identity',{ provider: 'github', subject: `evaluation-${runId}`, displayName: 'Evaluation harness', now: now() });
