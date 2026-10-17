@@ -285,6 +285,24 @@ scripts/evaluate-in-container.sh autoplay-live autoplay --run live-1 --until 190
 scripts/evaluate-in-container.sh autoplay-live fetch autoplay-live-1.json > autoplay-live-1.json
 ```
 
+### Budgets per provider
+
+A grant can name a provider:
+
+```bash
+npm run storage -- grant "$PWD/data/autoplay.sqlite" 9.63 autoplay-anthropic-0001 anthropic
+npm run storage -- grant "$PWD/data/autoplay.sqlite" 18.84 autoplay-openai-0001 openai
+```
+
+That provider then has a budget of its own, mirroring the account it is paid
+from: from its first such grant, each of its calls must fit both the overall
+pool and its budget, and paid play stops when either runs out. Spending before
+that first grant is not charged to it. `npm run storage -- funding` shows each
+budget under `providers` (granted, settled, held, available), and the autoplay
+start line prints what each has left. A game will not start if a provider it
+uses cannot pay for a phase of its own calls. A per-game cap still applies and
+cannot exceed USD 15 (a limit the database itself enforces).
+
 ### What it may cost
 
 Not measured live. A stand-in game makes about 43 calls per game year with

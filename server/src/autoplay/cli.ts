@@ -93,7 +93,8 @@ async function main() {
     // A pause is written when a grant runs out. Lifting it is the owner's call, made by passing this flag.
     if (values['resume-paid']) await store.call('setPaidStopped',{ stopped: false, operatorId: 'autoplay-cli', now: Date.now() });
     const funds = await store.call('fundingTotals',{});
-    console.log(`Funding: USD ${(funds.availableNanousd / 1e9).toFixed(4)} available · this game may spend up to USD ${(funds.attemptCapNanousd / 1e9).toFixed(2)}${values.live ? '' : ' (stand-in models: only numbers)'}`);
+    const budgets = (['OPENAI','ANTHROPIC'] as const).filter(p => funds.providers[p]).map(p => `${p === 'OPENAI' ? 'OpenAI' : 'Anthropic'} USD ${(funds.providers[p]!.availableNanousd / 1e9).toFixed(2)}`);
+    console.log(`Funding: USD ${(funds.availableNanousd / 1e9).toFixed(4)} available${budgets.length ? ` (budgets: ${budgets.join(', ')})` : ''} · this game may spend up to USD ${(funds.attemptCapNanousd / 1e9).toFixed(2)}${values.live ? '' : ' (stand-in models: only numbers)'}`);
     const result = await autoplay({ store, runId: values.run, lastYear, assignment, transports, transportKind: values.live ? 'live' : 'mock', talkRecipients, messageRetries, orderCalls, maxPhases, stalemateYears, effort: values.effort as Effort, harness: harnessVersion(), signal: stop.signal, log: line => console.log(line) });
     console.log(`\n${format(result)}`);
     // The record holds no keys and no game requests (only the standing instructions); it is still private game data, so only its owner may read it.

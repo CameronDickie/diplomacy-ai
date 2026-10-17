@@ -11,10 +11,15 @@ function nanousd(text:string,allowZero=false):number {
   if(!Number.isSafeInteger(value)||(value<1&&!allowZero))throw new Error('Amount must be greater than zero.');
   return value;
 }
+function grantProvider(text: string | undefined): 'OPENAI' | 'ANTHROPIC' | null {
+  if (text === undefined) return null;
+  if (!['openai','anthropic'].includes(text.toLowerCase())) throw new Error('The provider after the reference must be openai or anthropic.');
+  return text.toUpperCase() as 'OPENAI' | 'ANTHROPIC';
+}
 let store:Store|undefined;
 try {
   if (!source || !['init','health','backup','restore','funding','grant','held','resolve'].includes(command) || (['backup','restore'].includes(command) && !destination) || (command==='grant' && (!destination || !reference)) || (command==='resolve' && (!destination || !reference || !extra))) {
-    throw new Error('Usage: storage init DATABASE | storage health DATABASE | storage backup DATABASE NEW_BACKUP | storage restore BACKUP NEW_DATABASE | storage funding DATABASE | storage grant DATABASE USD AUTHORIZATION_REFERENCE | storage held DATABASE | storage resolve DATABASE CALL_ID USD AUTHORIZATION_REFERENCE');
+    throw new Error('Usage: storage init DATABASE | storage health DATABASE | storage backup DATABASE NEW_BACKUP | storage restore BACKUP NEW_DATABASE | storage funding DATABASE | storage grant DATABASE USD AUTHORIZATION_REFERENCE [openai|anthropic] | storage held DATABASE | storage resolve DATABASE CALL_ID USD AUTHORIZATION_REFERENCE');
   }
   if (command !== 'init' && !existsSync(source)) throw new Error('Source database does not exist. Check its path; init is the explicit new-database command.');
   store=['health','backup','funding','held'].includes(command) ? await Store.inspect(resolve(source))
@@ -24,7 +29,8 @@ try {
     : command==='funding'?await store.call('fundingTotals',{})
     : command==='held'?await store.call('heldLiabilities',{})
     : command==='resolve'?await store.call('resolveLiability',{callId:destination!,costNanousd:nanousd(reference!,true),authorizationRef:extra!,now:Date.now()})
-    : command==='grant'?await store.call('grantFunding',{amountNanousd:nanousd(destination!),authorizationRef:reference!,grantedBy:'cli',now:Date.now()})
+    // A provider named after the reference also funds that provider's own budget.
+    : command==='grant'?await store.call('grantFunding',{amountNanousd:nanousd(destination!),authorizationRef:reference!,grantedBy:'cli',now:Date.now(),provider:grantProvider(extra)})
     : await store.call('health',{});
   console.log(JSON.stringify(result));
 } catch(error) {

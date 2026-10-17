@@ -34,7 +34,7 @@ function temporary() {
 test('SQLite migrations, provider identities and hashed revocable sessions survive reopening', async () => {
   const tmp=temporary();let store=await Store.open(tmp.path);
   try {
-    assert.deepEqual(await store.call('health',{}),{schemaVersion:16,journalMode:'wal'});
+    assert.deepEqual(await store.call('health',{}),{schemaVersion:17,journalMode:'wal'});
     const github=await store.call('identity',{provider:'github',subject:'123',displayName:'Same display name',now});
     const google=await store.call('identity',{provider:'google',subject:'123',displayName:'Same display name',now});
     assert.notEqual(github.id,google.id,'no name/email-based linking across providers');
@@ -145,7 +145,7 @@ test('database write contention leaves HTTP responsive and the RPC queue bounded
     await write;locker.exec('ROLLBACK');
     const results=await queue;
     assert.ok(results.filter(r=>r.status==='rejected' && r.reason.code==='STORE_BUSY').length>=7);
-    assert.equal((await store.call('health',{})).schemaVersion,16);
+    assert.equal((await store.call('health',{})).schemaVersion,17);
   } finally {locker.close();http.close();await store.close();tmp.remove();}
 });
 
@@ -194,7 +194,7 @@ test('phase-job migration upgrades a v1 database without changing existing attem
     const db=new DatabaseSync(tmp.path);
     db.exec('DROP TABLE power_notes; DROP TABLE power_talks; DROP TABLE chat_messages; DROP TABLE evaluation_phases; DROP TABLE evaluation_attempts; DROP TABLE evaluation_runs; DROP TABLE funding_adjustments; DROP TABLE exhibition_reports; DROP TABLE exhibitions; DROP TRIGGER attempts_bot_immutable; ALTER TABLE attempts DROP COLUMN practice_bot; DROP TRIGGER attempts_mode_immutable; ALTER TABLE attempts DROP COLUMN pricing_version; ALTER TABLE attempts DROP COLUMN preset_id; ALTER TABLE attempts DROP COLUMN opponents; DROP TABLE provider_decisions; DROP TABLE attempt_spend; DROP TABLE reservations; DROP TABLE funding_pool; DROP TABLE funding_grants; DROP TABLE outbox; DROP TABLE operator_audit; DROP TABLE operator_state; DROP TABLE deleted_identities; DROP TABLE provider_calls; DROP TABLE start_receipts; DROP TABLE account_starts; ALTER TABLE attempts DROP COLUMN mode; DROP TABLE phase_jobs; DELETE FROM schema_migrations WHERE version>=2; PRAGMA user_version=1;');db.close();
     store=await Store.open(tmp.path);
-    assert.equal((await store.call('health',{})).schemaVersion,16);
+    assert.equal((await store.call('health',{})).schemaVersion,17);
     assert.deepEqual(await store.call('attempt',{id:attempt.id}),attempt);
     assert.equal((await store.call('session',{tokenHash,now}))?.player.id,player.id);
     assert.deepEqual(await store.call('pendingPhaseJobs',{}),[]);

@@ -256,6 +256,8 @@ CREATE TABLE power_notes (
 ) STRICT;
 CREATE INDEX power_notes_attempt ON power_notes(attempt_id,created_at);
 CREATE TRIGGER power_notes_immutable BEFORE UPDATE ON power_notes BEGIN SELECT RAISE(ABORT,'immutable power note'); END;
+` }, { version: 17, sql: `
+ALTER TABLE funding_grants ADD COLUMN provider TEXT CHECK(provider IS NULL OR provider IN ('OPENAI','ANTHROPIC'));
 ` }];
 
 export function verifyMigrationHistory(db: DatabaseSync, requireExisting = false): number {

@@ -49,7 +49,13 @@ export interface StoredReceipt {
 export interface FundingTotals {
   grantedNanousd: number; ceilingNanousd: number; settledNanousd: number; reservedNanousd: number; unknownLiabilityNanousd: number;
   availableNanousd: number; attemptCapNanousd: number; grants: number;
+  /**
+   * A provider's own budget, once any grant names that provider: its calls must also fit here. It covers
+   * the provider's calls from its first such grant on. Null: no budget of its own, the overall pool decides.
+   */
+  providers: Record<'OPENAI' | 'ANTHROPIC', ProviderBudget | null>;
 }
+export interface ProviderBudget { grantedNanousd: number; settledNanousd: number; heldNanousd: number; availableNanousd: number; since: number; grants: number }
 export interface PaidState { stopped: boolean; episode: number; updatedAt: number | null }
 export interface SpendTotals { calls:number; unresolvedCalls:number; knownCostNanousd:number; unresolvedLiabilityNanousd:number; inputTokens:number; outputTokens:number }
 export type OutboxKind = 'ATTEMPT_STARTED' | 'CREDIT_REQUEST';
@@ -106,7 +112,8 @@ export interface StoreOperations {
   providerDecisions: { input: { operationId:string }; output: Array<{ callId:string; power:Power; action:PhaseAction }> };
   fundingTotals: { input: {}; output: FundingTotals };
   attemptFunding: { input: { attemptId:string }; output: { settledNanousd:number; heldNanousd:number } };
-  grantFunding: { input: { amountNanousd:number; authorizationRef:string; grantedBy:string; now:number }; output: FundingTotals };
+  /** `provider`: the grant also funds that provider's own budget (see FundingTotals.providers). */
+  grantFunding: { input: { amountNanousd:number; authorizationRef:string; grantedBy:string; now:number; provider?:'OPENAI'|'ANTHROPIC'|null }; output: FundingTotals };
   setFundingPolicy: { input: { attemptCapNanousd:number; ceilingLimitNanousd:number|null; now:number }; output: FundingTotals };
   resolveLiability: { input: { callId:string; costNanousd:number; authorizationRef:string; now:number }; output: FundingTotals };
   heldLiabilities: { input: {}; output: Array<{ callId:string; attemptId:string; reservedNanousd:number; createdAt:number; callState:string|null; outcome:string|null; responseId:string|null }> };

@@ -1,10 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { ProviderCallIntent } from '../providers/accounting.js';
-import { StoreError, type FundingTotals, type StoreOperations } from './contracts.js';
+import { StoreError, type FundingTotals, type ProviderBudget, type StoreOperations } from './contracts.js';
 import { stopPaid } from './operator.js';
 
 const invalid = (): never => { throw new StoreError('STORE_INVALID','Invalid funding request.'); };
 const time = (n: number) => { if (!Number.isSafeInteger(n) || n < 0) invalid(); };
+/** Policy ceiling for any one attempt; the configured operating cap must sit at or below it. */
 /** Policy ceiling for any one attempt; the configured operating cap must sit at or below it. */
 export const ATTEMPT_CAP_LIMIT_NANOUSD = 15_000_000_000;
 /** FUNDS_BUSY: the hold does not fit only because sibling calls of the same phase are still holding their worst case. */
@@ -20,6 +21,9 @@ export type Refusal = { refused: 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED'
  *
  * Nothing here refunds on abandon, expiry, ban, deletion, restart or cleanup. A reservation is
  * released only for a call that provably never left the process.
+ *
+ * A grant may also name a provider. That provider then has a budget of its own, mirroring the owner's
+ * account with it: from its first such grant, each of its calls must fit both the pool and its budget.
  */
 export class FundingRepository {
   constructor(private db: DatabaseSync) {}
@@ -35,7 +39,19 @@ export class FundingRepository {
     const unknown = Number(this.db.prepare(`SELECT COALESCE(sum(r.reserved_nanousd),0) n FROM reservations r LEFT JOIN provider_calls c ON c.id=r.call_id
       WHERE r.state='HELD' AND (c.id IS NULL OR c.outcome IS NOT NULL OR c.received_at IS NOT NULL)`).get()!.n);
     return { grantedNanousd:granted, ceilingNanousd:ceiling, settledNanousd:settled, reservedNanousd:held-unknown, unknownLiabilityNanousd:unknown,
-      availableNanousd:Math.max(0,ceiling-settled-held), attemptCapNanousd:Number(pool.attempt_cap_nanousd), grants:Number(grants.n) };
+      availableNanousd:Math.max(0,ceiling-settled-held), attemptCapNanousd:Number(pool.attempt_cap_nanousd), grants:Number(grants.n),
+      providers:{ OPENAI:this.budget('OPENAI'), ANTHROPIC:this.budget('ANTHROPIC') } };
+  }
+  /** One provider's budget: its grants, and its calls reserved since the first of them (settled, extra charges, held). */
+  private budget(provider: 'OPENAI' | 'ANTHROPIC'): ProviderBudget | null {
+    const grants = this.db.prepare('SELECT count(*) n,COALESCE(sum(amount_nanousd),0) total,min(granted_at) since FROM funding_grants WHERE provider=?').get(provider)!;
+    if (!Number(grants.n)) return null;
+    const since = Number(grants.since), calls = `FROM reservations r JOIN provider_calls c ON c.id=r.call_id WHERE json_extract(c.intent_json,'$.provider')=?1 AND r.created_at>=?2`;
+    const settled = Number(this.db.prepare(`SELECT COALESCE(sum(r.settled_nanousd),0) n ${calls} AND r.state='SETTLED'`).get(provider,since)!.n)
+      + Number(this.db.prepare(`SELECT COALESCE(sum(a.delta_nanousd),0) n FROM funding_adjustments a JOIN reservations r ON r.call_id=a.call_id JOIN provider_calls c ON c.id=r.call_id
+        WHERE json_extract(c.intent_json,'$.provider')=?1 AND r.created_at>=?2`).get(provider,since)!.n);
+    const held = Number(this.db.prepare(`SELECT COALESCE(sum(r.reserved_nanousd),0) n ${calls} AND r.state='HELD'`).get(provider,since)!.n), granted = Number(grants.total);
+    return { grantedNanousd:granted, settledNanousd:settled, heldNanousd:held, availableNanousd:Math.max(0,granted-settled-held), since, grants:Number(grants.n) };
   }
   attempt(attemptId: string): { settledNanousd: number; heldNanousd: number } {
     return { settledNanousd:Number(this.db.prepare('SELECT settled_nanousd FROM attempt_spend WHERE attempt_id=?').get(attemptId)?.settled_nanousd ?? 0), heldNanousd:this.heldTotal(attemptId) };
@@ -45,9 +61,11 @@ export class FundingRepository {
     time(input.now);
     if (!Number.isSafeInteger(input.amountNanousd) || input.amountNanousd < 1 || input.amountNanousd > 1_000_000_000_000_000) invalid();
     if (typeof input.authorizationRef !== 'string' || !/^[A-Za-z0-9:_.-]{8,100}$/.test(input.authorizationRef) || typeof input.grantedBy !== 'string' || !/^[A-Za-z0-9:_-]{1,100}$/.test(input.grantedBy)) invalid();
-    const prior = this.db.prepare('SELECT amount_nanousd FROM funding_grants WHERE authorization_ref=?').get(input.authorizationRef);
-    if (prior) { if (Number(prior.amount_nanousd) !== input.amountNanousd) throw new StoreError('STORE_CONFLICT','This authorization reference was already used for a different amount.'); return this.totals(); }
-    this.db.prepare('INSERT INTO funding_grants(authorization_ref,amount_nanousd,granted_at,granted_by) VALUES(?,?,?,?)').run(input.authorizationRef,input.amountNanousd,input.now,input.grantedBy);
+    const provider = input.provider ?? null;
+    if (provider !== null && provider !== 'OPENAI' && provider !== 'ANTHROPIC') invalid();
+    const prior = this.db.prepare('SELECT amount_nanousd,provider FROM funding_grants WHERE authorization_ref=?').get(input.authorizationRef);
+    if (prior) { if (Number(prior.amount_nanousd) !== input.amountNanousd || (prior.provider ?? null) !== provider) throw new StoreError('STORE_CONFLICT','This authorization reference was already used for a different amount or provider.'); return this.totals(); }
+    this.db.prepare('INSERT INTO funding_grants(authorization_ref,amount_nanousd,granted_at,granted_by,provider) VALUES(?,?,?,?,?)').run(input.authorizationRef,input.amountNanousd,input.now,input.grantedBy,provider);
     return this.totals();
   }
   /** Server-owned operating limits. A limit can only narrow what grants allow; it is never a source of funds. */
@@ -71,8 +89,9 @@ export class FundingRepository {
       WHERE r.state='HELD' AND c.operation_id=? AND c.outcome IS NULL AND c.received_at IS NULL LIMIT 1`).get(intent.fence.operationId));
     // The attempt cap is checked first: one costly attempt must not be reported as an empty pool.
     if (own.settledNanousd + own.heldNanousd + amount > Number(pool.attempt_cap_nanousd)) return { refused: siblingsInFlight() ? 'FUNDS_BUSY' : 'ATTEMPT_BUDGET_EXHAUSTED' };
-    const totals = this.totals();
-    if (amount > totals.availableNanousd) {
+    const totals = this.totals(), budget = totals.providers[intent.provider];
+    // A provider with a budget of its own is limited by it as well: its account can run out before the pool does.
+    if (amount > totals.availableNanousd || (budget && amount > budget.availableNanousd)) {
       if (siblingsInFlight()) return { refused:'FUNDS_BUSY' };
       stopPaid(this.db,'BUDGET_EXHAUSTED',now);
       return { refused:'BUDGET_EXHAUSTED' };
@@ -84,7 +103,8 @@ export class FundingRepository {
   dispatchAllowed(intent: ProviderCallIntent, now: number): Refusal | null {
     const own=this.attempt(intent.fence.attemptId),totals=this.totals();
     if(own.settledNanousd+own.heldNanousd>totals.attemptCapNanousd)return {refused:'ATTEMPT_BUDGET_EXHAUSTED'};
-    if(totals.settledNanousd+totals.reservedNanousd+totals.unknownLiabilityNanousd>totals.ceilingNanousd){
+    const budget=totals.providers[intent.provider];
+    if(totals.settledNanousd+totals.reservedNanousd+totals.unknownLiabilityNanousd>totals.ceilingNanousd||(budget&&budget.settledNanousd+budget.heldNanousd>budget.grantedNanousd)){
       stopPaid(this.db,'BUDGET_EXHAUSTED',now);return {refused:'BUDGET_EXHAUSTED'};
     }
     return null;

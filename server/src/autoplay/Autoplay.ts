@@ -175,8 +175,15 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   }
   // Checked here, before anything is created: starting against an empty or paused ledger would otherwise pause it for everything.
   if ((await store.call('paidState',{})).stopped) throw new Error('Sponsored play is paused in this database (a grant ran out, or it was paused). Record a grant if needed, then run again with --resume-paid.');
-  if (!attempt && (await store.call('fundingTotals',{})).availableNanousd < plan.reservationNanousd * plan.maxConcurrentDecisions)
+  const funds = await store.call('fundingTotals',{});
+  if (!attempt && funds.availableNanousd < plan.reservationNanousd * plan.maxConcurrentDecisions)
     throw new Error('Not enough funds to start. Record a funding grant first: npm run storage -- grant DATABASE <usd> <your-reference>');
+  // A provider with a budget of its own must be able to pay for a phase's worth of its own calls too.
+  for (const contract of plan.contracts) {
+    const budget = funds.providers[contract.preset.provider];
+    if (!attempt && budget && budget.availableNanousd < contract.reservationNanousd(contract.preset.maxInputTokens) * plan.maxConcurrentDecisions)
+      throw new Error(`Not enough left in the ${contract.preset.provider === 'OPENAI' ? 'OpenAI' : 'Anthropic'} budget to start. Record a grant for it: npm run storage -- grant DATABASE <usd> <your-reference> ${contract.preset.provider.toLowerCase()}`);
+  }
   attempt ??= await store.call('createAttempt',{ id, playerId: player.id, challengeId: definition.id, challengeVersion: definition.version, now: now(), reconnectTokenHash: hashToken(id),
     sponsored: { preset: { id: plan.id, pricingVersion: plan.pricingVersion }, minimumAvailableNanousd: plan.reservationNanousd } });
 
@@ -236,7 +243,7 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
         if (unsent ? waited >= maxWaits : used >= maxRecoveries) {
           status = 'WAITING';
           const paid = await store.call('paidState',{});
-          waitingOn = paid.stopped ? 'Sponsored play is stopped (the funding grant is used up, or it was paused). Add a grant or resume, then run again with the same run ID.'
+          waitingOn = paid.stopped ? 'Sponsored play is stopped: a budget is used up (the pool, or a provider\'s own; npm run storage -- funding shows which), or it was paused. Add a grant, then run again with the same run ID and --resume-paid.'
             : unsent ? `${before.phaseId.split(':').slice(-3).join(' ')}: the provider could not be reached or refused requests ${waited + 1} times over several minutes (${failures.at(-1)!.reason}). Nothing was billed for those. Check your connection and the provider's status, then run again with the same run ID.`
             : `${before.phaseId.split(':').slice(-3).join(' ')} could not be decided after ${used} recover${used === 1 ? 'y' : 'ies'}: ${failures.at(-1)?.reason ?? 'no reason recorded'}. ${
               /CALL_LIMIT/.test(failures.at(-1)?.reason ?? '') ? `That power has used all ${orderCalls} of its orders calls for this phase; run again with the same run ID and a higher --order-calls to give it more.` : 'Run again with the same run ID to try again.'}`;

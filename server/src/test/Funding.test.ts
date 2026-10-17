@@ -42,7 +42,7 @@ async function setup(t:test.TestContext,granted:number|null=1_000_000){
 
 test('a database with no grant admits no paid call, records the stop and leaves no call or reservation behind',async t=>{
   const f=await setup(t,null),p=await f.phase('a');
-  assert.deepEqual(await f.totals(),{grantedNanousd:0,ceilingNanousd:0,settledNanousd:0,reservedNanousd:0,unknownLiabilityNanousd:0,availableNanousd:0,attemptCapNanousd:1_000_000_000,grants:0});
+  assert.deepEqual(await f.totals(),{grantedNanousd:0,ceilingNanousd:0,settledNanousd:0,reservedNanousd:0,unknownLiabilityNanousd:0,availableNanousd:0,attemptCapNanousd:1_000_000_000,grants:0,providers:{OPENAI:null,ANTHROPIC:null}});
   await assert.rejects(p.prepare('first'),{code:'BUDGET_EXHAUSTED'});
   assert.equal(await f.store.call('providerCall',{id:'first'}),null);
   assert.equal(f.sql(db=>Number(db.prepare('SELECT count(*) n FROM reservations').get()!.n)),0);
@@ -88,7 +88,7 @@ test('a call reserves its worst case, settles its real cost exactly once and nev
   const receipt={id:'one',responseId:'resp_one',usage:usage(12_345),now:f.now()};
   await Promise.all([f.store.call('receiveProviderCall',receipt),f.store.call('receiveProviderCall',receipt)]);
   await f.store.call('receiveProviderCall',receipt);
-  assert.deepEqual(await f.totals(),{grantedNanousd:1_000_000,ceilingNanousd:1_000_000,settledNanousd:12_345,reservedNanousd:0,unknownLiabilityNanousd:0,availableNanousd:987_655,attemptCapNanousd:1_000_000_000,grants:1});
+  assert.deepEqual(await f.totals(),{grantedNanousd:1_000_000,ceilingNanousd:1_000_000,settledNanousd:12_345,reservedNanousd:0,unknownLiabilityNanousd:0,availableNanousd:987_655,attemptCapNanousd:1_000_000_000,grants:1,providers:{OPENAI:null,ANTHROPIC:null}});
   assert.deepEqual(await f.store.call('attemptFunding',{attemptId:'a'}),{settledNanousd:12_345,heldNanousd:0});
   await assert.rejects(f.store.call('receiveProviderCall',{...receipt,usage:usage(1)}),{code:'STORE_CONFLICT'});
   assert.equal((await f.totals()).settledNanousd,12_345);
