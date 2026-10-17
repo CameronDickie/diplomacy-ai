@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ALL_POWERS, TERRITORIES, type ChallengeLegalCatalog, type Power } from '@diplomacy/shared';
 import { phaseTitle, title } from '../challenge/text.js';
 import { useOrderEntry } from '../challenge/useOrderEntry.js';
@@ -57,6 +57,9 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
   useEffect(() => { if (talking) setTab('messages'); else if (ordering) setTab('orders'); setConfirming(false); setError(null); }, [waiting?.kind, waiting?.phaseId]);
   const openCount = open ? thread(open).length : 0;
   useEffect(() => { if (open && (seen[open] ?? 0) !== openCount) setSeen(s => ({ ...s, [open]: openCount })); }, [open, openCount]);
+  // Like any chat, a conversation opens at its latest message and follows new ones.
+  const logRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { const log = logRef.current; if (log) log.scrollTop = log.scrollHeight; }, [open, openCount, tab]);
   // Legal orders load as soon as the game is waiting for you in an orders turn, so you can plan while you write.
   useEffect(() => {
     if (!waiting || board.phase !== 'ORDERS' || legal?.key === boardKey) return;
@@ -100,7 +103,7 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
   const out = !board.units.some(u => u.power === seat);
   const step = !game.live.running ? 'The game is not being played. Continue it to take your turn.'
     : out ? 'You have been eliminated; the game plays on without you.'
-    : talking ? 'Your messages: write to anyone you like (one message to each power this turn), then send. You can plan your orders meanwhile.'
+    : talking ? 'Write to anyone you like (one message each), then send. Each replies once; plan your orders meanwhile.'
     : ordering ? (board.phase === 'ORDERS' ? 'Your orders: the replies are in. The others are choosing their orders now.' : board.phase === 'RETREATS' ? 'Your retreats: choose where your dislodged units go.' : 'Your builds: choose what to build or disband.')
     : 'The other powers are writing or deciding…';
   // Chats with news first, then powers you have talked to, then the rest.
@@ -134,23 +137,23 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
       </ul>}
 
       {tab === 'messages' && open && <div className="viewer-chat">
-        <button type="button" className="dip-link" onClick={() => setOpen(null)}>← All chats</button>
-        <h3><span className="viewer-power"><i style={{ background: lineColor(open) }} aria-hidden="true" />{title(open)} <small>{MODEL_NAMES[modelOf(game, open)]}</small></span></h3>
-        <div className="viewer-chat-log" aria-live="polite">
+        <div className="viewer-chat-top"><button type="button" className="dip-link" onClick={() => setOpen(null)}>← All chats</button>
+          <span className="viewer-power"><i style={{ background: lineColor(open) }} aria-hidden="true" />{title(open)} <small>{MODEL_NAMES[modelOf(game, open)]}</small></span></div>
+        <div className="viewer-chat-log" aria-live="polite" ref={logRef}>
           {thread(open).length === 0 && <p className="dip-muted dip-small">Nothing has been said between you yet.</p>}
           {thread(open).map((l, i, all) => <div key={i} className="viewer-chat-row">
             {(i === 0 || all[i - 1].phaseId !== l.phaseId) && <p className="viewer-chat-turn">{turnOf(l.phaseId)}</p>}
             <p className={`viewer-bubble${l.from === seat ? ' is-mine' : ''}`}>{l.body}</p></div>)}
         </div>
-        {talking && alive.includes(open) ? <label className="viewer-chat-compose">Your message to {title(open)} this turn
-          <textarea rows={3} maxLength={500} value={drafts[open] ?? ''} placeholder="One message per power each turn, up to 500 characters."
+        {talking && alive.includes(open) ? <label className="viewer-chat-compose">
+          <textarea rows={2} aria-label={`Your message to ${title(open)} this turn`} maxLength={500} value={drafts[open] ?? ''} placeholder={`Your message to ${title(open)} this turn`}
             onChange={e => draft(open, e.target.value)} />
-          <small className="dip-muted">{(drafts[open] ?? '').length}/500 · sent together with your other messages below</small></label>
+          <small className="dip-muted">{(drafts[open] ?? '').length}/500 · sent with your other messages</small></label>
           : <p className="dip-small dip-muted">{!alive.includes(open) ? `${title(open)} is out of the game.` : 'You can write at the start of each orders turn, after the others have written.'}</p>}
       </div>}
 
       {tab === 'messages' && talking && <div className="viewer-send">
-        <p className="dip-small">{messages.length ? `Ready to send to ${messages.map(m => title(m.to)).join(', ')}.` : 'No messages written yet; you can also send nothing this turn.'} Each power you write to replies once, then you give your orders.</p>
+        <p className="dip-small">{messages.length ? `To ${messages.map(m => title(m.to)).join(', ')}` : 'Nothing written yet'}</p>
         <button type="button" className="dip-solid" disabled={busy} onClick={() => void send(() => fullGamesApi.talk(game.run.runId, messages))}>
           {busy ? 'Sending…' : messages.length ? `Send ${messages.length} message${messages.length === 1 ? '' : 's'}` : 'Send nothing this turn'}</button>
       </div>}
