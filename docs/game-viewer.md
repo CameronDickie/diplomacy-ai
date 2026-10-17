@@ -60,7 +60,13 @@ drawn on it, and two tabs.
   in the game (up to 500 characters), and **Send** sends them together (or
   nothing).
 - **Orders** can be planned while you write; your choices are kept, and are
-  submitted once the replies are in.
+  submitted once the replies are in. On the map, click one of your units and
+  then a highlighted place to move it there (by convoy when only a convoy can
+  reach it; the fleet that can carry it is ordered to convoy it). Click the unit
+  again to let it go. Supports and convoys are chosen in the list. An army sent
+  by convoy without a fleet ordered to carry it cannot be submitted. When no
+  convoy is possible the panel says why: an army can be convoyed only from a
+  coast touching the sea its fleet is in.
 
 Each orders turn:
 
@@ -72,6 +78,13 @@ Each orders turn:
    the game accepts them.
 
 What you have read and unsent drafts are kept in this browser for each game.
+
+While you hold a seat in a game that has not ended, the viewer below the panel
+shows only what every player can see: the board, the supply-center chart and
+each turn's resolved orders. The other powers' messages to each other, their
+private notes, the call details, the whole-game statistics and the log's lines
+about failed model answers (which quote their intended orders) appear when the
+game ends.
 
 Retreats and builds ask only for your orders, and a phase that asks nothing of
 you plays on without waiting. **Stop** while the game waits for you stops it at

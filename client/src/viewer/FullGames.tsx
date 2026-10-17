@@ -120,6 +120,8 @@ export function LiveControls({ game, list, onChanged }: { game: LiveGame; list: 
   const [paid, setPaid] = useState({ ref: rememberedRef(), cap: String(list ? list.funding.attemptCapNanousd / 1e9 : 5), resume: false });
   // A game continues with the kind of models it was started with.
   const live = !game.standIn;
+  // While a person plays a seat, the log leaves out the models' failed answers, which quote their intended orders.
+  const log = game.settings.seat && game.status !== 'FINISHED' ? game.live.log.filter(line => !line.trimStart().startsWith('!')) : game.live.log;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const status = game.live.status, finished = game.status === 'FINISHED' && !game.live.running;
@@ -144,7 +146,7 @@ export function LiveControls({ game, list, onChanged }: { game: LiveGame; list: 
       </>}
     </div>
     {!game.live.running && !finished && list && live && <div className="dip-form"><PaidFields list={list} providers={providers} state={paid} onChange={setPaid} /></div>}
-    {game.live.log.length > 0 && <details open={game.live.running}><summary>Log ({game.live.log.length} lines)</summary>
-      <pre className="viewer-log">{game.live.log.slice(-40).join('\n')}</pre></details>}
+    {log.length > 0 && <details open={game.live.running}><summary>Log ({log.length} lines)</summary>
+      <pre className="viewer-log">{log.slice(-40).join('\n')}</pre></details>}
   </section>;
 }

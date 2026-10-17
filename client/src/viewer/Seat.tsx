@@ -8,7 +8,6 @@ import { lineColor } from './CenterChart.js';
 import { fullGamesApi, type LiveGame } from './FullGames.js';
 import { MODEL_NAMES, modelOf } from './record.js';
 
-const ignore = () => undefined;
 const NO_OPTIONS = { attemptId: '', phaseId: '', revision: 0, options: [] };
 const turnOf = (phaseId: string) => { const [year, season] = phaseId.split(':').slice(-3); return `${title(season)} ${year}`; };
 type Line = { phaseId: string; from: Power; to: Power; body: string; round: 'ASK' | 'REPLY' };
@@ -70,9 +69,24 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
   // kept from the messages to the orders step, since both belong to the same phase.
   const attemptLike = useMemo(() => ({ id: game.run.runId, phaseId: boardKey, lifecycle: 'ACTIVE', execution: ordering ? 'ACCEPTING' : 'DECIDING', board }), [game.run.runId, boardKey, ordering, board]);
   const entry = useOrderEntry(attemptLike as never, { humanPower: seat, board } as never, catalog, busy, 'seat');
+  // On the map: click one of your units, then a place it can move to (directly or by convoy). Clicking the
+  // unit again lets it go. Supports and convoys are chosen in the list.
+  const movesOf = (territory: string) => entry.options.filter(o => o.unitTerritory === territory && ['MOVE', 'MOVE_VIA_CONVOY'].includes(o.id.split('|')[1]));
+  const baseOf = (id: string) => id.split('|')[2].split('/')[0];
+  const moveTargets = board.phase === 'ORDERS' && entry.selectedUnit ? [...new Set(movesOf(entry.selectedUnit.territory).map(o => baseOf(o.id)))] as never[] : [];
+  function clickMap(territory: string) {
+    if (entry.active.some(u => u.territory === territory)) { setTab('orders'); entry.setSelected(now => now === territory ? null : territory); return; }
+    const unit = entry.selectedUnit;
+    if (!unit || board.phase !== 'ORDERS') return;
+    const moves = movesOf(unit.territory).filter(o => baseOf(o.id) === territory);
+    const pick = moves.find(o => o.id.split('|')[1] === 'MOVE') ?? moves[0];
+    if (pick) { entry.choose(unit, pick.id); entry.setSelected(null); }
+  }
   const mapState = useMemo(() => ({ units: board.units, territories: Object.fromEntries(TERRITORIES.map(t => [t.id, { id: t.id, isSupplyCenter: t.isSupplyCenter, owner: board.territoryOwners[t.id] }])) }), [board]);
   const held = useMemo(() => heldTerritories(game.record.phases.flatMap(p => p.report ? [p.report] : []), board.units), [game.record.phases, board]);
 
+  // A convoy only works with its fleet: an army sent by convoy with no fleet ordered to carry it is not submitted.
+  const ready = entry.complete && entry.convoyWarnings.length === 0;
   async function send(action: () => Promise<unknown>) {
     setBusy(true); setError(null);
     try { await action(); setConfirming(false); onChanged(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -92,8 +106,8 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
   return <section className="dip-play viewer-seat" aria-label="Your turn">
     <section className="dip-map" aria-label={`Board now, ${phaseTitle(board)}`}>
       <MapGraph gameState={mapState} heldTerritories={held} selectedTerritory={entry.selected as never} selectedUnit={entry.selectedUnit}
-        validTargets={[]} pendingOrders={board.phase === 'ORDERS' ? entry.chosenOrders : []} onSelectTerritory={territory => { if (entry.own.some(u => u.territory === territory)) { setTab('orders'); entry.setSelected(now => now === territory ? null : territory); } }}
-        onClearSelection={ignore} />
+        validTargets={moveTargets} pendingOrders={board.phase === 'ORDERS' ? entry.chosenOrders : []} onSelectTerritory={clickMap}
+        onClearSelection={() => entry.setSelected(null)} />
       <a className="dip-map-credit" href="/legal.html">Map: Godip contributors · GPL-3.0</a>
     </section>
     <aside className="viewer-seat-panel">
@@ -155,11 +169,13 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
               <option value="">No build</option><option value="ARMY">Army</option>{h.type !== 'LAND' && (h.coasts.length ? h.coasts.map(c => <option key={c} value={`FLEET/${c}`}>Fleet · {c} coast</option>) : <option value="FLEET">Fleet</option>)}</select></label>)
               : entry.own.map(u => <label key={u.id} className="dip-check"><input type="checkbox" disabled={busy} checked={entry.disbands.includes(u.id)}
                 onChange={e => entry.setDisbands(v => e.target.checked ? [...v, u.id] : v.filter(id => id !== u.id))} />{title(u.type)} in {territoryName(u.territory)}</label>)}</>}
+          {entry.convoyHint && <p className="dip-small dip-muted">No convoys are possible this turn. A fleet can carry an army only from a coast that touches the sea the fleet is in (for example, an army in Yorkshire with a fleet in the North Sea), and the fleet must be ordered to convoy it.</p>}
           {entry.convoyWarnings.map(w => <p className="dip-notice" key={w}>{w}</p>)}
+          {ordering && entry.convoyWarnings.length > 0 && <p className="dip-small">Pair each convoy with its fleet before submitting.</p>}
           {ordering && (confirming ? <div className="viewer-live-actions"><span className="dip-small">Submit these orders? They cannot be changed afterwards.</span>
-            <button type="button" className="dip-solid" disabled={busy || !entry.complete} onClick={() => { const action = entry.submission(); if (action) void send(() => fullGamesApi.act(game.run.runId, action)); }}>{busy ? 'Submitting…' : 'Yes, submit'}</button>
+            <button type="button" className="dip-solid" disabled={busy || !ready} onClick={() => { const action = entry.submission(); if (action) void send(() => fullGamesApi.act(game.run.runId, action)); }}>{busy ? 'Submitting…' : 'Yes, submit'}</button>
             <button type="button" className="dip-link" onClick={() => setConfirming(false)}>Keep editing</button></div>
-            : <button type="button" className="dip-solid" disabled={busy || !entry.complete} onClick={() => setConfirming(true)}>Submit orders</button>)}
+            : <button type="button" className="dip-solid" disabled={busy || !ready} onClick={() => setConfirming(true)}>Submit orders</button>)}
           {talking && board.phase === 'ORDERS' && <button type="button" className="dip-link" onClick={() => setTab('messages')}>Back to your messages</button>}
         </>}
       </div>}

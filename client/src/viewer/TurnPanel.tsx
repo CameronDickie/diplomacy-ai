@@ -10,19 +10,20 @@ const Badge = ({ game, power }: { game: AutoplayGameFile; power: Power }) =>
 const nano = (n: number | null) => n === null ? '—' : `$${(n / 1e9).toFixed(4)}`;
 
 /** One turn in words: what each power ordered and how it went, what they said to each other, and what each call cost. */
-export function TurnPanel({ game, turn, tab, onTab }: { game: AutoplayGameFile; turn: Turn; tab: Tab; onTab: (tab: Tab) => void }) {
+/** `player`: a person is playing a seat in this unfinished game, so only the resolved orders are shown. */
+export function TurnPanel({ game, turn, tab, onTab, player }: { game: AutoplayGameFile; turn: Turn; tab: Tab; onTab: (tab: Tab) => void; player?: Power }) {
   const asks = turn.talk.filter(t => t.round === 'ASK').flatMap(t => t.messages.map(m => ({ from: t.power, to: m.to, body: m.body })));
   const replies = turn.talk.filter(t => t.round === 'REPLY').flatMap(t => t.messages.map(m => ({ from: t.power, to: m.to, body: m.body })));
   const rows = reportRows(turn.report);
   const powers = ALL_POWERS.filter(p => rows.some(r => r.power === p));
   return <aside className="viewer-panel" aria-label="This turn">
     <div className="viewer-tabs" role="tablist">
-      {([['orders', 'Orders'], ['messages', `Messages${asks.length ? ` · ${asks.length + replies.length}` : ''}`], ['calls', `Calls${turn.failures.length ? ` · ${turn.failures.length} failed` : ''}`]] as const).map(([id, label]) =>
+      {([['orders', 'Orders'], ...(player ? [] : [['messages', `Messages${asks.length ? ` · ${asks.length + replies.length}` : ''}`], ['calls', `Calls${turn.failures.length ? ` · ${turn.failures.length} failed` : ''}`]] as const)] as const).map(([id, label]) =>
         <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => onTab(id)}>{label}</button>)}
     </div>
     {tab === 'orders' && (powers.length === 0 ? <p className="dip-muted">Nothing changed in this step.</p> : powers.map(p =>
       <section key={p} className="viewer-block"><Badge game={game} power={p} />
-        {turn.notes.filter(n => n.power === p).map((n, i) => <p key={i} className="viewer-note"><span className="dip-muted">Private note:</span> {n.note}</p>)}
+        {!player && turn.notes.filter(n => n.power === p).map((n, i) => <p key={i} className="viewer-note"><span className="dip-muted">Private note:</span> {n.note}</p>)}
         <ul>{rows.filter(r => r.power === p).map((r, i) => <li key={i} className={r.failed ? 'is-failed' : ''}>{r.text}<small>{r.result}</small></li>)}</ul></section>))}
     {tab === 'messages' && (asks.length === 0 ? <p className="dip-muted">{turn.report.phase === 'ORDERS' ? 'Nobody wrote to anyone this turn.' : 'Powers write to each other only before orders.'}</p>
       : asks.map((ask, i) => {

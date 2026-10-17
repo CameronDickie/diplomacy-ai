@@ -99,7 +99,9 @@ function DatabaseGame({ runId, at, list, onChanged }: { runId: string; at: numbe
   const changed = () => { onChanged(); setTick(t => t + 1); };
   // A seated game shows your turn above the usual view while it is being played.
   const controls = <><LiveControls game={game} list={list} onChanged={changed} />{game.settings.seat && game.live.running && <SeatPanel game={game} onChanged={changed} />}</>;
-  return game.record.phases.some(p => p.report) ? <GameView game={game} at={at} follow={game.live.running} prefix="db" controls={controls} />
+  // While you hold a seat in a game that has not ended, show only what every player may see.
+  const player = game.settings.seat && game.status !== 'FINISHED' ? game.settings.seat : undefined;
+  return game.record.phases.some(p => p.report) ? <GameView game={game} at={at} follow={game.live.running} prefix="db" controls={controls} player={player} />
     : <main id="dip-content"><div className="dip-heading"><h1>{runId}</h1></div>{controls}<p className="dip-muted">No phase has been played yet.</p></main>;
 }
 
@@ -130,7 +132,12 @@ function Library({ games, list }: { games: AutoplayIndexEntry[]; list: FullGames
 }
 
 /** `follow`: a game being played; the view moves to each new phase as it arrives if it was showing the latest. */
-function GameView({ game, at, follow = false, prefix, controls }: { game: AutoplayGameFile; at: number | null; follow?: boolean; prefix?: string; controls?: ReactNode }) {
+/**
+ * `player`: the power a person is playing in this unfinished game. Only what every player may see is shown:
+ * the board and each turn's resolved orders, but no private notes, no messages between other powers and no
+ * call details; they appear once the game ends.
+ */
+function GameView({ game, at, follow = false, prefix, controls, player }: { game: AutoplayGameFile; at: number | null; follow?: boolean; prefix?: string; controls?: ReactNode; player?: Power }) {
   const turns = useMemo(() => turnsOf(game), [game]);
   const mix = useMemo(() => orderMix(game, turns), [game, turns]);
   const out = useMemo(() => eliminations(turns), [turns]);
@@ -194,9 +201,10 @@ function GameView({ game, at, follow = false, prefix, controls }: { game: Autopl
           onSelectTerritory={ignore} onClearSelection={ignore} />
         <a className="dip-map-credit" href="/legal.html">Map: Godip contributors · GPL-3.0</a>
       </section>
-      <TurnPanel game={game} turn={turn} tab={tab} onTab={setTab} />
+      <TurnPanel game={game} turn={turn} tab={player ? 'orders' : tab} onTab={setTab} player={player} />
     </div>
-    <section className="dip-section viewer-facts" aria-label="The whole game">
+    {player ? <p className="dip-muted dip-small viewer-player-note">While you play {title(player)}, this shows only what every player can see: the board and each turn's resolved orders. The other powers' messages to each other, their private notes and the call details appear when the game ends.</p>
+    : <section className="dip-section viewer-facts" aria-label="The whole game">
       <h2>The whole game</h2>
       <div className="dip-scroll"><table className="dip-log">
         <thead><tr><th scope="col">Model</th><th scope="col">Orders</th><th scope="col">Hold</th><th scope="col">Move</th><th scope="col">Support</th><th scope="col">Convoy</th></tr></thead>
@@ -212,6 +220,6 @@ function GameView({ game, at, follow = false, prefix, controls }: { game: Autopl
         <div><dt>Shown</dt><dd>Phase {index + 1} of {turns.length}</dd></div>
       </dl>
       <p className="dip-muted dip-small">Keys: left and right arrows step through phases, space plays and pauses. Click or drag on the chart to jump.</p>
-    </section>
+    </section>}
   </main>;
 }
