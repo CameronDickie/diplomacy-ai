@@ -321,6 +321,18 @@ export async function describeGame(store: Store, runId: string, extra: { failure
   const calls = (await store.call('providerCallsForAttempt',{ attemptId: attempt.id })).filter(c => c.role !== 'CHAT').sort((a,b) => a.createdAt - b.createdAt);
   const keyOf = (model: string) => (Object.keys(OPPONENT_CONTRACTS) as ModelKey[]).find(k => OPPONENT_CONTRACTS[k].preset.model === model) ?? 'luna';
   const assignment = Object.fromEntries(ALL_POWERS.map(p => [p,keyOf(calls.filter(c => c.power === p).at(-1)?.model ?? '')])) as Record<Power, ModelKey>;
+  // A power that has made no calls (a person's seat, or a game paused before its first call) still counted
+  // in the run's plan with whatever model it was given. Find the choice that reproduces the stored plan, so
+  // continuing the game is not refused as a change of models.
+  const silent = ALL_POWERS.filter(p => !calls.some(c => c.power === p)), keys = Object.keys(OPPONENT_CONTRACTS) as ModelKey[];
+  const planOf = (a: Record<Power, ModelKey>) => mixedPlan(a,opponentContract(a.AUSTRIA)).id;
+  if (attempt.preset && silent.length > 0 && silent.length <= 3 && planOf(assignment) !== attempt.preset.id) {
+    for (let n = 0; n < keys.length ** silent.length; n++) {
+      const tried = { ...assignment };
+      silent.forEach((p,i) => { tried[p] = keys[Math.floor(n / keys.length ** i) % keys.length]; });
+      if (planOf(tried) === attempt.preset.id) { Object.assign(assignment,tried); break; }
+    }
+  }
   const last = calls.at(-1), contract = last ? OPPONENT_CONTRACTS[keyOf(last.model)] : undefined;
   const effort = (contract && EFFORTS.find(e => contract.reservationNanousd(contract.preset.maxInputTokens,contract.fullGameOutputTokens[e]) === last!.maxCostNanousd)) ?? 'low';
   const transport = calls.some(c => /^(resp|msg)_mock_/.test(c.responseId ?? '')) ? 'mock' : 'live';

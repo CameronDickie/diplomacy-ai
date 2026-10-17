@@ -79,7 +79,8 @@ test('a person can hold one seat: the game waits for their messages and their or
     for (let i = 0; i < 400; i++) { const g = await service.game('seat-a'); if (g?.live.waitingFor?.kind === kind) return g; await new Promise(r => setTimeout(r,25)); }
     throw new Error(`never asked for ${kind}`);
   };
-  await service.start({ runId: 'seat-a', until: 1901, seat: 'FRANCE' });
+  // The seat's own model choice never plays, but it is part of the run's plan; continuing must still match it.
+  await service.start({ runId: 'seat-a', until: 1901, seat: 'FRANCE', assignment: { FRANCE: 'sonnet' } });
   // Spring 1901: the models have written first; the game waits for the person's messages.
   const asked = await wait('TALK');
   assert.equal(asked.settings.seat,'FRANCE'); assert.equal(asked.run.assignment.FRANCE,'human');
@@ -98,8 +99,10 @@ test('a person can hold one seat: the game waits for their messages and their or
   await assert.rejects(service.act('seat-a',{ phase: 'ORDERS', orderIds: ['PAR|MOVE|MUN'] }),/not legal/);
   // Stopping while the game waits for the person stops it at once; continuing asks only for what is still missing.
   assert.equal(service.stop('seat-a'),true); await settle();
-  assert.equal((await service.game('seat-a'))!.live.status,'PAUSED');
-  await service.start({ runId: 'seat-a', until: 1901, seat: 'FRANCE' });
+  const paused = (await service.game('seat-a'))!;
+  assert.equal(paused.live.status,'PAUSED'); assert.equal(paused.settings.assignment.FRANCE,'sonnet');
+  // Continue as the page does: with the settings read back from the game.
+  await service.start({ runId: 'seat-a', until: 1901, seat: 'FRANCE', assignment: paused.settings.assignment });
   const again = await wait('ACT');
   assert.equal(again.record.phases.find(p => p.phaseId === again.live.waitingFor!.phaseId)!.talk!.filter(c => c.power === 'FRANCE').length,1);
   // Every later phase waits for the person too, until the game ends.
