@@ -1,7 +1,7 @@
 # Game viewer
 
-A development-only page for reviewing full games played by models with no human
-player ([autoplay](autoplay.md)). It is at `/viewer` on the development server
+A development-only page for reviewing full games played by models
+([autoplay](autoplay.md)), and for playing one of the seats yourself. It is at `/viewer` on the development server
 and appears in the header as **Game viewer** in the local profile only.
 
 ## Starting and watching games from the page
@@ -32,6 +32,35 @@ nothing is printed). Then open `http://localhost:5173/viewer`.
   its models, effort and end; the log of the run is shown below the status.
 - One game is played at a time.
 
+### Playing a seat yourself
+
+**Your seat** on the New game form puts you in place of one power's model;
+the other six are played as usual. The game then waits for you each phase, as
+long as you need (up to a week per phase), and the game's page shows a
+**Your turn** panel above the viewer: the board now, with your planned orders
+drawn on it, and this turn's messages to and from you.
+
+1. At the start of each orders turn the models write first, to you as well as
+   to each other.
+2. You write at most one message to each power still in the game (up to 500
+   characters each), or send nothing.
+3. The models reply to everyone who wrote to them, you included.
+4. You choose your orders while the models choose theirs; they see the whole
+   conversation when they decide. Orders are checked against the rules before
+   the game accepts them.
+
+Retreats and builds ask only for your orders, and a phase that asks nothing of
+you plays on without waiting. **Stop** while the game waits for you stops it at
+once (the phase is played again when you continue, keeping what was already
+said and decided; the run's log notes that it was interrupted). The library
+shows such a game as **Waiting for you**.
+
+The turn is the harness's own, so games with no seat are played exactly as
+before. Your seat makes no model calls and costs nothing; its messages are kept
+in the game record with the model "You". A seated game is named for its seat
+(the challenge id ends in `-seat-france`, for example), so continuing it keeps
+you in the same seat.
+
 Live games use the same ledger as the autoplay command (`data/autoplay.sqlite`,
 or `DIPLOMACY_AUTOPLAY_DATABASE`), so its budgets and checks apply unchanged.
 Stand-in games are kept in a separate database with pretend funds
@@ -41,7 +70,9 @@ stand-ins and a live game with live models. A game's settings are read back
 from its own calls, and the failures of a run are kept only by the server that
 ran it. The service exists only in the local profile; every request that
 starts or stops a game needs a trusted browser origin, and the server listens
-only on this machine.
+only on this machine. To run a second development server beside the usual one,
+give it another `PORT` and start the client with the same port in
+`DIPLOMACY_API_PORT`.
 
 ## Getting games into it
 

@@ -104,6 +104,8 @@ export interface StoreOperations {
   chatFail: { input: { messageId:string; now:number }; output: void };
   /** One power's messages to other powers before an orders phase, kept with the call that produced them. */
   savePowerTalk: { input: { callId:string; messages:Array<{ to:Power; body:string }>; now:number }; output: null };
+  /** A person's messages in a full game where they hold one seat; written once per phase, with no paid call behind them. */
+  saveHumanTalk: { input: { attemptId:string; operationId:string; phaseId:string; power:Power; messages:Array<{ to:Power; body:string }>; now:number }; output: null };
   powerTalks: { input: { attemptId:string }; output: Array<import('./talks.js').StoredPowerTalk> };
   /** Model-only full games (development): every attempt the autoplay tool created, oldest first. */
   fullGames: { input: {}; output: Array<{ id:string; lifecycle:string; execution:string; year:number; season:string; phase:string; territoryOwners:Record<string,string|null>; createdAt:number; updatedAt:number }> };

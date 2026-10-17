@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ALL_POWERS, type AutoplayGameFile, type Power } from '@diplomacy/shared';
+import { ALL_POWERS, type AutoplayGameFile, type ChallengeLegalCatalog, type Power, type Unit } from '@diplomacy/shared';
 import { challengeRequest } from '../hooks/useChallenge.js';
 import { title } from '../challenge/text.js';
 import { MODEL_NAMES, modelKey } from './record.js';
@@ -8,16 +8,21 @@ import { MODEL_NAMES, modelKey } from './record.js';
 type Provider = 'OPENAI' | 'ANTHROPIC';
 export interface FullGamesList {
   /** `standIn`: a free game with simulated models, kept in a separate database from the real ledger. */
-  games: Array<{ runId: string; standIn: boolean; lifecycle: string; year: number; season: string; phase: string; centers: Record<Power, number>; running: boolean; createdAt: number; updatedAt: number }>;
+  games: Array<{ runId: string; standIn: boolean; lifecycle: string; year: number; season: string; phase: string; centers: Record<Power, number>; running: boolean; waiting: boolean; createdAt: number; updatedAt: number }>;
   funding: { availableNanousd: number; attemptCapNanousd: number; providers: Record<Provider, { availableNanousd: number } | null> };
   paidStopped: boolean; running: string | null; keys: Record<Provider, boolean>;
   models: Record<string, { model: string; provider: Provider }>; defaultAssignment: Record<Power, string>;
 }
-export interface GameSettings { assignment: Record<Power, string>; lastYear: number; effort: 'low' | 'medium' | 'high'; transport: 'mock' | 'live'; talkRecipients: number }
-export type LiveGame = AutoplayGameFile & { settings: GameSettings; standIn: boolean; live: { running: boolean; log: string[]; startedAt: number | null; error: string | null; status: string; waitingOn: string | null } };
+export interface GameSettings { assignment: Record<Power, string>; lastYear: number; effort: 'low' | 'medium' | 'high'; transport: 'mock' | 'live'; talkRecipients: number; seat: Power | null }
+export type LiveGame = AutoplayGameFile & { settings: GameSettings; standIn: boolean; current: BoardSnapshot;
+  live: { running: boolean; log: string[]; startedAt: number | null; error: string | null; status: string; waitingOn: string | null; waitingFor: { kind: 'TALK' | 'ACT'; phaseId: string } | null } };
+/** The board as it stands now (the phase being played), as the server stores it. */
+export interface BoardSnapshot { year: number; season: 'SPRING' | 'FALL' | 'WINTER'; phase: 'ORDERS' | 'RETREATS' | 'BUILDS'; units: Unit[]; territoryOwners: Record<string, Power | null> }
 export interface StartRequest {
   runId: string; assignment: Record<Power, string>; until: number | 'win'; effort: 'low' | 'medium' | 'high'; messages: number;
   live: boolean; authorizationRef?: string; attemptCapUsd?: number; resumePaid?: boolean;
+  /** You play this power; the game waits for you each phase. */
+  seat?: Power;
 }
 
 export const fullGamesApi = {
@@ -25,6 +30,9 @@ export const fullGamesApi = {
   game: (runId: string) => challengeRequest<LiveGame>(`/full-games/${encodeURIComponent(runId)}`),
   start: (request: StartRequest) => challengeRequest<{ runId: string }>('/full-games', request),
   stop: (runId: string) => challengeRequest<{ stopping: boolean }>(`/full-games/${encodeURIComponent(runId)}/stop`, {}),
+  legal: (runId: string) => challengeRequest<ChallengeLegalCatalog>(`/full-games/${encodeURIComponent(runId)}/legal`),
+  talk: (runId: string, messages: Array<{ to: Power; body: string }>) => challengeRequest<{ sent: boolean }>(`/full-games/${encodeURIComponent(runId)}/talk`, { messages }),
+  act: (runId: string, action: unknown) => challengeRequest<{ accepted: boolean }>(`/full-games/${encodeURIComponent(runId)}/act`, { action }),
 };
 const usd = (nanousd: number) => `USD ${(nanousd / 1e9).toFixed(2)}`;
 // The last grant reference used is remembered in this browser only, as a convenience.
@@ -61,15 +69,16 @@ export function NewGameForm({ list, onStarted }: { list: FullGamesList; onStarte
   const [effort, setEffort] = useState<'low' | 'medium' | 'high'>('low');
   const [messages, setMessages] = useState(3);
   const [live, setLive] = useState(false);
+  const [seat, setSeat] = useState<Power | ''>('');
   const [paid, setPaid] = useState({ ref: rememberedRef(), cap: '5', resume: false });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const providers = [...new Set(ALL_POWERS.map(p => list.models[assignment[p]]?.provider))].filter(Boolean) as Provider[];
+  const providers = [...new Set(ALL_POWERS.filter(p => p !== seat).map(p => list.models[assignment[p]]?.provider))].filter(Boolean) as Provider[];
   async function submit() {
     setBusy(true); setError(null);
     try {
       if (live) rememberRef(paid.ref);
-      const started = await fullGamesApi.start({ runId, assignment, until: until === 'win' ? 'win' : Number(until), effort, messages, live,
+      const started = await fullGamesApi.start({ runId, assignment, until: until === 'win' ? 'win' : Number(until), effort, messages, live, ...(seat ? { seat } : {}),
         ...(live ? { authorizationRef: paid.ref, attemptCapUsd: Number(paid.cap), resumePaid: paid.resume } : {}) });
       onStarted(started.runId);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -81,10 +90,13 @@ export function NewGameForm({ list, onStarted }: { list: FullGamesList; onStarte
     {list.running && <p className="dip-notice">Game {list.running} is being played. Stop it before starting another.</p>}
     <form className="dip-form" onSubmit={e => { e.preventDefault(); void submit(); }}>
       <label>Game name<input value={runId} onChange={e => setRunId(e.target.value.toLowerCase())} pattern="[a-z0-9-]{3,40}" required /></label>
+      <label>Your seat<select value={seat} onChange={e => setSeat(e.target.value as Power | '')}>
+        <option value="">None: watch the models play</option>{ALL_POWERS.map(p => <option key={p} value={p}>Play {title(p)} yourself</option>)}</select></label>
       <fieldset className="dip-builder"><h3>Models</h3>
         <div className="dip-form-grid">{ALL_POWERS.map(p => <label key={p}>{title(p)}
-          <select value={assignment[p]} onChange={e => setAssignment({ ...assignment, [p]: e.target.value })}>
-            {keys.map(k => <option key={k} value={k}>{MODEL_NAMES[modelKey(list.models[k].model)]}</option>)}</select></label>)}</div>
+          {p === seat ? <select disabled value="you"><option value="you">You</option></select>
+            : <select value={assignment[p]} onChange={e => setAssignment({ ...assignment, [p]: e.target.value })}>
+            {keys.map(k => <option key={k} value={k}>{MODEL_NAMES[modelKey(list.models[k].model)]}</option>)}</select>}</label>)}</div>
       </fieldset>
       <div className="dip-form-grid">
         <label>Ends<select value={until} onChange={e => setUntil(e.target.value)}>
@@ -111,13 +123,13 @@ export function LiveControls({ game, list, onChanged }: { game: LiveGame; list: 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const status = game.live.status, finished = game.status === 'FINISHED' && !game.live.running;
-  const providers = [...new Set(ALL_POWERS.map(p => list?.models[game.settings.assignment[p]]?.provider))].filter(Boolean) as Provider[];
+  const providers = [...new Set(ALL_POWERS.filter(p => p !== game.settings.seat).map(p => list?.models[game.settings.assignment[p]]?.provider))].filter(Boolean) as Provider[];
   async function act(action: () => Promise<unknown>) {
     setBusy(true); setError(null);
     try { await action(); onChanged(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   const resume = () => act(() => { if (live) rememberRef(paid.ref); return fullGamesApi.start({ runId: game.run.runId, assignment: game.settings.assignment,
-    until: game.settings.lastYear >= 1999 ? 'win' : game.settings.lastYear, effort: game.settings.effort, messages: game.settings.talkRecipients, live,
+    until: game.settings.lastYear >= 1999 ? 'win' : game.settings.lastYear, effort: game.settings.effort, messages: game.settings.talkRecipients, live, ...(game.settings.seat ? { seat: game.settings.seat } : {}),
     ...(live ? { authorizationRef: paid.ref, attemptCapUsd: Number(paid.cap), resumePaid: paid.resume } : {}) }); });
   return <section className="viewer-live" aria-label="This game">
     <p><strong className={game.live.running ? 'is-running' : ''}>{game.live.running ? 'Being played' : finished ? 'Finished' : status === 'WAITING' ? 'Waiting' : 'Paused'}</strong>

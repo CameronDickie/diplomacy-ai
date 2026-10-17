@@ -201,6 +201,7 @@ async function handle(request: StoreRequest): Promise<unknown> {
     case 'chatReply': return transaction(() => new ChatRepository(db).reply(input));
     case 'chatFail': return transaction(() => new ChatRepository(db).fail(input));
     case 'savePowerTalk': return transaction(() => new TalkRepository(db).save(input));
+    case 'saveHumanTalk': return transaction(() => new TalkRepository(db).saveHuman(input));
     case 'powerTalks': return new TalkRepository(db).list(input.attemptId);
     case 'fullGames': return db.prepare("SELECT id,lifecycle,execution,board_json,created_at,updated_at FROM attempts WHERE id LIKE 'auto-%' ORDER BY created_at LIMIT 500").all().map(r => {
       const board = JSON.parse(String(r.board_json)) as { year: number; season: string; phase: string; territoryOwners: Record<string, string | null> };

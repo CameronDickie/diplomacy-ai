@@ -34,13 +34,14 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // DIPLOMACY_API_PORT lets a second development server run beside the usual one on 3001.
     proxy: {
       '/socket.io': {
-        target: 'http://localhost:3001',
+        target: `http://localhost:${process.env.DIPLOMACY_API_PORT ?? 3001}`,
         ws: true,
       },
       '/api': {
-        target: 'http://localhost:3001',
+        target: `http://localhost:${process.env.DIPLOMACY_API_PORT ?? 3001}`,
       },
     },
   },

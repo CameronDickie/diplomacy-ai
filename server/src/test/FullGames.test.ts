@@ -34,7 +34,7 @@ test('a game started from the page plays in the background, and its record and s
   const game = (await service.game('page-a'))!;
   assert.equal(game.live.status,'FINISHED'); assert.equal(game.status,'FINISHED'); assert.equal(game.endedBy,'LAST_YEAR');
   assert.deepEqual(game.settings,{ assignment: { AUSTRIA: 'luna', ENGLAND: 'luna', FRANCE: 'luna', GERMANY: 'haiku', ITALY: 'luna', RUSSIA: 'haiku', TURKEY: 'luna' },
-    lastYear: 1901, effort: 'medium', transport: 'mock', talkRecipients: 2 });
+    lastYear: 1901, effort: 'medium', transport: 'mock', talkRecipients: 2, seat: null });
   assert.equal(game.run.assignment.ENGLAND,'gpt-6-luna');
   assert.ok(game.record.phases.filter(p => p.report).length >= 2 && game.live.log.some(l => /Started with stand-in models/.test(l)));
   const listed = (await service.list()).games;
@@ -69,4 +69,51 @@ test('a running game stops after the phase in hand and continues where it stoppe
   await assert.rejects(service.start({ runId: 'page-d', until: 1901, live: true, authorizationRef: 'owner-missing-0001' }),/grant|key/);
   // A stand-in game cannot be continued with live models.
   await assert.rejects(service.start({ runId: 'page-c', until: 1950, live: true, authorizationRef: 'owner-games-0001' }),/stand-in game/);
+});
+
+test('a person can hold one seat: the game waits for their messages and their orders, and the models answer them',async t => {
+  const { service, settle } = await setup(t);
+  const { scriptedHumanAction } = await import('../evaluation/ScriptedPlayer.js');
+  const { PhaseRules } = await import('../attempts/PhaseRules.js');
+  const rules = new PhaseRules(), wait = async (kind: 'TALK' | 'ACT') => {
+    for (let i = 0; i < 400; i++) { const g = await service.game('seat-a'); if (g?.live.waitingFor?.kind === kind) return g; await new Promise(r => setTimeout(r,25)); }
+    throw new Error(`never asked for ${kind}`);
+  };
+  await service.start({ runId: 'seat-a', until: 1901, seat: 'FRANCE' });
+  // Spring 1901: the models have written first; the game waits for the person's messages.
+  const asked = await wait('TALK');
+  assert.equal(asked.settings.seat,'FRANCE'); assert.equal(asked.run.assignment.FRANCE,'human');
+  await assert.rejects(service.act('seat-a',{ phase: 'ORDERS', orderIds: [] }),/not waiting for your orders/);
+  assert.throws(() => service.talk('seat-a',[{ to: 'FRANCE', body: 'myself' }]),/another power/);
+  service.talk('seat-a',[{ to: 'ENGLAND', body: 'Stay out of the Channel and I will stay out of Belgium.' }]);
+  // Then the models reply (England to France among them) and the game waits for orders.
+  const ordering = await wait('ACT');
+  const spring = ordering.record.phases.find(p => p.phaseId === ordering.live.waitingFor!.phaseId)!;
+  assert.ok(spring.talk!.some(c => c.power === 'FRANCE' && c.model === 'human' && c.messages[0].to === 'ENGLAND'));
+  assert.ok(spring.talk!.some(c => c.power === 'ENGLAND' && c.round === 'REPLY' && c.messages.some(m => m.to === 'FRANCE')));
+  const legal = await service.legal('seat-a');
+  assert.ok(legal.options.length > 0 && legal.options.every(o => ['BRE','MAR','PAR'].includes(o.unitTerritory)));
+  await assert.rejects(service.act('seat-a',{ phase: 'ORDERS', orderIds: ['PAR|MOVE|MUN'] }),/not legal/);
+  // Stopping while the game waits for the person stops it at once; continuing asks only for what is still missing.
+  assert.equal(service.stop('seat-a'),true); await settle();
+  assert.equal((await service.game('seat-a'))!.live.status,'PAUSED');
+  await service.start({ runId: 'seat-a', until: 1901, seat: 'FRANCE' });
+  const again = await wait('ACT');
+  assert.equal(again.record.phases.find(p => p.phaseId === again.live.waitingFor!.phaseId)!.talk!.filter(c => c.power === 'FRANCE').length,1);
+  // Every later phase waits for the person too, until the game ends.
+  for (let i = 0; i < 20 && (await service.list()).running; i++) {
+    const game = await service.game('seat-a');
+    if (game?.live.waitingFor?.kind === 'TALK') service.talk('seat-a',[]);
+    else if (game?.live.waitingFor?.kind === 'ACT') await service.act('seat-a',await scriptedHumanAction(rules,game.current,'FRANCE',{ witnesses: [] } as never,''));
+    else await new Promise(r => setTimeout(r,50));
+  }
+  await settle();
+  const done = (await service.game('seat-a'))!;
+  assert.equal(done.status,'FINISHED');
+  // The person's orders were played: France's units held in Spring 1901.
+  const report = done.record.phases.find(p => p.report?.phase === 'ORDERS')!.report as unknown as { resolvedOrders: Array<{ power: string; type: string }> };
+  assert.ok(report.resolvedOrders.filter(o => o.power === 'FRANCE').every(o => o.type === 'HOLD'));
+  // Model-only games are untouched: no seat, every power a model.
+  await service.start({ runId: 'plain-a', until: 1901 }); await settle();
+  assert.equal((await service.game('plain-a'))!.settings.seat,null);
 });

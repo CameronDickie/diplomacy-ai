@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { ALL_POWERS, TERRITORIES, type GameRecord, type Power } from '@diplomacy/shared';
-import { AttemptService } from '../attempts/AttemptService.js';
+import { AttemptService, HUMAN_PHASE_LIMIT_MS } from '../attempts/AttemptService.js';
 import { PhaseRules } from '../attempts/PhaseRules.js';
 import { gameRecord } from '../challenge/PlaytestLog.js';
 import type { ChallengeDefinition } from '../challenge/TunisPilot.js';
@@ -10,7 +10,7 @@ import { canonicalJson, exportBoard, type BoardFixture } from '../fixtures/Board
 import type { ScenarioFixture } from '../fixtures/ScenarioFixture.js';
 import { GameRoom } from '../GameRoom.js';
 import { CONTEXT_VERSION } from '../luna/Context.js';
-import { LunaDecisionError, LunaDecisionProvider } from '../luna/LunaDecisionProvider.js';
+import { LunaDecisionError, LunaDecisionProvider, type HumanSeat } from '../luna/LunaDecisionProvider.js';
 import type { LunaTransport } from '../luna/Transport.js';
 import { OPPONENT_CONTRACTS, opponentContract, type OpponentContract } from '../providers/OpponentContract.js';
 import { EFFORTS, type Effort } from '../providers/LunaPreset.js';
@@ -79,6 +79,8 @@ export interface AutoplayOptions {
   maxWaits?: number;
   /** When a power's own moves block each other, say which and ask once more; the second answer stands (default on). */
   askAgainWhenBlocked?: boolean;
+  /** A person plays this power; the game waits for them each phase (development only). */
+  human?: HumanSeat;
   /** The reasoning effort every request is sent at (default low, as in the challenge). A game keeps one effort throughout. */
   effort?: Effort;
   /**
@@ -112,12 +114,15 @@ export interface AutoplayResult {
   record: GameRecord;
 }
 
-/** The standard opening with every seat given to a model. The objective's territory is unused; only its year matters. */
-export function fullGameDefinition(lastYear: number): ChallengeDefinition {
-  const id = `full-game-to-${lastYear}`;
+/**
+ * The standard opening with every seat given to a model. The objective's territory is unused; only its year matters.
+ * `seat`: a person plays that power instead (its own scenario, so such games are never mistaken for model-only ones).
+ */
+export function fullGameDefinition(lastYear: number, seat?: Power): ChallengeDefinition {
+  const id = `full-game-to-${lastYear}${seat ? `-seat-${seat.toLowerCase()}` : ''}`;
   return { id, version: 1, title: 'Full game', objectiveText: `A full game with no human player, played to Fall ${lastYear} or a solo win.`,
     variant: 'CLASSICAL', startingPosition: { fixtureId: id, version: 1 }, rulesEngine: 'godip@v0.6.5',
-    humanPower: 'AUSTRIA', opponentPowers: [...ALL_POWERS], opponentPolicy: 'SPONSORED_LUNA_UNRANKED',
+    humanPower: seat ?? 'AUSTRIA', opponentPowers: [...ALL_POWERS], opponentPolicy: 'SPONSORED_LUNA_UNRANKED',
     objective: { kind: 'OWN_SUPPLY_CENTER_AFTER_FALL', territory: 'VIE', deadlineYear: lastYear },
     earlyAchievementYear: lastYear, rotation: 'PILOT_ONLY', tiePolicy: 'NOT_POSSIBLE_SINGLE_OWNER', autoplay: true };
 }
@@ -151,7 +156,7 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   const plan = mixedPlan(assignment,opponentContract(assignment.AUSTRIA));
   for (const contract of plan.contracts) if (!options.transports[contract.key]) throw new Error(`No transport was given for ${contract.key}.`);
 
-  const definition = fullGameDefinition(options.lastYear);
+  const definition = fullGameDefinition(options.lastYear,options.human?.power);
   let challenge = await store.call('challenge',{ id: definition.id, version: definition.version });
   if (!challenge) {
     // A fresh room is the standard 1901 opening. Its board is stored once and reused, so a continued run sees the same units.
@@ -192,7 +197,7 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   const orderCalls = options.orderCalls ?? 6;
   if (!Number.isSafeInteger(orderCalls) || orderCalls < 3 || orderCalls > 10) throw new Error('A power may have between 3 and 10 orders calls for a phase.');
   const turn = (phaseId: string) => phaseId.split(':').slice(-3,-1).reverse().join(' ');
-  const provider = new LunaDecisionProvider(store,rules,main,{ now, plan, transports: options.transports, maxCallsPerPower: orderCalls, timeoutMs: limits.callMs, askAgainWhenSelfBlocked: options.askAgainWhenBlocked ?? true, effort,
+  const provider = new LunaDecisionProvider(store,rules,main,{ now, plan, transports: options.transports, maxCallsPerPower: orderCalls, timeoutMs: limits.callMs, askAgainWhenSelfBlocked: options.askAgainWhenBlocked ?? true, effort, ...(options.human ? { human: options.human } : {}),
     onRejectedDecision: f => {
       const reason = `${f.power} orders call, try ${f.attempt}: answer not usable — ${f.reason}`;
       failures.push({ at: now(), phaseId: f.phaseId, reason }); log(`  ! ${turn(f.phaseId)} · ${reason}`);
@@ -215,7 +220,8 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
     }
     seen = reports.length; quiet = quietYears(reports);
   };
-  const service = new AttemptService(store,provider,rules,{ now, maxRunning: 1, timeoutMs: limits.phaseMs,
+  const service = new AttemptService(store,provider,rules,{ now, maxRunning: 1, // A phase with a person in it waits for them as long as they need.
+    timeoutMs: options.human ? HUMAN_PHASE_LIMIT_MS : limits.phaseMs,
     boundary: async stage => { if (stage === 'committed') await announce().catch(() => {}); },
     onPhaseFailure: (job,error) => failures.push({ at: now(), phaseId: job.phaseId,
       // Never the raw error: it may carry request content.
@@ -266,7 +272,8 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   } finally { await service.close(); }
 
   attempt = (await store.call('attempt',{ id }))!;
-  const models = Object.fromEntries(ALL_POWERS.map(p => [p,plan.contractFor(p).preset.model])) as Record<Power, string>;
+  // A person's seat is recorded as `human`, never as the model that would otherwise have played it.
+  const models = Object.fromEntries(ALL_POWERS.map(p => [p,p === options.human?.power ? 'human' : plan.contractFor(p).preset.model])) as Record<Power, string>;
   return gameResult(store,attempt,challenge,failures,now(),{
     run: { runId, attemptId: id, transport: options.transportKind, lastYear: options.lastYear, talkRecipients, assignment: models, planId: plan.id, contextVersion: CONTEXT_VERSION,
       harness: { commit: options.harness?.commit ?? null, modified: options.harness?.modified ?? false, ...harnessInstructions(), callTimeoutMs: limits.callMs, stalemateYears, askAgainWhenBlocked: options.askAgainWhenBlocked ?? true, effort } },
@@ -297,7 +304,7 @@ async function gameResult(store: Store, attempt: StoredAttempt, challenge: NonNu
 }
 
 /** How a game in the database was set up, read back from its own calls (it is stored nowhere else). */
-export interface GameSettings { assignment: Record<Power, ModelKey>; lastYear: number; effort: Effort; transport: 'mock' | 'live'; talkRecipients: number }
+export interface GameSettings { assignment: Record<Power, ModelKey>; lastYear: number; effort: Effort; transport: 'mock' | 'live'; talkRecipients: number; seat: Power | null }
 
 /**
  * Any full game in the database as a record, whether it is running, paused or finished: what the
@@ -305,7 +312,7 @@ export interface GameSettings { assignment: Record<Power, ModelKey>; lastYear: n
  * model from its latest call, the effort from the worst case that call reserved, stand-in models
  * from their answers' ids, the message limit from the most any power wrote in one turn.
  */
-export async function describeGame(store: Store, runId: string, extra: { failures?: ReadonlyArray<{ at: number; phaseId: string; reason: string }>; now?: number } = {}): Promise<(AutoplayResult & { settings: GameSettings }) | null> {
+export async function describeGame(store: Store, runId: string, extra: { failures?: ReadonlyArray<{ at: number; phaseId: string; reason: string }>; now?: number } = {}): Promise<(AutoplayResult & { settings: GameSettings; current: StoredAttempt['board'] }) | null> {
   if (!/^[a-z0-9-]{3,40}$/.test(runId)) return null;
   const attempt = await store.call('attempt',{ id: `auto-${runId}` });
   if (!attempt) return null;
@@ -319,10 +326,11 @@ export async function describeGame(store: Store, runId: string, extra: { failure
   const transport = calls.some(c => /^(resp|msg)_mock_/.test(c.responseId ?? '')) ? 'mock' : 'live';
   const talks = await store.call('powerTalks',{ attemptId: attempt.id });
   const talkRecipients = Math.max(0,...talks.filter(t => t.kind === 'ASK').map(t => t.messages.length)) || 3;
-  const lastYear = Number(/^full-game-to-(\d{4})$/.exec(attempt.challengeId)?.[1] ?? LATEST_LAST_YEAR);
-  const models = Object.fromEntries(ALL_POWERS.map(p => [p,OPPONENT_CONTRACTS[assignment[p]].preset.model])) as Record<Power, string>;
+  const named = /^full-game-to-(\d{4})(?:-seat-([a-z]+))?$/.exec(attempt.challengeId), lastYear = Number(named?.[1] ?? LATEST_LAST_YEAR);
+  const seat = named?.[2] ? named[2].toUpperCase() as Power : null;
+  const models = Object.fromEntries(ALL_POWERS.map(p => [p,p === seat ? 'human' : OPPONENT_CONTRACTS[assignment[p]].preset.model])) as Record<Power, string>;
   const result = await gameResult(store,attempt,challenge as never,extra.failures ?? [],extra.now ?? Date.now(),{
     run: { runId, attemptId: attempt.id, transport, lastYear, talkRecipients, assignment: models, planId: attempt.preset?.id ?? '', contextVersion: CONTEXT_VERSION },
     status: attempt.lifecycle === 'ACTIVE' ? 'PAUSED' : 'FINISHED', stalemate: false, waitingOn: null });
-  return { ...result, settings: { assignment, lastYear, effort, transport, talkRecipients } };
+  return { ...result, current: attempt.board, settings: { assignment, lastYear, effort, transport, talkRecipients, seat } };
 }

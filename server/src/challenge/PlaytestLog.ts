@@ -67,6 +67,12 @@ export async function gameRecord(store: Store, attempt: StoredAttempt, challenge
   const [log, reports, chat, notes] = await Promise.all([playtestLog(store,attempt.id),store.call('reports',{ attemptId: attempt.id }),store.call('chatMessages',{ attemptId: attempt.id }),store.call('powerNotes',{ attemptId: attempt.id })]);
   const notesOf = (phaseId: string) => notes.filter(n => n.phaseId === phaseId).map(n => ({ power: n.power, note: n.note }));
   const iso = (ms: number) => new Date(ms).toISOString(), calls = new Map(log.phases.map(p => [p.phaseId,p.calls])), talks = new Map(log.phases.map(p => [p.phaseId,p.talk]));
+  // A person's messages (a full game where they hold one seat) have no call behind them; they are listed with the models'.
+  for (const t of (await store.call('powerTalks',{ attemptId: attempt.id })).filter(t => t.callId.startsWith('human:'))) {
+    const entry = { power: t.power, model: 'human', round: 'ASK' as const, outcome: 'VALID', latencyMs: null, inputTokens: null, outputTokens: null, reasoningTokens: null, costNanousd: 0, heldNanousd: 0, messages: t.messages };
+    talks.set(t.phaseId,[...(talks.get(t.phaseId) ?? []),entry]);
+    if (!calls.has(t.phaseId)) calls.set(t.phaseId,[]);
+  }
   const withTalk = <T extends { phaseId: string }>(phase: T) => ({ ...phase, ...(talks.get(phase.phaseId) ? { talk: talks.get(phase.phaseId) } : {}), ...(notesOf(phase.phaseId).length ? { notes: notesOf(phase.phaseId) } : {}) });
   // Reports are in play order; a phase's calls are matched by its place in the game.
   const key = (r: PublicPhaseReport) => `:${r.year}:${r.season}:${r.phase}`;

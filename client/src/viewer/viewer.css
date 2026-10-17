@@ -51,3 +51,9 @@
 @keyframes viewer-pulse { 50% { opacity: .3; } }
 .viewer-live-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .viewer-log { max-height: 240px; overflow: auto; margin: 6px 0 0; padding: 10px; border: 1px solid var(--folio-line); border-radius: 8px; font-size: 12px; white-space: pre-wrap; }
+.viewer-seat { margin: 8px 0 24px; padding-bottom: 16px; border-bottom: 1px solid var(--folio-line); }
+.viewer-seat-panel { display: grid; align-content: start; gap: 0; min-width: 0; }
+.viewer-seat-panel label { display: grid; gap: 4px; margin: 0 0 10px; font-size: 14px; }
+.viewer-seat-panel label.dip-check { display: flex; align-items: center; gap: 8px; }
+.viewer-seat-panel textarea, .viewer-seat-panel select { width: 100%; max-width: 100%; font: inherit; }
+.viewer-your-turn { color: var(--folio-accent); font-weight: 600; }

@@ -8,6 +8,7 @@ import { CenterChart } from './CenterChart.js';
 import { MODEL_NAMES, eliminations, modelKey, modelOf, orderMix, turnsOf, usd, type ModelKey } from './record.js';
 import { TurnPanel, type Tab } from './TurnPanel.js';
 import { Budgets, LiveControls, NewGameForm, fullGamesApi, type FullGamesList, type LiveGame } from './FullGames.js';
+import { SeatPanel } from './Seat.js';
 import './viewer.css';
 
 /**
@@ -95,7 +96,9 @@ function DatabaseGame({ runId, at, list, onChanged }: { runId: string; at: numbe
   useEffect(() => { if (!watching) return; const timer = window.setTimeout(() => setTick(t => t + 1), POLL_MS); return () => window.clearTimeout(timer); }, [watching, tick]);
   if (missing && !watching) return <p style={{ padding: '40px 0' }}>There is no game called {runId} in the database. <a href="#">See all games</a>.</p>;
   if (!game) return <p style={{ padding: '40px 0' }} role="status">Waiting for {runId}'s first phase…</p>;
-  const controls = <LiveControls game={game} list={list} onChanged={() => { onChanged(); setTick(t => t + 1); }} />;
+  const changed = () => { onChanged(); setTick(t => t + 1); };
+  // A seated game shows your turn above the usual view while it is being played.
+  const controls = <><LiveControls game={game} list={list} onChanged={changed} />{game.settings.seat && game.live.running && <SeatPanel game={game} onChanged={changed} />}</>;
   return game.record.phases.some(p => p.report) ? <GameView game={game} at={at} follow={game.live.running} prefix="db" controls={controls} />
     : <main id="dip-content"><div className="dip-heading"><h1>{runId}</h1></div>{controls}<p className="dip-muted">No phase has been played yet.</p></main>;
 }
@@ -110,8 +113,8 @@ function Library({ games, list }: { games: AutoplayIndexEntry[]; list: FullGames
         {[...list.games].reverse().map(g => {
           const top = ALL_POWERS.reduce((a, b) => g.centers[b] > g.centers[a] ? b : a);
           return <li key={g.runId}><span><a href={`#/db/${g.runId}`}><strong>{g.runId}</strong></a>
-            <small>{g.standIn ? 'Stand-in · ' : ''}{g.running ? 'Being played' : g.lifecycle === 'ACTIVE' ? 'Paused or waiting' : 'Finished'} · {title(g.season)} {g.year} · {title(top)} leads with {g.centers[top]}</small></span>
-            <a href={`#/db/${g.runId}`}>{g.running ? 'Watch' : 'Open'}</a></li>;
+            <small>{g.standIn ? 'Stand-in · ' : ''}{g.waiting ? 'Waiting for you' : g.running ? 'Being played' : g.lifecycle === 'ACTIVE' ? 'Paused or waiting' : 'Finished'} · {title(g.season)} {g.year} · {title(top)} leads with {g.centers[top]}</small></span>
+            <a href={`#/db/${g.runId}`}>{g.waiting ? 'Play' : g.running ? 'Watch' : 'Open'}</a></li>;
         })}</ul>}</section>}
     <section className="dip-section"><h2>Saved records</h2>
     {games.length === 0 ? <p className="dip-muted">No saved records. Run npm run records -- collect autoplay-*.json to add the files the autoplay command wrote.</p> : <ul className="dip-list viewer-games">

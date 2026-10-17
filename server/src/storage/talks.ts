@@ -27,6 +27,30 @@ export class TalkRepository {
       operationId: String(r.operation_id), phaseId: String(r.phase_id), kind: r.kind as StoredPowerTalk['kind'], power: r.power as Power,
       messages: JSON.parse(String(r.messages_json)) as StoredPowerTalk['messages'], createdAt: Number(r.created_at) }));
   }
+  /**
+   * A person's messages, kept beside the models' so every later request shows them the same way. Their row
+   * is named `human:<phase operation>:<power>` and is written once; there is no call to bill.
+   */
+  saveHuman(input: StoreOperations['saveHumanTalk']['input']): null {
+    identifier(input.attemptId); identifier(input.operationId);
+    if (typeof input.phaseId !== 'string' || input.phaseId.length > 200 || !ALL_POWERS.includes(input.power) || !Number.isSafeInteger(input.now)
+      || !Array.isArray(input.messages) || input.messages.length > TALK_MESSAGE_LIMIT) invalid();
+    const messages = input.messages.map(m => {
+      const body = typeof m?.body === 'string' ? m.body.replace(/\s+/g,' ').trim() : '';
+      if (!m || !ALL_POWERS.includes(m.to) || m.to === input.power || !body || body.length > TALK_BODY_LIMIT) invalid();
+      return { to: m.to, body };
+    });
+    if (new Set(messages.map(m => m.to)).size !== messages.length) invalid();
+    const callId = `human:${input.operationId}:${input.power}`;
+    const old = this.db.prepare('SELECT messages_json FROM power_talks WHERE call_id=?').get(callId);
+    if (old) { if (String(old.messages_json) !== canonicalJson(messages)) conflict(); return null; }
+    const live = this.db.prepare(`SELECT 1 FROM phase_jobs j JOIN attempts a ON a.id=j.attempt_id WHERE j.id=? AND j.attempt_id=? AND j.phase_id=?
+      AND a.phase_id=j.phase_id AND j.status IN ('DECIDING','RECOVERING') AND a.lifecycle='ACTIVE'`).get(input.operationId,input.attemptId,input.phaseId);
+    if (!live) conflict();
+    this.db.prepare('INSERT INTO power_talks(call_id,attempt_id,operation_id,phase_id,kind,power,messages_json,created_at) VALUES(?,?,?,?,?,?,?,?)')
+      .run(callId,input.attemptId,input.operationId,input.phaseId,'ASK',input.power,canonicalJson(messages),input.now);
+    return null;
+  }
   save(input: StoreOperations['savePowerTalk']['input']): null {
     identifier(input.callId);
     if (!Number.isSafeInteger(input.now) || !Array.isArray(input.messages) || input.messages.length > TALK_MESSAGE_LIMIT) invalid();

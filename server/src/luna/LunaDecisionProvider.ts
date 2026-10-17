@@ -10,11 +10,19 @@ import { LUNA_CONTRACT, type OpponentContract } from '../providers/OpponentContr
 import { singlePlan, type OpponentPlan } from '../providers/OpponentPlan.js';
 import { ProviderCallError, recordedCall } from '../providers/RecordedCall.js';
 import type { Effort } from '../providers/LunaPreset.js';
-import { ChoiceError, convoyMismatches, forcedAction, noteOf, selfBlockingMoves } from './Choices.js';
+import { ChoiceError, buildChoices, convoyMismatches, forcedAction, noteOf, selfBlockingMoves } from './Choices.js';
 import { lunaPrompt, parseMessages, talkPrompt, type PowerMessage } from './Context.js';
 import type { StoredPowerTalk } from '../storage/talks.js';
 import { PreflightError, type LunaTransport } from './Transport.js';
 
+/** How the person in a full game's seat is asked for their part of a phase. Each resolves when they answer. */
+export interface HumanSeat {
+  power: Power;
+  /** After the models' opening messages are stored: the messages the person sends this turn (possibly none). */
+  talk(context: { attemptId: string; operationId: string; phaseId: string }): Promise<Array<{ to: Power; body: string }>>;
+  /** The person's action for this phase, already checked against the rules. */
+  act(context: { attemptId: string; operationId: string; phaseId: string; board: DecisionContext['job']['board'] }): Promise<PhaseAction>;
+}
 export type LunaFailure = 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED' | 'PAUSED_OR_CLOSED' | 'CALL_LIMIT' | 'PREFLIGHT' | 'PROVIDER' | 'PRESET_MISMATCH';
 /** Why a sponsored phase could not be decided. The phase is left recoverable; opponents are never swapped for holds. */
 export class LunaDecisionError extends Error {
@@ -38,6 +46,12 @@ interface Options {
   askAgainWhenSelfBlocked?: boolean;
   /** A full game only: the reasoning effort every request is sent at (default low). */
   effort?: Effort;
+  /**
+   * A full game with a person in one seat. That power makes no model calls: in an orders phase the person
+   * writes after the models' opening messages (and is written to like anyone else), and every phase waits
+   * for the person's own action while the models decide theirs. Absent: every seat is a model, as before.
+   */
+  human?: HumanSeat;
   timeoutMs?: number;
   /** Test seam for narrower workers; production always uses the pinned server preset. */
   maxConcurrentDecisions?: number;
@@ -140,7 +154,12 @@ export class LunaDecisionProvider implements DecisionProvider {
       const notes = (await this.store.call('powerNotes',{ attemptId: job.attemptId })).map(n => ({ power: n.power, when: turnOf(n.phaseId), note: n.note }));
       full = power => ({ messages, effort: this.options.effort ?? 'low', notes: notes.filter(n => n.power === power), partners: [...new Set(said.filter(t => t.operationId === job.operationId).flatMap(t => t.power === power ? t.messages.map(m => m.to) : t.messages.some(m => m.to === power) ? [t.power] : []))] });
     }
-    await lanes.each(job.definition.opponentPowers,async power => {
+    // A seat a person holds is answered by the person, alongside the models deciding theirs.
+    const human = this.options.human && job.definition.autoplay ? this.options.human : undefined;
+    const personal = human ? this.personAction(job,human,signal) : undefined;
+    // Awaited below; if the phase fails first, its own error is the one reported.
+    personal?.catch(() => {});
+    await lanes.each(job.definition.opponentPowers.filter(power => power !== human?.power),async power => {
       const legal = await legalOf(power), contested = job.board.phase === 'ORDERS' ? await contestedFor(power) : undefined;
       signal.throwIfAborted();
       // A full game's retry tells the model what was wrong with the answer it is replacing.
@@ -158,7 +177,17 @@ export class LunaDecisionProvider implements DecisionProvider {
       decisions[power] = await lanes.call((sibling,halted) => this.ask(job,power,prompt,calls.filter(c => c.power === power && c.role === job.board.phase),signal,sibling,halted));
     });
     await settle();
+    if (human && personal) decisions[human.power] = await personal;
     return decisions;
+  }
+
+  /** The person's action for this phase, or the forced one when the phase asks nothing of them. */
+  private async personAction(job: DecisionContext['job'], human: HumanSeat, signal: AbortSignal): Promise<PhaseAction> {
+    const own = job.board.units.filter(u => u.power === human.power);
+    const asked = job.board.phase === 'ORDERS' ? own.some(u => !u.mustRetreat) : job.board.phase === 'RETREATS' ? own.some(u => u.mustRetreat) : Boolean(buildChoices(job.board,human.power));
+    if (!asked) return forcedAction(job.board);
+    signal.throwIfAborted();
+    return await abortable(human.act({ attemptId: job.attemptId, operationId: job.operationId, phaseId: job.phaseId, board: job.board }),signal);
   }
 
   /**
@@ -206,6 +235,8 @@ export class LunaDecisionProvider implements DecisionProvider {
    */
   private async negotiate(job: DecisionContext['job'], last: Parameters<typeof talkPrompt>[2], calls: ProviderCallRecord[], lanes: ReturnType<LunaDecisionProvider['lanes']>, signal: AbortSignal): Promise<void> {
     const alive = job.definition.opponentPowers.filter(p => job.board.units.some(u => u.power === p && !u.mustRetreat));
+    // The person's seat is written to like any other, but makes no model calls of its own.
+    const human = this.options.human, writers = alive.filter(p => p !== human?.power);
     const round = async (kind: 'ASK' | 'REPLY', powers: readonly Power[], othersOf: (power: Power, said: StoredPowerTalk[]) => Power[]) => {
       const said = await this.store.call('powerTalks',{ attemptId: job.attemptId });
       const notes = (await this.store.call('powerNotes',{ attemptId: job.attemptId })).map(n => ({ power: n.power, when: turnOf(n.phaseId), note: n.note }));
@@ -238,11 +269,20 @@ export class LunaDecisionProvider implements DecisionProvider {
         }
       });
     };
-    await round('ASK',alive,power => alive.filter(p => p !== power));
+    await round('ASK',writers,power => alive.filter(p => p !== power));
     if (lanes.state.failed || signal.aborted) return;
+    if (human && alive.includes(human.power)) {
+      // Saved once per phase: a recovered phase reuses what the person already sent.
+      const sent = (await this.store.call('powerTalks',{ attemptId: job.attemptId })).some(t => t.operationId === job.operationId && t.power === human.power);
+      if (!sent) {
+        const messages = await abortable(human.talk({ attemptId: job.attemptId, operationId: job.operationId, phaseId: job.phaseId }),signal);
+        await this.store.call('saveHumanTalk',{ attemptId: job.attemptId, operationId: job.operationId, phaseId: job.phaseId, power: human.power,
+          messages: messages.filter(m => alive.includes(m.to) && m.to !== human.power), now: this.now() });
+      }
+    }
     const asked = (said: StoredPowerTalk[]) => said.filter(t => t.operationId === job.operationId && t.kind === 'ASK');
     const first = asked(await this.store.call('powerTalks',{ attemptId: job.attemptId }));
-    await round('REPLY',alive.filter(p => first.some(t => t.messages.some(m => m.to === p))),(power,said) => asked(said).filter(t => t.messages.some(m => m.to === power)).map(t => t.power));
+    await round('REPLY',writers.filter(p => first.some(t => t.messages.some(m => m.to === p))),(power,said) => asked(said).filter(t => t.messages.some(m => m.to === power)).map(t => t.power));
   }
 
   /** A newer recovery may already have released this old, never-dispatched hold. */
@@ -359,6 +399,15 @@ export class LunaDecisionProvider implements DecisionProvider {
 }
 
 /** "SPRING 1901" from a phase id, which ends in year, season and phase. */
+/** Waits for a person's answer, but gives up when the phase is stopped. */
+function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve,reject) => {
+    const stop = () => reject(signal.reason ?? new Error('Stopped.'));
+    if (signal.aborted) { stop(); return; }
+    signal.addEventListener('abort',stop,{ once: true });
+    work.then(value => { signal.removeEventListener('abort',stop); resolve(value); },error => { signal.removeEventListener('abort',stop); reject(error); });
+  });
+}
 const turnOf = (phaseId: string): string => { const parts = phaseId.split(':'); return `${parts.at(-2)} ${parts.at(-3)}`; };
 
 /** What was wrong with an orders answer, in terms of the list it was given. Never the answer's own text. */

@@ -21,6 +21,8 @@ const freeze = <T>(value: T): T => {
   return value;
 };
 type HookStage = 'intent' | 'decisions' | 'resolved' | 'committed';
+/** The longest a phase may run: a full game with a person in it waits for them (development only). */
+export const HUMAN_PHASE_LIMIT_MS = 7 * 24 * 3_600_000;
 type Options = { maxRunning?: number; idleExpireMs?:number; timeoutMs?: number; now?: () => number; measurementClock?: () => number; boundary?: (stage: HookStage, job: PhaseJob) => Promise<void>;
   /** Told why a phase could not complete. For diagnostics only: the durable RECOVERING state is what matters. */
   onPhaseFailure?: (job: PhaseJob, error: unknown) => void };
@@ -36,7 +38,7 @@ export class AttemptService {
   constructor(private store: Store, private provider: DecisionProvider, private rules = new PhaseRules(), private options: Options = {}) {
     this.now = options.now ?? Date.now;
     if (!Number.isSafeInteger(options.maxRunning ?? 3) || (options.maxRunning ?? 3) < 1 || (options.maxRunning ?? 3) > 100 ||
-      !Number.isSafeInteger(options.timeoutMs ?? 30_000) || (options.timeoutMs ?? 30_000) < 1 || (options.timeoutMs ?? 30_000) > 600_000)
+      !Number.isSafeInteger(options.timeoutMs ?? 30_000) || (options.timeoutMs ?? 30_000) < 1 || (options.timeoutMs ?? 30_000) > HUMAN_PHASE_LIMIT_MS)
       throw new Error('Invalid phase worker limits.');
   }
   submit(input: {attemptId:string;playerId:string;revision:number;phaseId:string;requestId:string;action:unknown}): Promise<StoredReceipt> {
