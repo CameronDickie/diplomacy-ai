@@ -222,6 +222,15 @@ tokens per call against Sol's 85, so at low effort the two were not thinking
 alike; game 16 repeats it at medium. Cost USD 6.04 (Anthropic 3.08, OpenAI
 2.96).
 
+Result (game 16, the same at medium effort): Sol's reasoning rose to about 433
+tokens per call, Sonnet's only to about 17: Anthropic's adaptive thinking stays
+nearly off even at medium, so the two still were not thinking alike. Sonnet held
+63% (74% at low) with 24% supports (8%). England and Germany were eliminated by
+1909. The game stopped at its USD 15 per-game cap in 1925 (France 14, Italy 14)
+and was not continued. Cost USD 14.84 (Sol 10.93, Sonnet 3.90). A fair
+comparison would need a fixed thinking budget for Anthropic models; that is
+model-specific tuning and was deliberately not done.
+
 ## Not yet changed
 
 - **Draws.** Letting powers propose a draw that every survivor must accept
