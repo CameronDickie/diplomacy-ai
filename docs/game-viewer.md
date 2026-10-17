@@ -56,9 +56,12 @@ drawn on it, and two tabs.
 - **Messages** is a chat list: one conversation per power, holding everything
   said between you over the whole game. Powers that wrote to you this turn come
   first, marked **New** until you open them; any other power can be opened to
-  start a conversation. Each turn you may write one message to each power still
-  in the game (up to 500 characters), and **Send** sends them together (or
-  nothing).
+  start a conversation. Each turn you may send one message to each power still
+  in the game (up to 500 characters): **Send** (or Enter) in a chat posts it
+  there as not delivered yet, and you can still edit it. When you are done,
+  **Finish writing** delivers everything you sent this turn at once (or nothing),
+  and each power you wrote to replies once. When the replies come in the page
+  stays where it is; the Orders tab says it is your move.
 - **Orders** can be planned while you write; your choices are kept, and are
   submitted once the replies are in. On the map, click one of your units and
   then a highlighted place to move it there (by convoy when only a convoy can
@@ -71,7 +74,7 @@ drawn on it, and two tabs.
 Each orders turn:
 
 1. The models write first, to you as well as to each other.
-2. You write to anyone you like, or send nothing.
+2. You write to anyone you like, then finish writing (or say nothing).
 3. The models reply to everyone who wrote to them, you included.
 4. You submit your orders while the models choose theirs; they see the whole
    conversation when they decide. Orders are checked against the rules before

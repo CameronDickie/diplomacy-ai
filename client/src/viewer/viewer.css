@@ -93,3 +93,7 @@
 .viewer-chat > .dip-link, .viewer-orders > .dip-link { justify-self: start; }
 .viewer-chat-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .viewer-chat-compose small { font-size: 12px; }
+.viewer-bubble.is-pending { opacity: 0.7; border-style: dashed; }
+.viewer-pending { justify-self: end; font-size: 12px; color: var(--folio-muted); text-align: right; }
+.viewer-compose-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.viewer-chat-compose textarea { width: 100%; }

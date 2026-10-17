@@ -44,17 +44,24 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
   const [tab, setTab] = useState<'messages' | 'orders'>('messages');
   const [open, setOpen] = useState<Power | null>(null);
   const [seen, setSeen] = useStored<Partial<Record<Power, number>>>(`viewer-seat-seen:${game.run.runId}`, {});
-  const [stored, setDrafts] = useStored<{ turn: string; text: Partial<Record<Power, string>> }>(`viewer-seat-drafts:${game.run.runId}`, { turn: boardKey, text: {} });
-  // Drafts belong to one turn; a new turn starts with none.
-  const drafts = stored.turn === boardKey ? stored.text : {};
-  const draft = (p: Power, text: string) => setDrafts(d => ({ turn: boardKey, text: { ...(d.turn === boardKey ? d.text : {}), [p]: text } }));
+  type Drafts = { text: Partial<Record<Power, string>>; ready: Power[] };
+  const [stored, setDrafts] = useStored<{ turn: string } & Partial<Drafts>>(`viewer-seat-drafts:${game.run.runId}`, { turn: boardKey });
+  // This turn's messages: drafts, and those you have sent in their chat. Sent messages are delivered together when
+  // you finish writing (each power then replies once), and can be edited until then. A new turn starts with none.
+  const drafts = stored.turn === boardKey ? stored.text ?? {} : {}, posted = stored.turn === boardKey ? stored.ready ?? [] : [];
+  const change = (update: (d: Drafts) => Drafts) => setDrafts(d => ({ turn: boardKey, ...update(d.turn === boardKey ? { text: d.text ?? {}, ready: d.ready ?? [] } : { text: {}, ready: [] }) }));
+  const draft = (p: Power, text: string) => change(d => ({ ...d, text: { ...d.text, [p]: text } }));
+  const post = (p: Power) => { if (drafts[p]?.trim()) change(d => ({ ...d, ready: [...new Set([...d.ready, p])] })); };
+  const unpost = (p: Power) => change(d => ({ ...d, ready: d.ready.filter(x => x !== p) }));
   const [legal, setLegal] = useState<{ key: string; catalog: ChallengeLegalCatalog } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const talking = waiting?.kind === 'TALK', ordering = waiting?.kind === 'ACT';
   // Each step opens where it is answered; you can still switch.
-  useEffect(() => { if (talking) setTab('messages'); else if (ordering) setTab('orders'); setConfirming(false); setError(null); }, [waiting?.kind, waiting?.phaseId]);
+  // A new turn opens on the messages; retreats and builds, which have none, open on the orders. When the replies
+  // come in you stay where you are, and the Orders tab says it is your move.
+  useEffect(() => { if (talking) setTab('messages'); else if (ordering && board.phase !== 'ORDERS') setTab('orders'); setConfirming(false); setError(null); }, [waiting?.kind, waiting?.phaseId]);
   const openCount = open ? thread(open).length : 0;
   useEffect(() => { if (open && (seen[open] ?? 0) !== openCount) setSeen(s => ({ ...s, [open]: openCount })); }, [open, openCount]);
   // Like any chat, a conversation opens at its latest message and follows new ones.
@@ -97,7 +104,8 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
     setBusy(true); setError(null);
     try { await action(); setConfirming(false); onChanged(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
-  const messages = alive.filter(p => drafts[p]?.trim()).map(p => ({ to: p, body: drafts[p]!.trim() }));
+  const messages = alive.filter(p => posted.includes(p) && drafts[p]?.trim()).map(p => ({ to: p, body: drafts[p]!.trim() }));
+  const unsent = alive.filter(p => !posted.includes(p) && drafts[p]?.trim());
   const unread = (p: Power) => p !== open && thread(p).length > (seen[p] ?? 0) && thread(p).slice(seen[p] ?? 0).some(l => l.from === p);
   const unreadCount = others.filter(unread).length;
   const out = !board.units.some(u => u.power === seat);
@@ -131,8 +139,8 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
         {order.map(p => { const all = thread(p), last = all[all.length - 1], gone = !alive.includes(p);
           return <li key={p}><button type="button" onClick={() => setOpen(p)} disabled={gone && !last}>
             <span className="viewer-chat-head"><span className="viewer-power"><i style={{ background: lineColor(p) }} aria-hidden="true" />{title(p)} <small>{MODEL_NAMES[modelOf(game, p)]}</small></span>
-              <span className="viewer-chat-tags">{unread(p) && <b>New</b>}{wroteNow(p) && <em>Wrote this turn</em>}{drafts[p]?.trim() && <em>Draft</em>}{gone && <em>Out</em>}</span></span>
-            <small className="viewer-chat-last">{last ? `${last.from === seat ? 'You: ' : ''}${last.body}` : talking && !gone ? 'Start a conversation' : 'No messages yet'}</small>
+              <span className="viewer-chat-tags">{unread(p) && <b>New</b>}{wroteNow(p) && <em>Wrote this turn</em>}{talking && posted.includes(p) ? <em>Sent · not delivered yet</em> : talking && drafts[p]?.trim() ? <em>Draft</em> : null}{gone && <em>Out</em>}</span></span>
+            <small className="viewer-chat-last">{talking && posted.includes(p) ? `You: ${drafts[p]}` : last ? `${last.from === seat ? 'You: ' : ''}${last.body}` : talking && !gone ? 'Start a conversation' : 'No messages yet'}</small>
           </button></li>; })}
       </ul>}
 
@@ -144,18 +152,25 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
           {thread(open).map((l, i, all) => <div key={i} className="viewer-chat-row">
             {(i === 0 || all[i - 1].phaseId !== l.phaseId) && <p className="viewer-chat-turn">{turnOf(l.phaseId)}</p>}
             <p className={`viewer-bubble${l.from === seat ? ' is-mine' : ''}`}>{l.body}</p></div>)}
+          {talking && posted.includes(open) && <div className="viewer-chat-row">
+            {!thread(open).some(l => l.phaseId === current) && <p className="viewer-chat-turn">{turnOf(current)}</p>}
+            <p className="viewer-bubble is-mine is-pending">{drafts[open]}</p>
+            <small className="viewer-pending">Not delivered yet: your messages go out together when you finish writing. <button type="button" className="dip-link" onClick={() => unpost(open)}>Edit</button></small></div>}
         </div>
-        {talking && alive.includes(open) ? <label className="viewer-chat-compose">
+        {talking && alive.includes(open) && posted.includes(open) ? <p className="dip-small dip-muted">One message to each power per turn; {title(open)} will reply once.</p>
+          : talking && alive.includes(open) ? <form className="viewer-chat-compose" onSubmit={e => { e.preventDefault(); post(open); }}>
           <textarea rows={2} aria-label={`Your message to ${title(open)} this turn`} maxLength={500} value={drafts[open] ?? ''} placeholder={`Your message to ${title(open)} this turn`}
-            onChange={e => draft(open, e.target.value)} />
-          <small className="dip-muted">{(drafts[open] ?? '').length}/500 · sent with your other messages</small></label>
+            onChange={e => draft(open, e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); post(open); } }} />
+          <div className="viewer-compose-bar"><small className="dip-muted">{(drafts[open] ?? '').length}/500 · one message per power each turn · Enter sends</small>
+            <button type="submit" className="dip-solid" disabled={!drafts[open]?.trim()}>Send</button></div></form>
           : <p className="dip-small dip-muted">{!alive.includes(open) ? `${title(open)} is out of the game.` : 'You can write at the start of each orders turn, after the others have written.'}</p>}
       </div>}
 
       {tab === 'messages' && talking && <div className="viewer-send">
-        <p className="dip-small">{messages.length ? `To ${messages.map(m => title(m.to)).join(', ')}` : 'Nothing written yet'}</p>
+        <p className="dip-small">{messages.length ? `Ready to deliver to ${messages.map(m => title(m.to)).join(', ')}.` : 'Nothing sent yet.'}
+          {unsent.length > 0 && <span className="dip-muted"> Unsent draft{unsent.length === 1 ? '' : 's'} to {unsent.map(title).join(', ')} will not be delivered.</span>}</p>
         <button type="button" className="dip-solid" disabled={busy} onClick={() => void send(() => fullGamesApi.talk(game.run.runId, messages))}>
-          {busy ? 'Sending…' : messages.length ? `Send ${messages.length} message${messages.length === 1 ? '' : 's'}` : 'Send nothing this turn'}</button>
+          {busy ? 'Delivering…' : messages.length ? `Finish writing · deliver ${messages.length}` : 'Finish writing · say nothing'}</button>
       </div>}
 
       {tab === 'orders' && <div className="viewer-block viewer-orders">
