@@ -206,13 +206,12 @@ test('a hosted game is created, filled and played for a turn in the same frame a
   // Starting takes everyone to the map with this turn's orders beside it.
   await expect(phase(page)).toHaveText('Spring 1901 · orders');
   const orders = page.getByLabel('Your orders');
-  const units = orders.getByLabel('Your units').getByRole('button', { pressed: false });
-  const count = await units.count();
-  expect(count).toBeGreaterThanOrEqual(3);
-  for (let i = 0; i < count; i++) {
-    await orders.getByLabel('Your units').locator('button.dip-unit').nth(i).click();
-    await orders.getByRole('button', { name: 'Set this order' }).click();
-  }
+  // The same order menus as the daily challenge: one per unit, every legal order in words, Hold first.
+  const menus = orders.locator('.dip-orders select');
+  expect(await menus.count()).toBeGreaterThanOrEqual(3);
+  await expect(menus.first()).toBeEnabled();
+  await expect(menus.first().locator('option:checked')).toHaveText(/^Hold/);
+  await expect(orders.getByRole('button', { name: 'Submit orders' })).toBeEnabled();
   await orders.getByRole('button', { name: 'Submit orders' }).click();
   await expect(phase(page)).toHaveText('Fall 1901 · orders');
   await section(page, 'History').click();

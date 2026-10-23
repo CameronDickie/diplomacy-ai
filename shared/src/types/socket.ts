@@ -124,6 +124,8 @@ export interface ClientToServerEvents {
   send_diplomatic_message: (payload: SendDiplomaticMessagePayload) => void;
   request_diplomacy_history: (payload: { gameId: string }) => void;
   request_phase_history: (payload: { gameId: string }) => void;
+  /** Every legal order for the asking player's units this phase, from the rules engine. */
+  request_legal_orders: (payload: { gameId: string }) => void;
   create_discord_guild_bind_code: (payload: { gameId: string }) => void;
   create_discord_player_link_code: (payload: { gameId: string }) => void;
   request_discord_link_status: (payload: { gameId: string }) => void;
@@ -213,6 +215,11 @@ export interface ErrorPayload {
   code: string;
 }
 
+/** One order the rules engine allows, with the order itself, as the challenge's legal catalog has it. */
+export interface LegalOrderChoice { id: string; unitTerritory: string; order: Order; description: string }
+/** The player's legal orders for one phase of a hosted game. */
+export interface LegalOrdersPayload { gameId: string; phaseId: string; power: Power; options: LegalOrderChoice[] }
+
 export interface DiplomacyHistoryPayload {
   messages: DiplomaticMessage[];
 }
@@ -282,6 +289,7 @@ export interface ServerToClientEvents {
   diplomacy_history: (payload: DiplomacyHistoryPayload) => void;
   diplomacy_message: (payload: DiplomacyMessagePayload) => void;
   phase_history: (payload: PhaseHistoryPayload) => void;
+  legal_orders: (payload: LegalOrdersPayload) => void;
   phase_report_added: (payload: PhaseReportAddedPayload) => void;
   conversation_presence: (payload: ConversationPresencePayload) => void;
   llm_status: (payload: LlmStatusPayload) => void;

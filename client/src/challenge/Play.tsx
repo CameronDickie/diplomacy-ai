@@ -3,14 +3,15 @@ import type { ChallengeAttemptView, ChallengeCard, ChallengeLimits } from '@dipl
 import type { useChallenge } from '../hooks/useChallenge.js';
 import { territoryName } from '../lib/game.js';
 import { ArrowFillButton } from './Shell.js';
-import { coastName, describeChoice, describeOrder, foreignOwner, phaseTitle, placeName, title } from './text.js';
+import { describeOrder, phaseTitle, title } from './text.js';
+import { OrderControls, adjustmentsReady } from './OrderControls.js';
 import type { OrderEntry } from './useOrderEntry.js';
 
 type Game = ReturnType<typeof useChallenge>;
 
 /** The current turn: the map beside the orders being chosen for it, and nothing else. */
-export function PlayView({ game, attempt, card, entry, clock, map, onHistory, onSetup, coastChoices }: {
-  game: Game; attempt: ChallengeAttemptView; card: ChallengeCard; entry: OrderEntry; clock: number; map: React.ReactNode; onHistory: () => void; onSetup: () => void; coastChoices: React.ReactNode;
+export function PlayView({ game, attempt, card, entry, clock, map, onHistory, onSetup }: {
+  game: Game; attempt: ChallengeAttemptView; card: ChallengeCard; entry: OrderEntry; clock: number; map: React.ReactNode; onHistory: () => void; onSetup: () => void;
 }) {
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   const a = attempt, live = a.lifecycle === 'ACTIVE', activity = () => void game.activity();
@@ -34,27 +35,9 @@ export function PlayView({ game, attempt, card, entry, clock, map, onHistory, on
         <p role="status" className="dip-small">{a.execution === 'ACCEPTING' ? (entry.nothingToDo ? nothing(a.board.phase) : instruction(a.board.phase))
           : a.execution !== 'RECOVERING' ? (a.mode === 'SPONSORED' ? 'Your orders are saved. The opponents are deciding…' : 'Your orders are saved. Resolving this turn…') : 'Your orders are saved. This turn is waiting; see below.'}</p>
         {clock >= a.idleWarnAt && <div className="dip-notice">Your game expires after inactivity. <button onClick={() => void game.activity(true)}>I’m still here</button></div>}
-        {entry.convoyHint && entry.editable && <p className="dip-muted dip-small">No convoy is possible this turn. A convoy needs one of your fleets in a sea space next to the army; move a fleet out to sea first, and the convoy orders will appear next turn.</p>}
-        <div className="dip-orders">
-          {game.legalError && <p className="dip-notice is-error" role="alert">Could not load legal orders: {game.legalError} <button type="button" disabled={game.busy} onClick={game.retryLegal}>Retry legal orders</button></p>}
-          {coastChoices}
-          {a.acceptedAction && a.execution !== 'ACCEPTING' && <div><p className="dip-small dip-muted">Submitted for this turn:</p>{a.acceptedAction.phase === 'ORDERS' && <ul className="dip-small">{a.acceptedAction.orderIds.map(id => <li key={id}>{describeOrder(id)}</li>)}</ul>}</div>}
-          {a.board.phase === 'ORDERS' && entry.active.map(u => <label key={u.id} className={entry.selected === u.territory ? 'is-selected' : ''}>
-            <button className="dip-unit" aria-pressed={entry.selected === u.territory} onClick={() => { entry.setSelected(current => current === u.territory ? null : u.territory); activity(); }}>{title(u.type)} · {territoryName(u.territory)}</button>
-            <select aria-label={`Order for the ${u.type.toLowerCase()} in ${territoryName(u.territory)}`} disabled={!entry.editable || !game.legal} value={entry.choices[u.id] ?? entry.defaultOrder(u)} onChange={e => { entry.choose(u, e.target.value); activity(); }}>
-              {!game.legal && <option value="">{a.execution === 'ACCEPTING' ? 'Loading legal choices…' : 'Orders saved'}</option>}
-              {entry.options.filter(o => o.unitTerritory === u.territory).map(o => <option key={o.id} value={o.id}>{describeChoice(o.id, foreignOwner(a.board.units, card.humanPower))}</option>)}
-            </select></label>)}
-          {a.board.phase === 'RETREATS' && entry.own.filter(u => u.mustRetreat).map(u => <label key={u.id}>Retreat from {territoryName(u.territory)}
-            <select disabled={!entry.editable} value={entry.retreats[u.id] ?? ''} onChange={e => { entry.setRetreats(v => ({ ...v, [u.id]: e.target.value })); activity(); }}><option value="">Disband</option>
-              {u.retreatOptions.flatMap(t => u.retreatCoasts[t]?.length ? u.retreatCoasts[t]!.map(c => `${t}/${c}`) : [t]).map(d => <option key={d} value={d}>Retreat to {placeName(d)}</option>)}</select></label>)}
-          {a.board.phase === 'BUILDS' && <><p className="dip-small">{entry.buildDelta >= 0 ? `Up to ${entry.buildDelta} build${entry.buildDelta === 1 ? '' : 's'}. Unused builds are waived.` : `Choose ${-entry.buildDelta} unit${entry.buildDelta === -1 ? '' : 's'} to disband.`}</p>
-            {entry.buildDelta > 0 ? entry.homes.map(h => <label key={h.id}>Build in {h.name}<select disabled={!entry.editable} value={entry.builds[h.id] ?? ''} onChange={e => { entry.setBuilds(v => ({ ...v, [h.id]: e.target.value })); activity(); }}>
-              <option value="">No build</option><option value="ARMY">Army</option>{h.type !== 'LAND' && (h.coasts.length ? h.coasts.map(c => <option key={c} value={`FLEET/${c}`}>Fleet · {coastName(c)} coast</option>) : <option value="FLEET">Fleet</option>)}</select></label>)
-              : entry.own.map(u => <label key={u.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" style={{ width: 'auto' }} disabled={!entry.editable || entry.buildDelta === 0} checked={entry.disbands.includes(u.id)}
-                onChange={e => { entry.setDisbands(v => e.target.checked ? [...v, u.id] : v.filter(id => id !== u.id)); activity(); }} />Disband the {u.type.toLowerCase()} in {territoryName(u.territory)}</label>)}</>}
-        </div>
-        {entry.editable && entry.convoyWarnings.map(w => <div className="dip-notice" role="status" key={w} style={{ marginTop: 12 }}>{w}</div>)}
+        {a.acceptedAction && a.execution !== 'ACCEPTING' && <div><p className="dip-small dip-muted">Submitted for this turn:</p>{a.acceptedAction.phase === 'ORDERS' && <ul className="dip-small">{a.acceptedAction.orderIds.map(id => <li key={id}>{describeOrder(id)}</li>)}</ul>}</div>}
+        <OrderControls entry={entry} power={card.humanPower} legalReady={Boolean(game.legal)} loading={a.execution === 'ACCEPTING' ? 'Loading legal choices…' : 'Orders saved'}
+          disabled={!entry.editable} legalError={game.legalError || null} onRetryLegal={game.busy ? undefined : game.retryLegal} onActivity={activity} />
         {a.execution === 'RECOVERING' && <div className="dip-notice is-error" role="alert" style={{ marginTop: 12 }}>
           <strong>{a.notice === 'SPONSORED_PAUSED' ? 'Sponsored play is paused' : a.notice === 'ATTEMPT_BUDGET' ? 'This game has used its sponsored budget' : a.notice === 'SPONSORED_RETRY' ? 'The turn is waiting on an opponent' : 'This turn needs recovery'}</strong>
           <p>Your orders are saved. {a.notice === 'ATTEMPT_BUDGET' ? 'It cannot continue; you can end it and review what happened.' : a.notice === 'SPONSORED_PAUSED' ? 'It continues when play resumes.' : 'Nothing is lost; trying again asks only for what is missing.'}</p>
@@ -62,7 +45,7 @@ export function PlayView({ game, attempt, card, entry, clock, map, onHistory, on
           {a.notice !== 'ATTEMPT_BUDGET' && <button className="dip-solid" onClick={() => void game.recover()} disabled={game.busy || a.notice === 'SPONSORED_PAUSED' && game.sponsoredPlay === 'PAUSED'}>{a.notice === 'SPONSORED_RETRY' ? 'Try again' : a.notice === 'SPONSORED_PAUSED' ? 'Continue when resumed' : 'Recover saved phase'}</button>}
         </div>}
         <div className="dip-orders-actions">
-          <ArrowFillButton disabled={!entry.editable || !entry.complete} onClick={() => { const action = entry.submission(); if (action) void game.submit(action); }}>
+          <ArrowFillButton disabled={!entry.editable || !entry.complete || !adjustmentsReady(entry)} onClick={() => { const action = entry.submission(); if (action) void game.submit(action); }}>
             {game.busy ? 'Saving…' : a.execution !== 'ACCEPTING' ? 'Orders saved' : entry.nothingToDo ? 'Continue' : a.board.phase === 'RETREATS' ? 'Submit retreats' : a.board.phase === 'BUILDS' ? 'Submit adjustments' : 'Submit orders'}</ArrowFillButton>
         </div>
         {lastOwn.length > 0 && <p className="dip-small dip-muted" style={{ marginTop: 18 }}>Last turn: {lastOwn.length - failed} of your {lastOwn.length} orders succeeded{failed ? `, ${failed} did not` : ''}. <button className="dip-link" onClick={onHistory}>See the orders log</button></p>}

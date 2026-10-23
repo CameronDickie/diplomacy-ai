@@ -94,6 +94,7 @@ const validators: Record<Event, Check> = {
   }),
   request_diplomacy_history: shape(game),
   request_phase_history: shape(game),
+  request_legal_orders: shape(game),
   create_discord_guild_bind_code: shape(game),
   create_discord_player_link_code: shape(game),
   request_discord_link_status: shape(game),

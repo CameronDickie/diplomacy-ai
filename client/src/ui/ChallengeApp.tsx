@@ -9,7 +9,6 @@ import { SetupView } from '../challenge/Setup.js';
 import { Shell, useReveal, type NavItem } from '../challenge/Shell.js';
 import { title } from '../challenge/text.js';
 import { useOrderEntry } from '../challenge/useOrderEntry.js';
-import { CoastChoices } from '../challenge/CoastChoices.js';
 import { heldTerritories } from '../lib/game.js';
 import { MapGraph } from './MapGraph.js';
 import { OperatorPanel } from './OperatorPanel.js';
@@ -62,9 +61,8 @@ export function ChallengeApp() {
   // Earlier turns of whatever is shown: a replay up to the step in view, or this attempt's resolved turns.
   const held = useMemo(() => !shown ? {} : replay ? heldTerritories(replay.reports.slice(0, replay.index), shown.units)
     : current === 'setup' ? heldTerritories([], shown.units) : heldTerritories(game.reports, shown.units), [shown, replay, current, game.reports]);
-  const movesOf = (territory: string) => entry.options.filter(o => o.unitTerritory === territory && o.order.type === 'MOVE');
   const map = <MapGraph gameState={mapState} heldTerritories={held} selectedTerritory={playing ? entry.selected : null} selectedUnit={playing ? entry.selectedUnit : null}
-    validTargets={playing && entry.selectedUnit && a?.board.phase === 'ORDERS' ? [...new Set(movesOf(entry.selectedUnit.territory).map(o => o.order.targetTerritory!))] : []}
+    validTargets={playing ? entry.moveTargets as never[] : []}
     pendingOrders={report?.phase === 'ORDERS' ? report.resolvedOrders : playing ? entry.chosenOrders : []}
     onSelectTerritory={territory => {
       if (!playing) return;
@@ -90,7 +88,7 @@ export function ChallengeApp() {
     </main>
       : !game.loaded ? null
       : current === 'operator' ? <main id="dip-content" style={{ paddingTop: 24 }}><OperatorPanel /></main>
-      : current === 'play' && a && card ? <PlayView game={game} attempt={a} card={card} entry={entry} clock={clock} map={map} onHistory={() => go('history')} onSetup={() => go('setup')} coastChoices={<CoastChoices entry={entry} disabled={!entry.editable} onChoose={() => void game.activity()} />} />
+      : current === 'play' && a && card ? <PlayView game={game} attempt={a} card={card} entry={entry} clock={clock} map={map} onHistory={() => go('history')} onSetup={() => go('setup')} />
       : current === 'messages' && a && card && game.chat ? <MessagesView chat={game.chat} human={card.humanPower} busy={game.busy} onSend={game.sendChat} />
       : current === 'history' && a && card ? <HistoryView reports={game.reports} human={card.humanPower} onShow={index => setReplay({ reports: game.reports, index, after: true, kind: 'OWN' })} />
       : current === 'log' && game.playtest ? <DevLogView log={game.playtest} onExport={game.exportRecord} />

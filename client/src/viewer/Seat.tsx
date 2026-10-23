@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ALL_POWERS, TERRITORIES, type ChallengeLegalCatalog, type Power } from '@diplomacy/shared';
-import { coastName, describeChoice, foreignOwner, phaseTitle, placeName, title } from '../challenge/text.js';
+import { phaseTitle, title } from '../challenge/text.js';
 import { useOrderEntry } from '../challenge/useOrderEntry.js';
-import { CoastChoices } from '../challenge/CoastChoices.js';
-import { heldTerritories, territoryName } from '../lib/game.js';
+import { OrderControls, adjustmentsReady } from '../challenge/OrderControls.js';
+import { heldTerritories } from '../lib/game.js';
 import { MapGraph } from '../ui/MapGraph.js';
 import { lineColor } from './CenterChart.js';
 import { fullGamesApi, type LiveGame } from './FullGames.js';
@@ -85,9 +85,6 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
   const entry = useOrderEntry(attemptLike as never, { humanPower: seat, board } as never, catalog, busy, 'seat');
   // On the map: click one of your units, then a place it can move to (directly or by convoy). Clicking the
   // unit again lets it go. Supports and convoys are chosen in the list.
-  const movesOf = (territory: string) => entry.options.filter(o => o.unitTerritory === territory && ['MOVE', 'MOVE_VIA_CONVOY'].includes(o.id.split('|')[1]));
-  const baseOf = (id: string) => id.split('|')[2].split('/')[0];
-  const moveTargets = board.phase === 'ORDERS' && entry.selectedUnit ? [...new Set(movesOf(entry.selectedUnit.territory).map(o => baseOf(o.id)))] as never[] : [];
   function clickMap(territory: string) {
     if (busy) return;
     if (entry.moveTo(territory)) { setTab('orders'); return; }
@@ -97,9 +94,7 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
   const held = useMemo(() => heldTerritories(game.record.phases.flatMap(p => p.report ? [p.report] : []), board.units), [game.record.phases, board]);
 
   // Builds are limited to the centers you hold beyond your units; disbands must remove exactly the surplus.
-  const built = Object.values(entry.builds).filter(Boolean).length, mustDisband = Math.max(0, -entry.buildDelta);
-  const countsOk = board.phase !== 'BUILDS' || (entry.buildDelta >= 0 ? built <= entry.buildDelta : entry.disbands.length === mustDisband);
-  const ready = entry.complete && countsOk;
+  const ready = entry.complete && adjustmentsReady(entry);
   async function send(action: () => Promise<unknown>) {
     setBusy(true); setError(null);
     try { await action(); setConfirming(false); onChanged(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -120,7 +115,7 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
   return <section className="dip-play viewer-seat" aria-label="Your turn">
     <section className="dip-map" aria-label={`Board now, ${phaseTitle(board)}`}>
       <MapGraph gameState={mapState} heldTerritories={held} selectedTerritory={entry.selected as never} selectedUnit={entry.selectedUnit}
-        validTargets={moveTargets} pendingOrders={board.phase === 'ORDERS' ? entry.chosenOrders : []} onSelectTerritory={clickMap}
+        validTargets={entry.moveTargets as never[]} pendingOrders={board.phase === 'ORDERS' ? entry.chosenOrders : []} onSelectTerritory={clickMap}
         onClearSelection={() => entry.setSelected(null)} />
       <a className="dip-map-credit" href="/legal.html">Map: Godip contributors · GPL-3.0</a>
     </section>
@@ -176,28 +171,10 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
       {tab === 'orders' && <div className="viewer-block viewer-orders">
         {out && <p className="dip-muted">You have no units.</p>}
         <>
-          {legalError && <p className="dip-notice is-error" role="alert">Could not load legal orders: {legalError} <button type="button" disabled={busy} onClick={() => setLegalRetry(value => value + 1)}>Retry legal orders</button></p>}
-          <CoastChoices entry={entry} disabled={busy} />
           {!ordering && board.phase === 'ORDERS' && <p className="dip-small dip-muted">{talking ? 'Plan your orders while you write; they are kept. You can submit them once the replies are in.' : 'Your planned orders are kept until you can submit them.'}</p>}
-          {board.phase === 'ORDERS' && entry.active.map(u => <label key={u.id}>{title(u.type)} in {territoryName(u.territory)}
-            <select aria-label={`Order for the ${u.type.toLowerCase()} in ${territoryName(u.territory)}`} disabled={busy || !catalog} value={entry.choices[u.id] ?? entry.defaultOrder(u)} onChange={e => entry.choose(u, e.target.value)}>
-              {!catalog && <option value="">{waiting ? 'Loading legal orders…' : 'Available when the game waits for you'}</option>}
-              {entry.options.filter(o => o.unitTerritory === u.territory).map(o => <option key={o.id} value={o.id}>{describeChoice(o.id, foreignOwner(board.units, seat))}</option>)}</select></label>)}
           {board.phase !== 'ORDERS' && !ordering && <p className="dip-small dip-muted">Nothing to decide yet.</p>}
-          {board.phase === 'RETREATS' && ordering && entry.own.filter(u => u.mustRetreat).map(u => <label key={u.id}>Retreat from {territoryName(u.territory)}
-            <select disabled={busy} value={entry.retreats[u.id] ?? ''} onChange={e => entry.setRetreats(v => ({ ...v, [u.id]: e.target.value }))}><option value="">Disband</option>
-              {u.retreatOptions.flatMap(t => u.retreatCoasts[t]?.length ? u.retreatCoasts[t]!.map(c => `${t}/${c}`) : [t]).map(d => <option key={d} value={d}>Retreat to {placeName(d)}</option>)}</select></label>)}
-          {board.phase === 'BUILDS' && ordering && <>
-            <p className="dip-small">{entry.buildDelta >= 0
-              ? `You hold ${entry.buildDelta} more supply center${entry.buildDelta === 1 ? '' : 's'} than units, so you may build ${entry.buildDelta === 1 ? 'one unit' : `up to ${entry.buildDelta} units`} in your home centers (${built} chosen). Unused builds are waived.`
-              : `You have ${mustDisband} more unit${mustDisband === 1 ? '' : 's'} than supply centers: choose ${mustDisband} to disband (${entry.disbands.length} chosen).`}</p>
-            {entry.buildDelta > 0 ? entry.homes.map(h => <label key={h.id}>Build in {h.name}<select disabled={busy || (!entry.builds[h.id] && built >= entry.buildDelta)} value={entry.builds[h.id] ?? ''} onChange={e => entry.setBuilds(v => ({ ...v, [h.id]: e.target.value }))}>
-              <option value="">No build</option><option value="ARMY">Army</option>{h.type !== 'LAND' && (h.coasts.length ? h.coasts.map(c => <option key={c} value={`FLEET/${c}`}>Fleet · {coastName(c)} coast</option>) : <option value="FLEET">Fleet</option>)}</select></label>)
-              : entry.own.map(u => <label key={u.id} className="dip-check"><input type="checkbox" disabled={busy || (!entry.disbands.includes(u.id) && entry.disbands.length >= mustDisband)} checked={entry.disbands.includes(u.id)}
-                onChange={e => entry.setDisbands(v => e.target.checked ? [...v, u.id] : v.filter(id => id !== u.id))} />{title(u.type)} in {territoryName(u.territory)}</label>)}</>}
-          {board.phase === 'BUILDS' && ordering && entry.buildDelta > 0 && built >= entry.buildDelta && entry.homes.length > built && <p className="dip-small dip-muted">That is all your builds; set one back to "No build" to build elsewhere instead.</p>}
-          {entry.convoyHint && <p className="dip-small dip-muted">No convoys are possible this turn. A fleet can carry an army only from a coast that touches the sea the fleet is in (for example, an army in Yorkshire with a fleet in the North Sea), and the fleet must be ordered to convoy it.</p>}
-          {entry.convoyWarnings.map(w => <p className="dip-notice" key={w}>{w}</p>)}
+          {(board.phase === 'ORDERS' || ordering) && <OrderControls entry={entry} power={seat} legalReady={Boolean(catalog)} loading={waiting ? 'Loading legal orders…' : 'Available when the game waits for you'}
+            disabled={busy} legalError={legalError} onRetryLegal={busy ? undefined : () => setLegalRetry(value => value + 1)} />}
           {ordering && entry.convoyWarnings.length > 0 && <p className="dip-small">Convoy warnings are advisory. You can submit these legal orders, including convoys supplied by allies.</p>}
           {ordering && (confirming ? <div className="viewer-live-actions"><span className="dip-small">Submit these orders? They cannot be changed afterwards.</span>
             <button type="button" className="dip-solid" disabled={busy || !ready} onClick={() => { const action = entry.submission(); if (action) void send(() => fullGamesApi.act(game.run.runId, action, waiting!.phaseId)); }}>{busy ? 'Submitting…' : 'Yes, submit'}</button>

@@ -78,7 +78,15 @@ body:has(.dip) { background: var(--folio-paper); }
 .dip .dip-nav button:hover:not(:disabled) { color: var(--folio-ink); background: none; }
 .dip .dip-nav button[aria-current='page'] { color: var(--folio-ink); box-shadow: inset 0 -2px 0 var(--folio-accent); border-radius: 0; }
 .dip-nav-count { margin-left: 6px; font-size: 12px; color: var(--folio-accent); }
-.dip-account { display: flex; align-items: center; gap: 12px; font-size: 14px; flex-wrap: wrap; }
+.dip-account { position: relative; display: flex; align-items: center; gap: 12px; font-size: 14px; flex-wrap: wrap; }
+/* Signed out, the ways to sign in open from one short button, so the header stays on one row on a phone. */
+.dip .dip-signin { border: 0; }
+.dip .dip-signin summary { list-style: none; cursor: pointer; padding: 6px 14px; border: 1px solid var(--folio-control); border-radius: 999px; font-weight: 600; color: var(--folio-ink); }
+.dip .dip-signin summary::-webkit-details-marker { display: none; }
+.dip .dip-signin[open] summary { border-color: var(--folio-ink); }
+.dip-signin-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; display: grid; gap: 10px; width: max-content; max-width: min(300px, calc(100vw - 28px));
+  padding: 14px 16px; border: 1px solid var(--folio-control); border-radius: 10px; background: var(--folio-paper); box-shadow: 0 14px 36px rgba(0, 0, 0, .18); }
+.dip .dip-signin-menu .dip-link { text-align: left; white-space: normal; }
 .dip-theme { display: flex; border: 1px solid var(--folio-control); border-radius: 100px; padding: 3px; }
 .dip .dip-theme button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; color: var(--folio-muted); background: none; }
 .dip .dip-theme button[aria-pressed='true'] { color: var(--folio-on-accent); background: var(--folio-accent); }
@@ -112,6 +120,9 @@ body:has(.dip) { background: var(--folio-paper); }
 /* A card's action is sized to its label, like every other action, not stretched across the card. */
 .dip-mode > button { align-self: flex-start; }
 .dip-setup { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 40px; align-items: start; }
+/* The mission's four facts read as an even two by two. */
+.dip-setup .dip-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 520px; }
+.dip .dip-setup-map { height: min(56dvh, 520px); min-height: 0; margin-top: 40px; }
 .dip-list { display: grid; gap: 0; padding: 0; margin: 0; list-style: none; }
 .dip-list li { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; padding: 12px 0; border-top: 1px solid var(--folio-line); }
 .dip-list small { color: var(--folio-muted); display: block; }
@@ -129,7 +140,8 @@ body:has(.dip) { background: var(--folio-paper); }
 .dip-turn { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--folio-line); }
 .dip-turn h2 { margin-bottom: 6px; }
 .dip-orders { display: grid; gap: 12px; }
-.dip-orders label.is-selected { color: var(--folio-ink); }
+/* Not a label: the unit's name is a button that selects it on the map, and the menu names itself. */
+.dip-unit-order { display: grid; gap: 6px; }
 .dip .dip-unit { justify-self: start; border: 0; padding: 0; background: none; font-weight: 600; color: var(--folio-ink); border-radius: 2px; }
 .dip .dip-unit[aria-pressed='true'] { color: var(--folio-accent); }
 .dip-orders-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 8px; }
@@ -176,6 +188,8 @@ body:has(.dip) { background: var(--folio-paper); }
   .dip-nav { order: 3; flex-basis: 100%; overflow-x: auto; flex-wrap: nowrap; }
   .dip .dip-nav button { white-space: nowrap; padding: 8px 10px; }
   .dip-heading { padding: 24px 0 18px; }
+  /* The starting position is a preview here: short enough that the ways to play follow soon after. */
+  .dip .dip-setup-map { height: 300px; margin-top: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .dip *, .dip *::before, .dip *::after { animation: none !important; transition: none !important; } }
 

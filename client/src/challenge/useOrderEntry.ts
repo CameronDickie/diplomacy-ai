@@ -50,6 +50,8 @@ export function useOrderEntry(attempt: ChallengeAttemptView | null, card: Challe
   }
   const movesTo = (territory: string) => options.filter(o => o.unitTerritory === selectedUnit?.territory && o.order.type === 'MOVE' && o.order.targetTerritory === territory);
   const coastChoices = destination ? movesTo(destination) : [];
+  // Where the selected unit can move, by any route: the places the map highlights.
+  const moveTargets = selectedUnit && board?.phase === 'ORDERS' ? [...new Set(options.filter(o => o.unitTerritory === selectedUnit.territory && o.order.type === 'MOVE').map(o => o.order.targetTerritory!))] : [];
   function moveTo(territory: string) {
     if (!selectedUnit || board?.phase !== 'ORDERS') return false;
     const moves = movesTo(territory);
@@ -75,6 +77,6 @@ export function useOrderEntry(attempt: ChallengeAttemptView | null, card: Challe
   }
   const complete = attempt?.board.phase !== 'ORDERS' || (!!legal && chosenOrders.length === active.length);
   return { board, own, active, selected, setSelected, selectedUnit, editable, options, defaultOrder, choices, choose, chosenOrders, retreats, setRetreats, builds, setBuilds, disbands, setDisbands,
-    buildDelta, homes, convoyHint, convoyWarnings, nothingToDo, submission, complete, coastChoices, moveTo };
+    buildDelta, homes, convoyHint, convoyWarnings, nothingToDo, submission, complete, coastChoices, moveTo, moveTargets };
 }
 export type OrderEntry = ReturnType<typeof useOrderEntry>;

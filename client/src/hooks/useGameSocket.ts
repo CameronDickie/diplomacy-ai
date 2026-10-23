@@ -11,6 +11,7 @@ import type {
   ExpiringDiscordCode,
   GameSettings,
   GameState,
+  LegalOrdersPayload,
   LlmRunStatus,
   Order,
   Power,
@@ -61,6 +62,10 @@ export function useGameSocket() {
   const sendingSubmission = useRef(false);
   const [diplomaticMessages, setDiplomaticMessages] = useState<DiplomaticMessage[]>([]);
   const [phaseHistory, setPhaseHistory] = useState<PublicPhaseReport[]>([]);
+  // The rules engine's legal orders for this player's units, kept for the phase they were made for.
+  const [legalOrders, setLegalOrders] = useState<LegalOrdersPayload | null>(null);
+  const [legalError, setLegalError] = useState<string | null>(null);
+  const [legalRetry, setLegalRetry] = useState(0);
   const [llmStatuses, setLlmStatuses] = useState<
     Partial<Record<Power, LlmRunStatus>>
   >({});
@@ -281,6 +286,10 @@ export function useGameSocket() {
           : [...messages, message]
       );
     });
+    nextSocket.on('legal_orders', payload => {
+      setLegalOrders(payload); setLegalError(null);
+      log('incoming', 'legal_orders', `${payload.power} ${payload.options.length} options`);
+    });
     nextSocket.on('phase_history', payload => {
       setPhaseHistory(payload.reports);
       log('incoming', 'phase_history', `${payload.reports.length} reports`);
@@ -337,6 +346,8 @@ export function useGameSocket() {
       log('incoming', 'voice_session_state', `${state.power ?? '-'} ${state.status}`);
     });
     nextSocket.on('error', payload => {
+      // Shown beside the order menus, with a retry, rather than as a page notice.
+      if (payload.code === 'LEGAL_ORDERS_UNAVAILABLE') { setLegalError(payload.message); log('error', payload.code, payload.message); return; }
       if (sendingSubmission.current) {
         sendingSubmission.current = false;
         setSubmission(null);
@@ -349,7 +360,7 @@ export function useGameSocket() {
     function clearPrivateState() {
       localStorage.removeItem(SESSION_KEY);
       setGameState(null); setGameId(null); setMyPlayerId(null); setMyPower(null);
-      setDiplomaticMessages([]); setPhaseHistory([]); setLogs([]); setSubmission(null); setLlmStatuses({});
+      setDiplomaticMessages([]); setPhaseHistory([]); setLogs([]); setSubmission(null); setLlmStatuses({}); setLegalOrders(null); setLegalError(null);
       setDiscordGuildBindCode(null); setDiscordPlayerLinkCode(null);
       setConversationPresence({ active: false, status: 'IDLE', conversationId: null, participants: null, messageCount: 0, maxMessages: 0 });
       setDiscordStatus({ configured: false, voiceEnabled: false, guildBound: false, linked: false, discordDisplayName: null, powerBotAvailability: {} });
@@ -369,6 +380,16 @@ export function useGameSocket() {
     };
   }, [legacyEnabled]);
 
+  // An orders phase asks for its legal orders once (and again on Retry, or after reconnecting).
+  const legalPhase = gameState && myPower && gameState.status === 'IN_PROGRESS' && gameState.phase === 'ORDERS' ? gamePhaseId(gameState) : null;
+  const currentLegal = legalOrders && legalOrders.phaseId === legalPhase && legalOrders.power === myPower ? legalOrders : null;
+  useEffect(() => {
+    if (!legalPhase || !gameId || !socket || connection !== 'connected' || currentLegal) return;
+    setLegalError(null);
+    socket.emit('request_legal_orders', { gameId });
+    log('outgoing', 'request_legal_orders', legalPhase);
+  }, [legalPhase, gameId, socket, connection, legalRetry, Boolean(currentLegal)]);
+
   return useMemo(() => ({
     capabilities,
     connection,
@@ -387,6 +408,9 @@ export function useGameSocket() {
     logs,
     errors,
     submission: gameState && submission?.phaseId === gamePhaseId(gameState) ? submission : null,
+    legalOrders: currentLegal,
+    legalError: legalPhase ? legalError : null,
+    retryLegal() { setLegalRetry(value => value + 1); },
     dismissError(id: string) {
       setErrors(current => current.filter(error => error.id !== id));
     },
@@ -521,6 +545,8 @@ export function useGameSocket() {
     myPower,
     socket,
     voiceSession,
+    currentLegal,
+    legalError,
   ]);
 }
 

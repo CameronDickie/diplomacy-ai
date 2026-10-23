@@ -66,6 +66,25 @@ export interface NavItem { id: string; label: string; count?: number }
  * Games), the views of the current game, the account and the theme. Games do not exist in the showcase
  * profile, so the switch is only shown where both do.
  */
+/** A disclosure that closes on a click outside it or Escape, as a menu would. */
+function SignInMenu({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const close = (event: Event) => {
+      const menu = ref.current;
+      if (!menu?.open) return;
+      if (event instanceof KeyboardEvent ? event.key === 'Escape' : !menu.contains(event.target as Node)) {
+        menu.open = false;
+        if (event instanceof KeyboardEvent) menu.querySelector('summary')?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', close);
+    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', close); };
+  }, []);
+  return <details ref={ref} className="dip-signin"><summary>Sign in</summary>{children}</details>;
+}
+
 export function Shell({ nav, current, onNavigate, section, children }: { nav: NavItem[]; current: string; onNavigate: (id: string) => void; section: 'challenge' | 'games' | 'viewer'; children: ReactNode }) {
   const auth = useAuth();
   const authMessage = useReveal<HTMLParagraphElement>(auth.message);
@@ -91,8 +110,12 @@ export function Shell({ nav, current, onNavigate, section, children }: { nav: Na
             <span className="dip-account-name">{auth.user?.displayName}{auth.operator ? ' · Operator' : ''}</span>
             <button type="button" className="dip-link" onClick={() => void auth.logout()} disabled={auth.submitting}>{auth.submitting ? 'Signing out…' : 'Sign out'}</button>
           </> : <>
-            {auth.providers.map(provider => <a key={provider} href={auth.loginUrl(provider)}>Sign in with {provider === 'github' ? 'GitHub' : 'Google'}</a>)}
-            {auth.devSignIn === true && <button type="button" className="dip-link" onClick={() => void auth.devLogin()} disabled={auth.submitting}>Continue as local developer (development only)</button>}
+            {(auth.providers.length > 0 || auth.devSignIn === true) && <SignInMenu>
+              <div className="dip-signin-menu">
+                {auth.providers.map(provider => <a key={provider} href={auth.loginUrl(provider)}>Sign in with {provider === 'github' ? 'GitHub' : 'Google'}</a>)}
+                {auth.devSignIn === true && <button type="button" className="dip-link" onClick={() => void auth.devLogin()} disabled={auth.submitting}>Continue as local developer (development only)</button>}
+              </div>
+            </SignInMenu>}
             {auth.providers.length === 0 && !auth.devSignIn && auth.status !== 'ERROR' && <span className="dip-muted">Sign-in is not configured on this server.</span>}
             {auth.status === 'ERROR' && <button type="button" className="dip-link" onClick={() => void auth.refresh()}>Retry sign-in check</button>}
           </>}

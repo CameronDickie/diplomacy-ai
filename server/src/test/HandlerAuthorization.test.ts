@@ -206,6 +206,23 @@ test('order handlers reject non-participants consistently', async () => {
   assertLastError(attacker, 'NOT_IN_GAME');
 });
 
+test('a seated player is sent their own legal orders for the phase, and an outsider is refused', async () => {
+  const manager = GameManagerWithStartedRoom();
+  const room = manager.getRooms()[0];
+  const france = socketWithOrderHandlers('france-socket', manager);
+  await invoke(france, 'request_legal_orders', { gameId: room.gameId });
+  const sent = lastEmitted(france, 'legal_orders')?.payload as { phaseId: string; power: string; options: Array<{ id: string; unitTerritory: string; order: Order }> };
+  assert.equal(sent.power, 'FRANCE');
+  assert.equal(sent.phaseId, gamePhaseId(room.getState()));
+  assert.deepEqual([...new Set(sent.options.map(option => option.unitTerritory))].sort(), ['BRE', 'MAR', 'PAR']);
+  assert.ok(sent.options.every(option => option.order.power === 'FRANCE'));
+  assert.ok(sent.options.some(option => option.id === 'PAR|MOVE|BUR'));
+  const outsider = socketWithOrderHandlers('outsider-socket', manager);
+  await invoke(outsider, 'request_legal_orders', { gameId: room.gameId });
+  assertLastError(outsider, 'NOT_IN_GAME');
+  assert.equal(lastEmitted(outsider, 'legal_orders'), undefined);
+});
+
 test('Discord browser handlers authorize by the linked socket seat', async () => {
   const manager = new GameManager();
   const room = manager.createGame();

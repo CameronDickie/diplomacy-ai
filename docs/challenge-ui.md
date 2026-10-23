@@ -41,6 +41,12 @@ On the map, click one of your units and then a highlighted place to order the
 move (by convoy only when nothing else reaches it); click the unit again to let
 it go. Supports and convoys are chosen in the menus.
 
+The order controls are one component, `OrderControls.tsx`, used by the daily
+challenge, a seat against the AI and a game with friends, so every game asks
+for orders, retreats and builds the same way. A game with friends asks the
+server for its legal orders each orders phase (`request_legal_orders`, answered
+only for the player's own power) and submits through the room as before.
+
 The current turn's orders are only in Play. Past orders are only in History;
 Play shows a one-line summary of last turn with a link.
 
@@ -110,7 +116,9 @@ of it. `theme.css` carries that site's palette as CSS variables with light and
 dark pairs, Source Sans 3 for text, tight Arial headings, uppercase meta labels
 and thin rules instead of boxes. The header has the site's "cd" monogram, which
 links home, and the same light / system / dark picker, stored under the same
-`cam-theme` key and resolved before first paint in `index.html`.
+`cam-theme` key and resolved before first paint in `index.html`. Signed out,
+the ways to sign in open from one "Sign in" button, so on a phone the brand,
+the account and the theme picker share one row.
 
 - Use the role variables (`--folio-paper`, `--folio-ink`, `--folio-muted`,
   `--folio-accent`, `--folio-on-accent`, `--folio-line`, `--folio-control`,

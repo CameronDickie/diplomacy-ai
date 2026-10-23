@@ -35,10 +35,9 @@ export function SetupView({ game, clock, map, onContinue, onWatchReference, onWa
           <div><dt>Deadline</dt><dd>Fall {card.deadlineYear}</dd></div>
           <div><dt>Early capture</dt><dd>By Fall {card.earlyAchievementYear}</dd></div>
         </dl>}
-        <p className="dip-muted dip-small" style={{ marginTop: 20 }}>Ownership changes only after a Fall turn has fully settled. Moving in during Spring is not enough.</p>
-        {game.rotation && <p className="dip-muted dip-small">Today’s challenge changes at midnight UTC, in {untilChange(game.rotation.nextChangeAt, clock)}. A game keeps the challenge it started with.</p>}
+        {game.rotation && <p className="dip-muted dip-small" style={{ marginTop: 20 }}>Today’s challenge changes at midnight UTC, in {untilChange(game.rotation.nextChangeAt, clock)}. A game keeps the challenge it started with.</p>}
       </div>
-      <div className="dip-map" style={{ height: 'min(56dvh, 520px)', marginTop: 40 }}>{map}<a className="dip-map-credit" href="/legal.html">Map: Godip contributors · GPL-3.0</a></div>
+      <div className="dip-map dip-setup-map">{map}<a className="dip-map-credit" href="/legal.html">Map: Godip contributors · GPL-3.0</a></div>
     </div>
 
     {active && <div className="dip-notice" role="status" style={{ marginTop: 28 }}><strong>You have a game in progress</strong>
@@ -60,8 +59,8 @@ export function SetupView({ game, clock, map, onContinue, onWatchReference, onWa
 
     <section className="dip-section" aria-labelledby="dip-ways">
       <h2 id="dip-ways">Choose how to play</h2>
-      <p className="dip-muted">The challenge and the rules are the same in each. What changes is who decides the other six powers’ moves. Every option is free to you and uses one of your daily starts.</p>
-      {!game.auth.authenticated && <p className="dip-notice" role="status">Sign in with Google or GitHub to play; your game is saved to your account. The reference replay needs no account.</p>}
+      <p className="dip-muted">Same challenge, same rules; what changes is who moves the other six powers. Each is free and uses one of your daily starts.</p>
+      {!game.auth.authenticated && <p className="dip-notice" role="status">Sign in to play (top right); your game is saved to your account. The reference replay needs no account.</p>}
       <ol className="dip-modes">
         <li className="dip-mode"><span>01 · RECOMMENDED</span><h3>Practice bot</h3>
           <dl><dt>Opponents</dt><dd>Scripted: they head for supply centers and support each other</dd><dt>AI model</dt><dd>None</dd><dt>Messages</dt><dd>No</dd></dl>
@@ -104,7 +103,7 @@ export function SetupView({ game, clock, map, onContinue, onWatchReference, onWa
 function Guide({ card, limits }: { card: ChallengeCard; limits: ChallengeLimits | null }) {
   const power = title(card.humanPower), n = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`;
   return <section className="dip-section" aria-labelledby="dip-guide"><h2 id="dip-guide">How this challenge works</h2>
-    <details open><summary>Goal and ending</summary>
+    <details><summary>Goal and ending</summary>
       <p>You play {power}. You succeed the moment {power} owns the target supply center once a Fall turn has fully settled. If Fall {card.deadlineYear} settles without it, the challenge ends unsuccessfully.</p>
       <p>Supply centers change hands only after Fall. “Settled” means any retreats from that Fall have been resolved first, so a unit forced out of the center does not count.</p>
       <p>Finish by Fall {card.earlyAchievementYear} to also earn the Early capture achievement.</p></details>
