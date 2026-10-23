@@ -115,10 +115,11 @@ export function RoomApp() {
     unitAnimationKey={replayReport && replayFrame === 2 ? `${replayReport.id}-${replayRun}` : null}
     onSelectTerritory={interactive ? selectOnMap : ignoreMapSelection}
     onClearSelection={() => entry.setSelected(null)} />;
-  // A unit of yours selects (or lets go); with one selected, a highlighted place orders the move.
+  // A unit of yours selects (or lets go); with one selected, a highlighted place orders the move and any
+  // other place narrows its menu to the orders involving that place.
   function selectOnMap(territory: string) {
-    if (canDecide && entry.moveTo(territory)) return;
-    if (entry.active.some(unit => unit.territory === territory)) entry.setSelected(now => now === territory ? null : territory);
+    if (canDecide) entry.place(territory);
+    else if (entry.active.some(unit => unit.territory === territory)) entry.setSelected(now => now === territory ? null : territory);
   }
   const credit = <a className="dip-map-credit" href="/legal.html">Map: Godip contributors · GPL-3.0</a>;
 

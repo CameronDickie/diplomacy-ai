@@ -1,7 +1,7 @@
 import type { GameState, Power } from '@diplomacy/shared';
 import { OrderControls, adjustmentsReady } from '../challenge/OrderControls.js';
 import { ArrowFillButton } from '../challenge/Shell.js';
-import { title } from '../challenge/text.js';
+import { describeOrderFields, title } from '../challenge/text.js';
 import type { OrderEntry } from '../challenge/useOrderEntry.js';
 import type { useGameSocket } from '../hooks/useGameSocket.js';
 
@@ -32,11 +32,16 @@ export function Orders({ game, state, myPower, entry, legalReady, canDecide, onS
         : waitingOnAi ? 'Waiting for the AI powers to finish.' : 'Resolving the turn.'}
     </div>}
 
+    {/* What was sent, in words, while this page still knows it; after a reload the room says only that it was. */}
+    {submission?.status === 'ACCEPTED' && phase === 'ORDERS' && entry.chosenOrders.length > 0 && <div>
+      <p className="dip-small dip-muted">Submitted for this turn:</p>
+      <ul className="dip-small">{entry.chosenOrders.map(order => <li key={order.id}>{describeOrderFields(order)}</li>)}</ul></div>}
+
     {entry.nothingToDo && !submitted ? <p className="dip-small dip-muted" role="status">
       {phase === 'RETREATS' ? 'None of your units has to retreat. Waiting for the powers that do.'
         : phase === 'BUILDS' ? 'Your units already match your supply centers. Waiting for the powers that build or disband.'
         : 'You have no units to order this turn.'}</p>
-      : <>
+      : submitted && phase === 'ORDERS' ? null : <>
         <OrderControls entry={entry} power={myPower} legalReady={legalReady} loading={canDecide ? 'Loading legal orders…' : 'Orders submitted'}
           disabled={!canDecide} legalError={game.legalError} onRetryLegal={game.retryLegal} />
         {canDecide && <div className="dip-orders-actions">

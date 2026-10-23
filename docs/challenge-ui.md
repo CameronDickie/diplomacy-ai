@@ -39,7 +39,15 @@ one that makes sense. Starting or opening a game takes you to Play.
 
 On the map, click one of your units and then a highlighted place to order the
 move (by convoy only when nothing else reaches it); click the unit again to let
-it go. Supports and convoys are chosen in the menus.
+it go. With a unit selected, clicking another power's unit or any other place
+narrows that unit's menu to the orders involving it (supporting or convoying
+the unit there, or into there), with "Show all orders" to undo it. Each menu
+is grouped: Hold, then moves, supports and convoys. The map clicks are handled
+once, by `place` in `useOrderEntry.ts`, for every game.
+
+On a narrow screen, where the orders are below the map, the unit picked on the
+map gets its menu in a bar fixed to the bottom of the screen while its row in
+the list is out of sight, so its order can be chosen without leaving the map.
 
 The order controls are one component, `OrderControls.tsx`, used by the daily
 challenge, a seat against the AI and a game with friends, so every game asks
@@ -100,10 +108,10 @@ Game page links to the other ways to play.
 | History | `#/history` | the orders log, the animated replay of any phase, and the public game export |
 | Event log | `#/log` | what this browser sent and received (host only) |
 
-Orders can be given two ways that feed one list: click a unit on the map and
-then a province (a small menu offers hold, move, coast or convoy), or select
-the unit in the list and use the menus, which also cover supports and convoys.
-Starting the game takes every player to Play.
+Orders are given with the same controls as the daily challenge (above):
+click a unit on the map and then a highlighted place, or use its menu. Once
+submitted, the orders are listed in words until the turn resolves. Starting
+the game takes every player to Play.
 
 What the host is offered for empty seats depends on who they are: the operator
 can add model opponents; on a local server anyone can add offline bots, which

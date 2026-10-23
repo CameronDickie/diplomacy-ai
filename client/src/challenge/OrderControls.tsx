@@ -1,3 +1,4 @@
+import { Fragment, useEffect, useState } from 'react';
 import type { Power } from '@diplomacy/shared';
 import { territoryName } from '../lib/game.js';
 import { CoastChoices } from './CoastChoices.js';
@@ -30,22 +31,57 @@ export function OrderControls({ entry, power, legalReady, loading, disabled, leg
   onActivity?: () => void;
 }) {
   const board = entry.board;
+  // The selected unit's row in the list, and whether it is on screen: below the map on a phone it usually is not.
+  const [row, setRow] = useState<HTMLElement | null>(null), [rowShown, setRowShown] = useState(true);
+  useEffect(() => {
+    if (!row || typeof IntersectionObserver === 'undefined') { setRowShown(true); return; }
+    const watch = new IntersectionObserver(([seen]) => setRowShown(seen.isIntersecting), { threshold: 0.6 });
+    watch.observe(row);
+    return () => watch.disconnect();
+  }, [row]);
   if (!board) return null;
   const touched = () => onActivity?.();
   const built = Object.values(entry.builds).filter(Boolean).length, mustDisband = Math.max(0, -entry.buildDelta);
   const owner = foreignOwner(board.units, power);
+  const option = (o: { id: string }) => <option key={o.id} value={o.id}>{describeChoice(o.id, owner)}</option>;
+  // After a tap on another place, the selected unit's menu holds only the orders involving it (and Hold, and
+  // whatever is already chosen, so the menu never shows a value it does not list).
+  const narrowed = (territory: string) => Boolean(entry.focus && entry.selected === territory);
+  /** A unit's orders, grouped so a long list of supports reads at a glance: Hold, then moves, supports, convoys. */
+  const menu = (territory: string): Array<[string | null, typeof entry.options]> => {
+    const all = entry.options.filter(o => o.unitTerritory === territory), unit = entry.active.find(u => u.territory === territory);
+    const chosen = unit ? entry.choices[unit.id] ?? entry.defaultOrder(unit) : '';
+    const shown = narrowed(territory) ? all.filter(o => o.order.type === 'HOLD' || o.id === chosen || entry.involving(entry.focus!).includes(o)) : all;
+    const kind = (o: typeof all[number]) => o.order.type === 'HOLD' ? null : o.order.type.startsWith('SUPPORT') ? 'Supports' : o.order.type === 'CONVOY' ? 'Convoys' : 'Moves';
+    return ([null, 'Moves', 'Supports', 'Convoys'] as const).map(group => [group, shown.filter(o => kind(o) === group)] as [string | null, typeof all]).filter(([, items]) => items.length > 0);
+  };
   return <div className="dip-orders">
     {legalError && <p className="dip-notice is-error" role="alert">Could not load legal orders: {legalError} {onRetryLegal && <button type="button" onClick={onRetryLegal}>Retry legal orders</button>}</p>}
     {board.phase === 'ORDERS' && <CoastChoices entry={entry} disabled={disabled} onChoose={touched} />}
 
-    {board.phase === 'ORDERS' && entry.active.map(u => <div key={u.id} className={`dip-unit-order${entry.selected === u.territory ? ' is-selected' : ''}`}>
+    {board.phase === 'ORDERS' && entry.active.map(u => <div key={u.id} ref={entry.selected === u.territory ? setRow : undefined} className={`dip-unit-order${entry.selected === u.territory ? ' is-selected' : ''}`}>
       <button type="button" className="dip-unit" aria-pressed={entry.selected === u.territory}
         onClick={() => { entry.setSelected(current => current === u.territory ? null : u.territory); touched(); }}>{title(u.type)} · {territoryName(u.territory)}</button>
       <select aria-label={`Order for the ${u.type.toLowerCase()} in ${territoryName(u.territory)}`} disabled={disabled || !legalReady}
         value={legalReady ? entry.choices[u.id] ?? entry.defaultOrder(u) : ''} onChange={e => { entry.choose(u, e.target.value); touched(); }}>
         {!legalReady && <option value="">{loading}</option>}
-        {entry.options.filter(o => o.unitTerritory === u.territory).map(o => <option key={o.id} value={o.id}>{describeChoice(o.id, owner)}</option>)}
-      </select></div>)}
+        {menu(u.territory).map(([group, items]) => group ? <optgroup key={group} label={group}>{items.map(option)}</optgroup> : <Fragment key="hold">{items.map(option)}</Fragment>)}
+      </select>
+      {narrowed(u.territory) && <p className="dip-small dip-muted">Showing the orders that involve {placeName(entry.focus!)}. <button type="button" className="dip-link" onClick={() => entry.setFocus(null)}>Show all orders</button></p>}
+      </div>)}
+
+    {/* The unit picked on the map, its menu kept at the bottom of a narrow screen while its row is out of sight. */}
+    {board.phase === 'ORDERS' && entry.selectedUnit && !rowShown && (() => { const u = entry.selectedUnit; return <div className="dip-quick-order" role="group" aria-label="Unit selected on the map">
+      <strong>{title(u.type)} · {territoryName(u.territory)}</strong>
+      <select aria-label="Order for the unit selected on the map" disabled={disabled || !legalReady}
+        value={legalReady ? entry.choices[u.id] ?? entry.defaultOrder(u) : ''} onChange={e => { entry.choose(u, e.target.value); touched(); }}>
+        {!legalReady && <option value="">{loading}</option>}
+        {menu(u.territory).map(([group, items]) => group ? <optgroup key={group} label={group}>{items.map(option)}</optgroup> : <Fragment key="hold">{items.map(option)}</Fragment>)}
+      </select>
+      <span className="dip-small dip-muted">{narrowed(u.territory) ? <>Orders involving {placeName(entry.focus!)}. <button type="button" className="dip-link" onClick={() => entry.setFocus(null)}>Show all</button></>
+        : 'Tap a highlighted place to move there, or another power’s unit or a place to list the orders that involve it.'}</span>
+      <button type="button" className="dip-link" onClick={() => entry.setSelected(null)}>Done</button>
+    </div>; })()}
 
     {board.phase === 'RETREATS' && entry.own.filter(u => u.mustRetreat).map(u => <label key={u.id}>Retreat from {territoryName(u.territory)}
       <select disabled={disabled} value={entry.retreats[u.id] ?? ''} onChange={e => { entry.setRetreats(v => ({ ...v, [u.id]: e.target.value })); touched(); }}>

@@ -208,10 +208,26 @@ test('a hosted game is created, filled and played for a turn in the same frame a
   const orders = page.getByLabel('Your orders');
   // The same order menus as the daily challenge: one per unit, every legal order in words, Hold first.
   const menus = orders.locator('.dip-orders select');
-  expect(await menus.count()).toBeGreaterThanOrEqual(3);
+  const count = await menus.count();
+  expect(count).toBeGreaterThanOrEqual(3);
   await expect(menus.first()).toBeEnabled();
   await expect(menus.first().locator('option:checked')).toHaveText(/^Hold/);
   await expect(orders.getByRole('button', { name: 'Submit orders' })).toBeEnabled();
+  // With a unit selected, tapping another power's unit on the map narrows its menu to the orders involving it.
+  let narrowed = false;
+  for (let i = 0; i < count && !narrowed; i++) {
+    const row = orders.locator('.dip-unit-order').nth(i), menu = row.locator('select');
+    const foreign = (await menu.locator('option').allTextContents()).map(text => /^Support (.+?) \((\w+)\)/.exec(text)).find(Boolean);
+    if (!foreign) continue;
+    await row.locator('button.dip-unit').click();
+    await page.getByRole('button', { name: `${foreign[2].toUpperCase()} army in ${foreign[1]}` }).or(page.getByRole('button', { name: `${foreign[2].toUpperCase()} fleet in ${foreign[1]}` })).click();
+    const shown = await menu.locator('option').allTextContents();
+    expect(shown.every(text => text === 'Hold' || text.includes(foreign[1]))).toBe(true);
+    await row.getByRole('button', { name: 'Show all orders' }).click();
+    expect((await menu.locator('option').allTextContents()).length).toBeGreaterThan(shown.length);
+    narrowed = true;
+  }
+  expect(narrowed).toBe(true);
   await orders.getByRole('button', { name: 'Submit orders' }).click();
   await expect(phase(page)).toHaveText('Fall 1901 · orders');
   await section(page, 'History').click();

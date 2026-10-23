@@ -113,10 +113,8 @@ body:has(.dip) { background: var(--folio-paper); }
 .dip-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 0 32px; padding: 0; margin: 0; list-style: none; }
 .dip-mode { display: flex; flex-direction: column; gap: 10px; padding: 24px 0; border-top: 1px solid var(--folio-line); }
 .dip-mode > span:first-child { font-size: 12px; font-weight: 600; letter-spacing: .09em; color: var(--folio-accent); }
-.dip-mode dl { margin: 0 0 6px; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 14px; }
-.dip-mode dt { color: var(--folio-muted); }
-.dip-mode dd { margin: 0; }
-.dip-mode p { color: var(--folio-muted); flex: 1; }
+.dip-mode p { color: var(--folio-muted); flex: 1; margin: 0; }
+.dip .dip-mode .dip-mode-facts { flex: none; color: var(--folio-ink); font-size: 14px; font-weight: 600; }
 /* A card's action is sized to its label, like every other action, not stretched across the card. */
 .dip-mode > button { align-self: flex-start; }
 .dip-setup { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 40px; align-items: start; }
@@ -180,16 +178,27 @@ body:has(.dip) { background: var(--folio-paper); }
 @media (max-width: 1180px) { .dip-header:has(.dip-switch) .dip-nav { order: 3; flex-basis: 100%; } .dip-header:has(.dip-switch) .dip-account { margin-left: auto; } }
 @media (max-width: 640px) {
   .dip-wrap { width: min(100% - 28px, 1320px); }
-  /* Three short rows: the brand with the account, then the ways to play, then this game's sections. */
+  /* Two short rows: the brand with the account, then the ways to play beside this game's sections, which
+     scroll sideways (fading at the edge) when they do not fit. */
   .dip-header { gap: 10px 12px; min-height: 0; }
   .dip-header .dip-account { order: 1; margin-left: auto; gap: 8px; }
-  .dip-header .dip-switch { order: 2; flex-basis: 100%; overflow-x: auto; justify-content: flex-start; }
+  .dip-header .dip-switch { order: 2; flex: none; }
   .dip-account-name { display: none; }
-  .dip-nav { order: 3; flex-basis: 100%; overflow-x: auto; flex-wrap: nowrap; }
+  .dip-nav, .dip-header:has(.dip-switch) .dip-nav { order: 3; flex: 1 1 0; min-width: 0; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none;
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
   .dip .dip-nav button { white-space: nowrap; padding: 8px 10px; }
   .dip-heading { padding: 24px 0 18px; }
   /* The starting position is a preview here: short enough that the ways to play follow soon after. */
   .dip .dip-setup-map { height: 300px; margin-top: 0; }
+}
+/* On a narrow screen the orders are below the map: the unit picked on the map keeps its menu at the bottom of
+   the screen, so its order can be chosen without scrolling away from the map. Wide screens show the list beside it. */
+.dip-quick-order { display: none; }
+@media (max-width: 980px) {
+  .dip-quick-order { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center;
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); background: var(--folio-paper); border-top: 1px solid var(--folio-control); box-shadow: 0 -10px 24px rgba(0, 0, 0, .18); }
+  .dip-quick-order select, .dip-quick-order > span { grid-column: 1 / -1; }
+  .dip-quick-order > button { grid-row: 1; grid-column: 2; }
 }
 @media (prefers-reduced-motion: reduce) { .dip *, .dip *::before, .dip *::after { animation: none !important; transition: none !important; } }
 

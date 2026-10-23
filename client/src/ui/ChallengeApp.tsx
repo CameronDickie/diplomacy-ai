@@ -66,8 +66,7 @@ export function ChallengeApp() {
     pendingOrders={report?.phase === 'ORDERS' ? report.resolvedOrders : playing ? entry.chosenOrders : []}
     onSelectTerritory={territory => {
       if (!playing) return;
-      if (entry.editable && entry.moveTo(territory)) { void game.activity(); return; }
-      if (entry.active.some(u => u.territory === territory)) { entry.setSelected(now => now === territory ? null : territory); void game.activity(); }
+      if (entry.editable ? entry.place(territory) : entry.active.some(u => u.territory === territory) && (entry.setSelected(now => now === territory ? null : territory), true)) void game.activity();
     }}
     onClearSelection={() => entry.setSelected(null)} />;
 

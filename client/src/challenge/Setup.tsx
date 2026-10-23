@@ -63,17 +63,16 @@ export function SetupView({ game, clock, map, onContinue, onWatchReference, onWa
       {!game.auth.authenticated && <p className="dip-notice" role="status">Sign in to play (top right); your game is saved to your account. The reference replay needs no account.</p>}
       <ol className="dip-modes">
         <li className="dip-mode"><span>01 · RECOMMENDED</span><h3>Practice bot</h3>
-          <dl><dt>Opponents</dt><dd>Scripted: they head for supply centers and support each other</dd><dt>AI model</dt><dd>None</dd><dt>Messages</dt><dd>No</dd></dl>
-          <p>A real game against opponents that move, with no AI involved. They play the same way for the same position and are not strong players. Start here.</p>
+          <p className="dip-mode-facts">Scripted opponents · no AI model · no messages</p>
+          <p>Opponents that head for supply centers and support each other, the same way every time. A real game, but not a strong one. Start here.</p>
           <ArrowFillButton disabled={!canStart} onClick={() => start('BOT')}>Play against the practice bot</ArrowFillButton></li>
         <li className="dip-mode"><span>02</span><h3>Controls practice</h3>
-          <dl><dt>Opponents</dt><dd>Every unit holds, every turn</dd><dt>AI model</dt><dd>None</dd><dt>Messages</dt><dd>No</dd></dl>
-          <p>Nothing contests you. Use it to learn the order menus, the map and how a turn resolves, not to test yourself.</p>
+          <p className="dip-mode-facts">Every other unit holds · no AI model · no messages</p>
+          <p>Nothing contests you: learn the order menus, the map and how a turn resolves.</p>
           <button className="dip-solid" disabled={!canStart} onClick={() => start('PRACTICE')}>Start practice</button></li>
         {game.sponsoredPlay === 'OPEN' && <li className="dip-mode"><span>03{game.sponsoredLive ? ' · DEVELOPMENT' : game.sponsoredMock ? ' · STAND-IN' : ''}</span><h3>{sponsoredName}</h3>
-          <dl><dt>Opponents</dt><dd>{game.sponsoredMock ? 'A stand-in that picks random legal orders' : 'Each power decided by an AI model'}</dd>
-            <dt>AI model</dt><dd>{game.sponsoredMock ? 'None is called' : game.sponsoredLive ? 'Real calls from your local ledger' : 'GPT-6 Luna, paid for by the site owner'}</dd>
-            <dt>Messages</dt><dd>{game.sponsoredChat ? 'Yes: talk to each power privately' : 'No'}</dd></dl>
+          <p className="dip-mode-facts">{game.sponsoredMock ? 'Random legal orders · no AI model is called' : game.sponsoredLive ? 'An AI model per power · real calls from your local ledger' : 'An AI model per power · GPT-6 Luna, paid for by the site owner'}
+            {' · '}{game.sponsoredChat ? 'talk to each power privately' : 'no messages'}</p>
           <p>{game.sponsoredMock ? 'Exercises the whole AI-opponent flow without calling a model. The moves say nothing about how a model plays.'
             : 'Opponents that plan for themselves. Play runs on a fixed budget: if it is paused or runs out you are told and your game waits with your orders saved. Model opponents are never silently swapped for practice ones.'}</p>
           <ArrowFillButton disabled={!canStart} onClick={() => start('SPONSORED')}>{sponsoredButton}</ArrowFillButton></li>}

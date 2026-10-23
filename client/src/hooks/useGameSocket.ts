@@ -161,6 +161,7 @@ export function useGameSocket() {
       showError('Could not connect to the game server. Reconnecting automatically.');
     });
     nextSocket.on('game_created', payload => {
+      setErrors([]); // A notice about an earlier game does not belong to this one.
       setSubmission(null);
       setGameId(payload.gameId);
       setMyPlayerId(payload.playerId);
@@ -173,6 +174,7 @@ export function useGameSocket() {
       log('incoming', 'game_created', { gameId: payload.gameId, power: payload.power });
     });
     nextSocket.on('game_joined', payload => {
+      setErrors([]); // A notice about an earlier game does not belong to this one.
       setSubmission(null);
       setGameId(payload.gameId);
       setMyPlayerId(payload.playerId);
@@ -185,6 +187,7 @@ export function useGameSocket() {
       log('incoming', 'game_joined', { power: payload.power });
     });
     nextSocket.on('game_resumed', payload => {
+      setErrors([]); // A notice about an earlier game does not belong to this one.
       setSubmission(null);
       setGameId(payload.gameId);
       setMyPlayerId(payload.playerId);
@@ -204,7 +207,8 @@ export function useGameSocket() {
         setDiplomaticMessages([]);
         setPhaseHistory([]);
       }
-      showError(payload.message);
+      // A remembered game that has ended or gone with a server restart is simply forgotten, not reported as a fault.
+      if (payload.code !== 'GAME_NOT_FOUND') showError(payload.message);
       log('error', 'resume_error', payload);
     });
     nextSocket.on('session_replaced', payload => {

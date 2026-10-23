@@ -87,8 +87,7 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
   // unit again lets it go. Supports and convoys are chosen in the list.
   function clickMap(territory: string) {
     if (busy) return;
-    if (entry.moveTo(territory)) { setTab('orders'); return; }
-    if (entry.active.some(u => u.territory === territory)) { setTab('orders'); entry.setSelected(now => now === territory ? null : territory); return; }
+    if (entry.place(territory)) setTab('orders');
   }
   const mapState = useMemo(() => ({ units: board.units, territories: Object.fromEntries(TERRITORIES.map(t => [t.id, { id: t.id, isSupplyCenter: t.isSupplyCenter, owner: board.territoryOwners[t.id] }])) }), [board]);
   const held = useMemo(() => heldTerritories(game.record.phases.flatMap(p => p.report ? [p.report] : []), board.units), [game.record.phases, board]);

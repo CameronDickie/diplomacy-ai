@@ -10,8 +10,8 @@ const name = (t: string) => territoryName(t.split('/')[0] as Parameters<typeof t
  */
 export function useOrderEntry(attempt: ChallengeAttemptView | null, card: ChallengeCard | undefined, legal: ChallengeLegalCatalog | null, busy: boolean, playerId: string | undefined) {
   const [selected, setSelected] = useState<string | null>(null), [choices, setChoices] = useState<Record<string, string>>({});
-  const [destination, setDestination] = useState<string | null>(null);
-  useEffect(() => { setDestination(null); }, [selected, attempt?.id, attempt?.phaseId, playerId]);
+  const [destination, setDestination] = useState<string | null>(null), [focus, setFocus] = useState<string | null>(null);
+  useEffect(() => { setDestination(null); setFocus(null); }, [selected, attempt?.id, attempt?.phaseId, playerId]);
   const [retreats, setRetreats] = useState<Record<string, string>>({}), [builds, setBuilds] = useState<Record<string, string>>({}), [disbands, setDisbands] = useState<string[]>([]);
   useEffect(() => { setChoices({}); setRetreats({}); setBuilds({}); setDisbands([]); setSelected(null); }, [attempt?.id, attempt?.phaseId, playerId]);
   const board = attempt?.board ?? card?.board;
@@ -60,6 +60,21 @@ export function useOrderEntry(attempt: ChallengeAttemptView | null, card: Challe
     else { choose(selectedUnit, (moves.find(o => !o.order.viaConvoy) ?? moves[0]).id); setSelected(null); }
     return true;
   }
+  // The selected unit's orders that involve a place, other than its own: supporting or convoying the unit
+  // there, or into there. Tapping such a place narrows the unit's menu to them.
+  const involving = (territory: string) => options.filter(o => o.unitTerritory === selectedUnit?.territory && o.id.split('|').slice(2).some(part => part.split('/')[0] === territory));
+  /**
+   * A tap on the map while giving orders: a highlighted place orders the selected unit there, one of your
+   * units selects it (or lets it go), and any other place narrows the selected unit's menu to the orders
+   * that involve it. False when the tap means nothing for the orders.
+   */
+  function place(territory: string) {
+    if (board?.phase !== 'ORDERS') return false;
+    if (moveTo(territory)) return true;
+    if (active.some(u => u.territory === territory)) { setSelected(now => now === territory ? null : territory); return true; }
+    if (selectedUnit && involving(territory).length) { setFocus(territory); return true; }
+    return false;
+  }
   const chosenIds = active.map(u => choices[u.id] ?? defaultOrder(u)).filter(Boolean).map(id => id.split('|'));
   const convoyWarnings = board?.phase === 'ORDERS' ? [
     ...chosenIds.filter(([unit, type, target]) => type === 'MOVE_VIA_CONVOY' && !chosenIds.some(([, t, army, to]) => t === 'CONVOY' && army === unit && to === target))
@@ -77,6 +92,6 @@ export function useOrderEntry(attempt: ChallengeAttemptView | null, card: Challe
   }
   const complete = attempt?.board.phase !== 'ORDERS' || (!!legal && chosenOrders.length === active.length);
   return { board, own, active, selected, setSelected, selectedUnit, editable, options, defaultOrder, choices, choose, chosenOrders, retreats, setRetreats, builds, setBuilds, disbands, setDisbands,
-    buildDelta, homes, convoyHint, convoyWarnings, nothingToDo, submission, complete, coastChoices, moveTo, moveTargets };
+    buildDelta, homes, convoyHint, convoyWarnings, nothingToDo, submission, complete, coastChoices, moveTo, moveTargets, place, focus, setFocus, involving };
 }
 export type OrderEntry = ReturnType<typeof useOrderEntry>;
