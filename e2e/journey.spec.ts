@@ -56,7 +56,7 @@ test('a signed-in player plays a practice turn, keeps a chosen order through the
   await expect(phase(page)).toHaveText('Spring 1901 · orders');
   const order = page.locator('.dip-orders select').first();
   await expect(order).toBeEnabled();
-  const move = await order.locator('option').evaluateAll(options => (options as HTMLOptionElement[]).find(o => / moves to /.test(o.text))!.value);
+  const move = await order.locator('option').evaluateAll(options => (options as HTMLOptionElement[]).find(o => /^Move to /.test(o.text))!.value);
   await order.selectOption(move);
   // Watching the reference replay does not disturb the attempt or the choice just made.
   await section(page, 'Setup').click();

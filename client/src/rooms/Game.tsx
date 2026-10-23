@@ -65,7 +65,7 @@ export function GameView({ game, map, onPlay }: { game: GameSocket; map: ReactNo
         const player = players.find(candidate => candidate.power === power);
         return <li key={power}>
           <span><i className="dip-swatch" style={{ background: POWER_COLORS[power] }} aria-hidden="true" />{title(power)}{power === game.myPower ? ' (you)' : ''}
-            <small>{player ? `${player.name}${player.id === state.hostPlayerId ? ' · host' : ''} · ${seatKind(player)}` : lobby ? 'Empty seat' : 'Nobody'}</small>
+            <small>{player ? [player.kind === 'HUMAN' ? player.name : null, player.id === state.hostPlayerId ? 'host' : null, seatKind(player)].filter(Boolean).join(' · ') : lobby ? 'Empty seat' : 'Nobody'}</small>
             {!lobby && player && power !== game.myPower && <VoiceControls game={game} player={player} />}</span>
           {!lobby && <span className="dip-small dip-muted">{centers(state, power)} center{centers(state, power) === 1 ? '' : 's'} · {state.units.filter(unit => unit.power === power).length} units
             {powerStatus(game, state, power) ? ` · ${powerStatus(game, state, power)}` : ''}</span>}

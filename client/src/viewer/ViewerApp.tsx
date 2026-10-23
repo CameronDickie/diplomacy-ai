@@ -115,7 +115,8 @@ function Library({ games, list }: { games: AutoplayIndexEntry[]; list: FullGames
         {[...list.games].reverse().map(g => {
           const top = ALL_POWERS.reduce((a, b) => g.centers[b] > g.centers[a] ? b : a);
           return <li key={g.runId}><span><a href={`#/db/${g.runId}`}><strong>{g.runId}</strong></a>
-            <small>{g.standIn ? 'Stand-in · ' : ''}{g.waiting ? 'Waiting for you' : g.running ? 'Being played' : g.lifecycle === 'ACTIVE' ? 'Paused or waiting' : 'Finished'} · {title(g.season)} {g.year} · {title(top)} leads with {g.centers[top]}</small></span>
+            <small>{g.standIn ? 'Stand-in · ' : ''}{g.waiting ? 'Waiting for you' : g.running ? 'Being played' : g.lifecycle === 'ACTIVE' ? 'Paused' : 'Finished'} · {title(g.season)} {g.year} · {
+              g.centers[top] >= 18 ? `${title(top)} won with ${g.centers[top]}` : `${title(top)} ${g.lifecycle === 'ACTIVE' ? 'leads' : 'finished first'} with ${g.centers[top]}`}</small></span>
             <a href={`#/db/${g.runId}`}>{g.waiting ? 'Play' : g.running ? 'Watch' : 'Open'}</a></li>;
         })}</ul>}</section>}
     <section className="dip-section"><h2>Saved records</h2>

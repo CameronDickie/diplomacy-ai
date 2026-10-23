@@ -109,6 +109,8 @@ body:has(.dip) { background: var(--folio-paper); }
 .dip-mode dt { color: var(--folio-muted); }
 .dip-mode dd { margin: 0; }
 .dip-mode p { color: var(--folio-muted); flex: 1; }
+/* A card's action is sized to its label, like every other action, not stretched across the card. */
+.dip-mode > button { align-self: flex-start; }
 .dip-setup { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 40px; align-items: start; }
 .dip-list { display: grid; gap: 0; padding: 0; margin: 0; list-style: none; }
 .dip-list li { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; padding: 12px 0; border-top: 1px solid var(--folio-line); }
@@ -122,7 +124,8 @@ body:has(.dip) { background: var(--folio-paper); }
 /* Play: the map with the current orders */
 .dip-play { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 32px; align-items: start; padding-top: 24px; }
 .dip-map { position: relative; height: min(78dvh, 820px); min-height: 460px; border: 1px solid var(--folio-line); border-radius: 12px; overflow: hidden; background: #101214; }
-.dip-map-credit { position: absolute; left: 10px; bottom: 8px; z-index: 5; font-size: 11px; color: #cfc6ba; background: #101214cc; padding: 2px 8px; border-radius: 999px; }
+/* Bottom right: the order legend sits bottom left and the zoom controls top right. */
+.dip-map-credit { position: absolute; right: 10px; bottom: 8px; z-index: 5; font-size: 11px; color: #cfc6ba; background: #101214cc; padding: 2px 8px; border-radius: 999px; }
 .dip-turn { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--folio-line); }
 .dip-turn h2 { margin-bottom: 6px; }
 .dip-orders { display: grid; gap: 12px; }
@@ -165,7 +168,11 @@ body:has(.dip) { background: var(--folio-paper); }
 @media (max-width: 1180px) { .dip-header:has(.dip-switch) .dip-nav { order: 3; flex-basis: 100%; } .dip-header:has(.dip-switch) .dip-account { margin-left: auto; } }
 @media (max-width: 640px) {
   .dip-wrap { width: min(100% - 28px, 1320px); }
-  .dip-header { gap: 12px; min-height: 0; }
+  /* Three short rows: the brand with the account, then the ways to play, then this game's sections. */
+  .dip-header { gap: 10px 12px; min-height: 0; }
+  .dip-header .dip-account { order: 1; margin-left: auto; gap: 8px; }
+  .dip-header .dip-switch { order: 2; flex-basis: 100%; overflow-x: auto; justify-content: flex-start; }
+  .dip-account-name { display: none; }
   .dip-nav { order: 3; flex-basis: 100%; overflow-x: auto; flex-wrap: nowrap; }
   .dip .dip-nav button { white-space: nowrap; padding: 8px 10px; }
   .dip-heading { padding: 24px 0 18px; }

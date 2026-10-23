@@ -1,4 +1,4 @@
-import { useEffect, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { useAuth } from '../hooks/useAuth.js';
 import './theme.css';
 
@@ -32,6 +32,23 @@ function ThemePicker() {
   </div>;
 }
 
+/**
+ * Brings a message into view and moves focus to it when it appears or changes, so a result shown far
+ * from the button that caused it (an error at the top of a long page, say) is not missed. The element
+ * needs tabIndex={-1}.
+ */
+export function useReveal<T extends HTMLElement>(key: unknown) {
+  const ref = useRef<T>(null);
+  useEffect(() => {
+    const element = ref.current;
+    if (!key || !element) return;
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    element.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' });
+    element.focus({ preventScroll: true });
+  }, [key]);
+  return ref;
+}
+
 const arrowPath = 'M0 5.625H7.625L4.125 9.125 5 10 10 5 5 0 4.125.875 7.625 4.375H0Z';
 /** The site's arrow-fill action. Adapted from ObsidianUI's Arrow Fill Button (MIT); see THIRD_PARTY_NOTICES.md. */
 export function ArrowFillButton({ children, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { children: ReactNode }) {
@@ -51,6 +68,7 @@ export interface NavItem { id: string; label: string; count?: number }
  */
 export function Shell({ nav, current, onNavigate, section, children }: { nav: NavItem[]; current: string; onNavigate: (id: string) => void; section: 'challenge' | 'games' | 'viewer'; children: ReactNode }) {
   const auth = useAuth();
+  const authMessage = useReveal<HTMLParagraphElement>(auth.message);
   const both = auth.status !== 'CHECKING' && auth.status !== 'ERROR' && auth.profile !== 'showcase';
   return <div className="dip">
     <div className="dip-wrap">
@@ -71,7 +89,7 @@ export function Shell({ nav, current, onNavigate, section, children }: { nav: Na
         </nav>
         <div className="dip-account" aria-label="Player account">
           {auth.status === 'CHECKING' ? <span className="dip-muted">Checking session…</span> : auth.authenticated ? <>
-            <span>{auth.user?.displayName}{auth.operator ? ' · Operator' : ''}</span>
+            <span className="dip-account-name">{auth.user?.displayName}{auth.operator ? ' · Operator' : ''}</span>
             <button type="button" className="dip-link" onClick={() => void auth.logout()} disabled={auth.submitting}>{auth.submitting ? 'Signing out…' : 'Sign out'}</button>
           </> : <>
             {auth.providers.map(provider => <a key={provider} href={auth.loginUrl(provider)}>Sign in with {provider === 'github' ? 'GitHub' : 'Google'}</a>)}
@@ -82,7 +100,7 @@ export function Shell({ nav, current, onNavigate, section, children }: { nav: Na
           <ThemePicker />
         </div>
       </header>
-      {auth.message && <p role="alert" className="dip-notice is-error" style={{ marginTop: 16 }}>{auth.message}</p>}
+      {auth.message && <p role="alert" ref={authMessage} tabIndex={-1} className="dip-notice is-error" style={{ marginTop: 16 }}>{auth.message}</p>}
       {children}
       <footer className="dip-footer">
         <span><a href="https://camerondickie.ca">Cameron Dickie</a> · <a href="/legal.html">Credits &amp; licenses</a> · <a href="https://github.com/CameronDickie/diplomacy-ai" target="_blank" rel="noreferrer">Source code</a></span>

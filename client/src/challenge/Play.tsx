@@ -3,7 +3,7 @@ import type { ChallengeAttemptView, ChallengeCard, ChallengeLimits } from '@dipl
 import type { useChallenge } from '../hooks/useChallenge.js';
 import { territoryName } from '../lib/game.js';
 import { ArrowFillButton } from './Shell.js';
-import { describeOrder, phaseTitle, title } from './text.js';
+import { coastName, describeChoice, describeOrder, foreignOwner, phaseTitle, placeName, title } from './text.js';
 import type { OrderEntry } from './useOrderEntry.js';
 
 type Game = ReturnType<typeof useChallenge>;
@@ -39,18 +39,18 @@ export function PlayView({ game, attempt, card, entry, clock, map, onHistory, on
           {a.acceptedAction && a.execution !== 'ACCEPTING' && <div><p className="dip-small dip-muted">Submitted for this turn:</p>{a.acceptedAction.phase === 'ORDERS' && <ul className="dip-small">{a.acceptedAction.orderIds.map(id => <li key={id}>{describeOrder(id)}</li>)}</ul>}</div>}
           {a.board.phase === 'ORDERS' && entry.active.map(u => <label key={u.id} className={entry.selected === u.territory ? 'is-selected' : ''}>
             <button className="dip-unit" aria-pressed={entry.selected === u.territory} onClick={() => { entry.setSelected(current => current === u.territory ? null : u.territory); activity(); }}>{title(u.type)} · {territoryName(u.territory)}</button>
-            <select aria-label={`Order for ${u.territory}`} disabled={!entry.editable || !game.legal} value={entry.choices[u.id] ?? entry.defaultOrder(u)} onChange={e => { entry.choose(u, e.target.value); activity(); }}>
+            <select aria-label={`Order for the ${u.type.toLowerCase()} in ${territoryName(u.territory)}`} disabled={!entry.editable || !game.legal} value={entry.choices[u.id] ?? entry.defaultOrder(u)} onChange={e => { entry.choose(u, e.target.value); activity(); }}>
               {!game.legal && <option value="">{a.execution === 'ACCEPTING' ? 'Loading legal choices…' : 'Orders saved'}</option>}
-              {entry.options.filter(o => o.unitTerritory === u.territory).map(o => <option key={o.id} value={o.id}>{o.description}</option>)}
+              {entry.options.filter(o => o.unitTerritory === u.territory).map(o => <option key={o.id} value={o.id}>{describeChoice(o.id, foreignOwner(a.board.units, card.humanPower))}</option>)}
             </select></label>)}
           {a.board.phase === 'RETREATS' && entry.own.filter(u => u.mustRetreat).map(u => <label key={u.id}>Retreat from {territoryName(u.territory)}
             <select disabled={!entry.editable} value={entry.retreats[u.id] ?? ''} onChange={e => { entry.setRetreats(v => ({ ...v, [u.id]: e.target.value })); activity(); }}><option value="">Disband</option>
-              {u.retreatOptions.flatMap(t => u.retreatCoasts[t]?.length ? u.retreatCoasts[t]!.map(c => `${t}/${c}`) : [t]).map(d => <option key={d} value={d}>{d}</option>)}</select></label>)}
-          {a.board.phase === 'BUILDS' && <><p className="dip-small">{entry.buildDelta >= 0 ? `Up to ${entry.buildDelta} builds. Unused builds are waived.` : `Choose ${-entry.buildDelta} units to disband.`}</p>
+              {u.retreatOptions.flatMap(t => u.retreatCoasts[t]?.length ? u.retreatCoasts[t]!.map(c => `${t}/${c}`) : [t]).map(d => <option key={d} value={d}>Retreat to {placeName(d)}</option>)}</select></label>)}
+          {a.board.phase === 'BUILDS' && <><p className="dip-small">{entry.buildDelta >= 0 ? `Up to ${entry.buildDelta} build${entry.buildDelta === 1 ? '' : 's'}. Unused builds are waived.` : `Choose ${-entry.buildDelta} unit${entry.buildDelta === -1 ? '' : 's'} to disband.`}</p>
             {entry.buildDelta > 0 ? entry.homes.map(h => <label key={h.id}>Build in {h.name}<select disabled={!entry.editable} value={entry.builds[h.id] ?? ''} onChange={e => { entry.setBuilds(v => ({ ...v, [h.id]: e.target.value })); activity(); }}>
-              <option value="">No build</option><option value="ARMY">Army</option>{h.type !== 'LAND' && (h.coasts.length ? h.coasts.map(c => <option key={c} value={`FLEET/${c}`}>Fleet · {c} coast</option>) : <option value="FLEET">Fleet</option>)}</select></label>)
+              <option value="">No build</option><option value="ARMY">Army</option>{h.type !== 'LAND' && (h.coasts.length ? h.coasts.map(c => <option key={c} value={`FLEET/${c}`}>Fleet · {coastName(c)} coast</option>) : <option value="FLEET">Fleet</option>)}</select></label>)
               : entry.own.map(u => <label key={u.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" style={{ width: 'auto' }} disabled={!entry.editable || entry.buildDelta === 0} checked={entry.disbands.includes(u.id)}
-                onChange={e => { entry.setDisbands(v => e.target.checked ? [...v, u.id] : v.filter(id => id !== u.id)); activity(); }} />{title(u.type)} {territoryName(u.territory)}</label>)}</>}
+                onChange={e => { entry.setDisbands(v => e.target.checked ? [...v, u.id] : v.filter(id => id !== u.id)); activity(); }} />Disband the {u.type.toLowerCase()} in {territoryName(u.territory)}</label>)}</>}
         </div>
         {entry.editable && entry.convoyWarnings.map(w => <div className="dip-notice" role="status" key={w} style={{ marginTop: 12 }}>{w}</div>)}
         {a.execution === 'RECOVERING' && <div className="dip-notice is-error" role="alert" style={{ marginTop: 12 }}>

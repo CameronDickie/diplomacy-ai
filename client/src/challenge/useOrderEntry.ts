@@ -48,9 +48,9 @@ export function useOrderEntry(attempt: ChallengeAttemptView | null, card: Challe
   const chosenIds = active.map(u => choices[u.id] ?? defaultOrder(u)).filter(Boolean).map(id => id.split('|'));
   const convoyWarnings = board?.phase === 'ORDERS' ? [
     ...chosenIds.filter(([unit, type, target]) => type === 'MOVE_VIA_CONVOY' && !chosenIds.some(([, t, army, to]) => t === 'CONVOY' && army === unit && to === target))
-      .map(([unit, , target]) => `${name(unit)} is ordered to ${name(target)} by convoy, but none of your fleets is ordered to convoy it there. Set a fleet to "convoys ${unit} to ${target}", or the move will fail.`),
+      .map(([unit, , target]) => `${name(unit)} is ordered to ${name(target)} by convoy, but none of your fleets is ordered to convoy it there. Set a fleet to "Convoy ${name(unit)} to ${name(target)}", or the move will fail.`),
     ...chosenIds.filter(([, type, army, to]) => type === 'CONVOY' && own.some(u => u.territory === army) && !chosenIds.some(([unit, t, target]) => unit === army && t === 'MOVE_VIA_CONVOY' && target === to))
-      .map(([fleet, , army, to]) => `${name(fleet)} is ordered to convoy ${army} to ${to}, but that army is not ordered to move there by convoy.`),
+      .map(([fleet, , army, to]) => `${name(fleet)} is ordered to convoy ${name(army)} to ${name(to)}, but that army is not ordered to move there by convoy.`),
   ] : [];
   // Some phases ask nothing of the player. The server normally plays those itself; this covers the case where it could not.
   const nothingToDo = Boolean(board && (board.phase === 'ORDERS' ? active.length === 0 : board.phase === 'RETREATS' ? !own.some(u => u.mustRetreat) : buildDelta === 0));

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Coast, GameState, Order, PublicBoardSnapshot, PublicPhaseReport, TerritoryId, Unit } from '@diplomacy/shared';
 import { HistoryView } from '../challenge/History.js';
-import { Shell, type NavItem } from '../challenge/Shell.js';
+import { Shell, useReveal, type NavItem } from '../challenge/Shell.js';
 import { useAuth } from '../hooks/useAuth.js';
 import { useGameSocket } from '../hooks/useGameSocket.js';
 import { adjacentTerritories, convoyDestinations, convoyRoute, heldTerritories, TERRITORY_BY_ID, territoryName } from '../lib/game.js';
@@ -42,6 +42,8 @@ export function RoomApp() {
   const started = Boolean(state && state.status !== 'LOBBY');
   const isHost = Boolean(state && state.hostPlayerId === game.myPlayerId);
   const phaseKey = state ? `${state.year}-${state.season}-${state.phase}` : 'no-game';
+  // The newest notification is shown above the page; bring it into view wherever the action was.
+  const latestError = useReveal<HTMLDivElement>(game.errors[game.errors.length - 1]?.id);
 
   const closeReplay = () => { setReplayReport(null); setReplayPlaying(false); };
   useEffect(() => { const onHash = () => { setView(fromHash()); closeReplay(); setMapOrderMenu(null); }; window.addEventListener('hashchange', onHash); return () => window.removeEventListener('hashchange', onHash); }, []);
@@ -150,7 +152,7 @@ export function RoomApp() {
 
   return <Shell section="games" nav={nav} current={current} onNavigate={id => go(id as View)}>
     <div aria-label="Game notifications">
-      {game.errors.map(error => <div className="dip-notice is-error" role="alert" key={error.id} style={{ marginTop: 16 }}>
+      {game.errors.map((error, i) => <div className="dip-notice is-error" role="alert" key={error.id} ref={i === game.errors.length - 1 ? latestError : undefined} tabIndex={-1} style={{ marginTop: 16 }}>
         <span>{error.message}</span> <button type="button" aria-label="Dismiss notification" onClick={() => game.dismissError(error.id)}>Dismiss</button></div>)}
     </div>
     {auth.status === 'CHECKING' ? <p style={{ padding: '40px 0' }} role="status">Loading…</p>

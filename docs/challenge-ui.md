@@ -37,12 +37,31 @@ The view is in the address bar's hash, so Back and reload work. A view that
 needs something you do not have (no game, no chat) falls back to the nearest
 one that makes sense. Starting or opening a game takes you to Play.
 
+On the map, click one of your units and then a highlighted place to order the
+move (by convoy only when nothing else reaches it); click the unit again to let
+it go. Supports and convoys are chosen in the menus.
+
 The current turn's orders are only in Play. Past orders are only in History;
 Play shows a one-line summary of last turn with a link.
 
 A replay (the reference run, an exhibition game, or a turn from your own
 history) takes over the page with the map and its controls, and returns you to
 where you were.
+
+### Wording a player sees
+
+Places are always named, never coded. A unit's order menu sits under the unit
+("Army · Paris"), so its choices do not repeat it: "Hold", "Move to Burgundy",
+"Move to Norway by convoy", "Support Marseilles into Burgundy". A support or
+convoy for another power's unit names its owner, "Support Munich (Germany) into
+Burgundy", so it is never mistaken for one of your own. Retreats read "Retreat
+to Spain (north coast)" and fleet builds "Fleet · north coast". The text comes
+from `describeChoice` in `client/src/challenge/text.ts`; the server's own
+order descriptions, which the models read, are unchanged.
+
+An error is shown at the top of the page and is brought into view and focused
+when it appears, wherever the action that caused it was (`useReveal` in
+`Shell.tsx`).
 
 ## Hosted games
 
@@ -93,6 +112,4 @@ focus, and reduced motion.
 
 ## Not done
 
-- Orders are still chosen from menus beside the map. Clicking a unit selects
-  and centres it; clicking a destination does not yet give an order.
 - The operator view is restyled only as far as colours.

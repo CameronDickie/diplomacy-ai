@@ -6,7 +6,7 @@ import { HistoryView } from '../challenge/History.js';
 import { MessagesView } from '../challenge/Messages.js';
 import { PlayView } from '../challenge/Play.js';
 import { SetupView } from '../challenge/Setup.js';
-import { Shell, type NavItem } from '../challenge/Shell.js';
+import { Shell, useReveal, type NavItem } from '../challenge/Shell.js';
 import { title } from '../challenge/text.js';
 import { useOrderEntry } from '../challenge/useOrderEntry.js';
 import { heldTerritories } from '../lib/game.js';
@@ -25,6 +25,8 @@ const fromHash = (): View | null => { const v = window.location.hash.replace(/^#
  */
 export function ChallengeApp() {
   const game = useChallenge(), a = game.attempt, card = a?.challenge ?? game.selected;
+  // An error can come from a button far down the page; it is shown at the top, so bring it into view.
+  const errorNotice = useReveal<HTMLDivElement>(game.error);
   const entry = useOrderEntry(a, card, game.legal, game.busy, game.auth.user?.id);
   const [view, setView] = useState<View | null>(fromHash);
   const [replay, setReplay] = useState<Replay | null>(null);
@@ -59,14 +61,24 @@ export function ChallengeApp() {
   // Earlier turns of whatever is shown: a replay up to the step in view, or this attempt's resolved turns.
   const held = useMemo(() => !shown ? {} : replay ? heldTerritories(replay.reports.slice(0, replay.index), shown.units)
     : current === 'setup' ? heldTerritories([], shown.units) : heldTerritories(game.reports, shown.units), [shown, replay, current, game.reports]);
+  const movesOf = (territory: string) => entry.options.filter(o => o.unitTerritory === territory && o.order.type === 'MOVE');
   const map = <MapGraph gameState={mapState} heldTerritories={held} selectedTerritory={playing ? entry.selected : null} selectedUnit={playing ? entry.selectedUnit : null}
-    validTargets={playing && entry.selectedUnit ? entry.options.filter(o => o.unitTerritory === entry.selectedUnit!.territory && o.order.type === 'MOVE').map(o => o.order.targetTerritory!) : []}
+    validTargets={playing && entry.selectedUnit && a?.board.phase === 'ORDERS' ? [...new Set(movesOf(entry.selectedUnit.territory).map(o => o.order.targetTerritory!))] : []}
     pendingOrders={report?.phase === 'ORDERS' ? report.resolvedOrders : playing ? entry.chosenOrders : []}
-    onSelectTerritory={territory => { if (playing && entry.own.some(u => u.territory === territory)) { entry.setSelected(now => now === territory ? null : territory); void game.activity(); } }}
+    onSelectTerritory={territory => {
+      if (!playing) return;
+      if (entry.active.some(u => u.territory === territory)) { entry.setSelected(now => now === territory ? null : territory); void game.activity(); return; }
+      // With a unit selected, a highlighted place orders the move (by convoy only when nothing else reaches it).
+      const unit = entry.selectedUnit;
+      if (!unit || !entry.editable || a?.board.phase !== 'ORDERS') return;
+      const moves = movesOf(unit.territory).filter(o => o.order.targetTerritory === territory);
+      const pick = moves.find(o => !o.order.viaConvoy) ?? moves[0];
+      if (pick) { entry.choose(unit, pick.id); entry.setSelected(null); void game.activity(); }
+    }}
     onClearSelection={() => entry.setSelected(null)} />;
 
   return <Shell section="challenge" nav={nav} current={current} onNavigate={id => go(id as View)}>
-    {game.error && <div className="dip-notice is-error" role="alert" style={{ marginTop: 16 }}>{game.error} <button onClick={game.clearError}>Dismiss</button>{!game.loaded && <button onClick={() => window.location.reload()}>Retry</button>}</div>}
+    {game.error && <div className="dip-notice is-error" role="alert" ref={errorNotice} tabIndex={-1} style={{ marginTop: 16 }}>{game.error} <button onClick={game.clearError}>Dismiss</button>{!game.loaded && <button onClick={() => window.location.reload()}>Retry</button>}</div>}
     {!game.loaded && !game.error && <p style={{ padding: '40px 0' }} role="status">Loading the challenge…</p>}
     {replay && report ? <main id="dip-content">
       <div className="dip-replay" aria-label="Replay controls">

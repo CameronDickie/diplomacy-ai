@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ALL_POWERS, TERRITORIES, type ChallengeLegalCatalog, type Power } from '@diplomacy/shared';
-import { phaseTitle, title } from '../challenge/text.js';
+import { coastName, describeChoice, foreignOwner, phaseTitle, placeName, title } from '../challenge/text.js';
 import { useOrderEntry } from '../challenge/useOrderEntry.js';
 import { heldTerritories, territoryName } from '../lib/game.js';
 import { MapGraph } from '../ui/MapGraph.js';
@@ -179,17 +179,17 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
           {board.phase === 'ORDERS' && entry.active.map(u => <label key={u.id}>{title(u.type)} in {territoryName(u.territory)}
             <select disabled={busy || !catalog} value={entry.choices[u.id] ?? entry.defaultOrder(u)} onChange={e => entry.choose(u, e.target.value)}>
               {!catalog && <option value="">{waiting ? 'Loading legal orders…' : 'Available when the game waits for you'}</option>}
-              {entry.options.filter(o => o.unitTerritory === u.territory).map(o => <option key={o.id} value={o.id}>{o.description}</option>)}</select></label>)}
+              {entry.options.filter(o => o.unitTerritory === u.territory).map(o => <option key={o.id} value={o.id}>{describeChoice(o.id, foreignOwner(board.units, seat))}</option>)}</select></label>)}
           {board.phase !== 'ORDERS' && !ordering && <p className="dip-small dip-muted">Nothing to decide yet.</p>}
           {board.phase === 'RETREATS' && ordering && entry.own.filter(u => u.mustRetreat).map(u => <label key={u.id}>Retreat from {territoryName(u.territory)}
             <select disabled={busy} value={entry.retreats[u.id] ?? ''} onChange={e => entry.setRetreats(v => ({ ...v, [u.id]: e.target.value }))}><option value="">Disband</option>
-              {u.retreatOptions.flatMap(t => u.retreatCoasts[t]?.length ? u.retreatCoasts[t]!.map(c => `${t}/${c}`) : [t]).map(d => <option key={d} value={d}>{d}</option>)}</select></label>)}
+              {u.retreatOptions.flatMap(t => u.retreatCoasts[t]?.length ? u.retreatCoasts[t]!.map(c => `${t}/${c}`) : [t]).map(d => <option key={d} value={d}>Retreat to {placeName(d)}</option>)}</select></label>)}
           {board.phase === 'BUILDS' && ordering && <>
             <p className="dip-small">{entry.buildDelta >= 0
               ? `You hold ${entry.buildDelta} more supply center${entry.buildDelta === 1 ? '' : 's'} than units, so you may build ${entry.buildDelta === 1 ? 'one unit' : `up to ${entry.buildDelta} units`} in your home centers (${built} chosen). Unused builds are waived.`
               : `You have ${mustDisband} more unit${mustDisband === 1 ? '' : 's'} than supply centers: choose ${mustDisband} to disband (${entry.disbands.length} chosen).`}</p>
             {entry.buildDelta > 0 ? entry.homes.map(h => <label key={h.id}>Build in {h.name}<select disabled={busy || (!entry.builds[h.id] && built >= entry.buildDelta)} value={entry.builds[h.id] ?? ''} onChange={e => entry.setBuilds(v => ({ ...v, [h.id]: e.target.value }))}>
-              <option value="">No build</option><option value="ARMY">Army</option>{h.type !== 'LAND' && (h.coasts.length ? h.coasts.map(c => <option key={c} value={`FLEET/${c}`}>Fleet · {c} coast</option>) : <option value="FLEET">Fleet</option>)}</select></label>)
+              <option value="">No build</option><option value="ARMY">Army</option>{h.type !== 'LAND' && (h.coasts.length ? h.coasts.map(c => <option key={c} value={`FLEET/${c}`}>Fleet · {coastName(c)} coast</option>) : <option value="FLEET">Fleet</option>)}</select></label>)
               : entry.own.map(u => <label key={u.id} className="dip-check"><input type="checkbox" disabled={busy || (!entry.disbands.includes(u.id) && entry.disbands.length >= mustDisband)} checked={entry.disbands.includes(u.id)}
                 onChange={e => entry.setDisbands(v => e.target.checked ? [...v, u.id] : v.filter(id => id !== u.id))} />{title(u.type)} in {territoryName(u.territory)}</label>)}</>}
           {board.phase === 'BUILDS' && ordering && entry.buildDelta > 0 && built >= entry.buildDelta && entry.homes.length > built && <p className="dip-small dip-muted">That is all your builds; set one back to "No build" to build elsewhere instead.</p>}

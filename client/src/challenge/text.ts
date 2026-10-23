@@ -2,7 +2,29 @@ import type { Order } from '@diplomacy/shared';
 import { territoryName } from '../lib/game.js';
 
 export const title = (word: string) => word[0] + word.slice(1).toLowerCase();
-const place = (t?: string) => t ? territoryName(t.split('/')[0] as Parameters<typeof territoryName>[0]) + (t.includes('/') ? ` (${t.split('/')[1].toLowerCase()} coast)` : '') : '';
+/** "NORTH" (or the older "NC") as "north". */
+export const coastName = (coast: string) => ({ NC: 'north', SC: 'south', EC: 'east', WC: 'west' } as Record<string, string>)[coast.toUpperCase()] ?? coast.toLowerCase();
+const place = (t?: string) => t ? territoryName(t.split('/')[0] as Parameters<typeof territoryName>[0]) + (t.includes('/') ? ` (${coastName(t.split('/')[1])} coast)` : '') : '';
+/** A place, with its coast when it has one: "SPA/NORTH" reads "Spain (north coast)". */
+export const placeName = (t: string) => place(t);
+
+/**
+ * One choice in a unit's order menu, without repeating the unit the menu belongs to:
+ * "PAR|SUPPORT_MOVE|MAR|BUR" reads "Support Marseilles into Burgundy".
+ */
+export function describeChoice(id: string, owner?: (territory: string) => string | null): string {
+  const [, type, first, second] = id.split('|');
+  // Another power's unit is named with its owner, so a support or convoy for it is never mistaken for one of your own.
+  const unit = (t: string) => { const whose = owner?.(t.split('/')[0]); return whose ? `${place(t)} (${whose})` : place(t); };
+  return type === 'HOLD' ? 'Hold' : type === 'MOVE' ? `Move to ${place(first)}` : type === 'MOVE_VIA_CONVOY' ? `Move to ${place(first)} by convoy`
+    : type === 'SUPPORT_HOLD' ? `Support ${unit(first)} holding` : type === 'SUPPORT_MOVE' ? `Support ${unit(first)} into ${place(second)}`
+    : type === 'CONVOY' ? `Convoy ${unit(first)} to ${place(second)}` : describeOrder(id);
+}
+/** For describeChoice: the owner of a unit that is not yours, by the territory it stands in. */
+export const foreignOwner = (units: ReadonlyArray<{ territory: string; power: string }>, you: string) => (territory: string) => {
+  const unit = units.find(u => u.territory === territory);
+  return unit && unit.power !== you ? title(unit.power) : null;
+};
 
 /** An order ID as a sentence: "LVP|MOVE|YOR" reads "Liverpool moves to Yorkshire". */
 export function describeOrder(id: string): string {
