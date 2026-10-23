@@ -212,6 +212,15 @@ test('a person can hold one seat: the game waits for their messages and their or
   await service.start({ runId: 'seat-a', until: 1901, seat: 'FRANCE', assignment: paused.settings.assignment });
   const again = await wait('ACT');
   assert.equal(again.record.phases.find(p => p.phaseId === again.live.waitingFor!.phaseId)!.talk!.filter(c => c.power === 'FRANCE').length,1);
+  // Orders sent in the moment a phase is being played again (its request withdrawn, about to be made anew)
+  // are kept for that request instead of refused. Hold the gap open by withdrawing the request here.
+  const run = (service as unknown as { running: { run: { pending: { phaseId: string; resolve: (v: never) => void } | null } } }).running.run;
+  const request = run.pending!; run.pending = null;
+  const holds = await scriptedHumanAction(rules,again.current,'FRANCE',{ witnesses: [] } as never,'');
+  await service.act('seat-a',holds,request.phaseId);
+  await assert.rejects(service.act('seat-a',holds,'stale-phase'),/not waiting for your orders/);
+  // The original request still parks the phase in this test; answer it as the phase's new request would be.
+  run.pending = request; request.resolve(holds as never); run.pending = null;
   // Every later phase waits for the person too, until the game ends. A phase is played again whenever a
   // model's answer is refused (the stand-ins' are, in Fall 1901); orders already given stand, so the person
   // is never asked twice for the same phase's orders.

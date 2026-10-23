@@ -26,7 +26,12 @@ export interface StartRequest {
 }
 /** What the person in a seat is being asked for right now, and how to hand their answer to the game. */
 interface Pending { kind: 'TALK' | 'ACT'; operationId: string; phaseId: string; board?: BoardFixture; resolve: (value: never) => void }
-interface Run { controller: AbortController; log: string[]; startedAt: number; settings: StartRequest; pending: Pending | null }
+/**
+ * `lastOrders` is the latest request for orders, kept while the phase is played again after a refused model
+ * answer (the request is withdrawn for that moment), and `ordersGiven` the person's orders by request, so
+ * orders sent in that gap answer the request the phase is about to make instead of being refused.
+ */
+interface Run { controller: AbortController; log: string[]; startedAt: number; settings: StartRequest; pending: Pending | null; lastOrders: Pending | null; ordersGiven: Map<string, PhaseAction> }
 const LOG_LINES = 300;
 type Kind = 'live' | 'standIn';
 /** A request the service refuses, with a message fit to show. */
@@ -145,14 +150,14 @@ export class FullGameService {
     }
     // Lifting a pause written when a budget ran out is the owner's decision, made by asking for it.
     if (request.resumePaid) await store.call('setPaidStopped',{ stopped: false, operatorId: 'full-games-page', now: this.now() });
-    const run: Run = { controller: new AbortController(), log: [], startedAt: this.now(), settings: request, pending: null };
+    const run: Run = { controller: new AbortController(), log: [], startedAt: this.now(), settings: request, pending: null, lastOrders: null, ordersGiven: new Map() };
     // The person's seat: each request parks until their answer arrives through talk() or act() below. A game
     // stops only between phases, and this phase is waiting for the person, so Stop interrupts it instead;
     // continuing the game plays the phase again, keeping what was already said and decided. A request also
     // ends with the attempt at its phase (a failed model call, say): the recovery that plays the phase again
     // asks afresh, and must not find the old request still standing.
     const ask = async <T>(kind: Pending['kind'], operationId: string, phaseId: string, board: BoardFixture, phase: AbortSignal): Promise<T> => {
-      const given = kind === 'ACT' ? await store.call('humanAction',{ operationId, power: request.seat! }) : null;
+      const given = kind === 'ACT' ? await store.call('humanAction',{ operationId, power: request.seat! }) ?? run.ordersGiven.get(operationId) : null;
       run.controller.signal.throwIfAborted(); phase.throwIfAborted();
       if (given) return given as T;
       return new Promise<T>((resolve, reject) => {
@@ -167,6 +172,7 @@ export class FullGameService {
         const answer = (value: never) => { cleanup(); resolve(value); };
         if (run.controller.signal.aborted || phase.aborted) { ended(); return; }
         run.pending = { kind, operationId, phaseId, board, resolve: answer };
+        if (kind === 'ACT') run.lastOrders = run.pending;
         run.controller.signal.addEventListener('abort',ended,{ once: true });
         phase.addEventListener('abort',ended,{ once: true });
         log(`  … waiting for you (${kind === 'TALK' ? 'messages' : 'orders'}) · ${phaseId.split(':').slice(-3).reverse().join(' ')}`);
@@ -215,11 +221,16 @@ export class FullGameService {
   }
   /** The person's action for this phase, checked against the rules before the game sees it. */
   async act(runId: string, action: PhaseAction, phaseId?: string): Promise<void> {
-    const pending = this.waiting(runId,'ACT',phaseId), run = this.running!.run, seat = run.settings.seat!;
+    const run = this.running?.runId === runId ? this.running.run : null, last = run?.lastOrders;
+    // Between attempts at a phase the request is withdrawn for a moment; orders for it still count.
+    const between = run && !run.pending && last && phaseId !== undefined && last.phaseId === phaseId && !run.ordersGiven.has(last.operationId);
+    const pending = between ? last : this.waiting(runId,'ACT',phaseId), seat = run!.settings.seat!;
     try { await this.rules.validate(pending.board!,seat,action,new AbortController().signal); }
     catch { throw new RequestError('Those orders are not legal for this phase. Check each unit and try again.'); }
     if (this.running?.run !== run || run.controller.signal.aborted)
       throw new RequestError('This game is no longer waiting for these orders.');
+    // Known at once, so a request made again while they are saved finds them instead of asking.
+    run.ordersGiven.set(pending.operationId,action);
     const store = await this.open(run.settings.live ? 'live' : 'standIn');
     await store.call('saveHumanAction',{ attemptId: `auto-${runId}`, operationId: pending.operationId, phaseId: pending.phaseId, power: seat, action, now: this.now() });
     // The phase may have started again while the orders were checked; they answer its new request.
