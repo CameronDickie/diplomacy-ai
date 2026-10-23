@@ -62,9 +62,9 @@ export function ArrowFillButton({ children, className = '', ...props }: ButtonHT
 export interface NavItem { id: string; label: string; count?: number }
 /**
  * The shared frame of both ways to play: the site monogram home link, the switch between the daily
- * challenge and hosted games, the views of the current game, the account and the theme.
- * Hosted games do not exist in the showcase profile, so the switch is only shown where both do; the
- * game viewer reads local records and is offered only in local development.
+ * challenge and Games (full games against the AI, with friends, or watched; the game viewer is part of
+ * Games), the views of the current game, the account and the theme. Games do not exist in the showcase
+ * profile, so the switch is only shown where both do.
  */
 export function Shell({ nav, current, onNavigate, section, children }: { nav: NavItem[]; current: string; onNavigate: (id: string) => void; section: 'challenge' | 'games' | 'viewer'; children: ReactNode }) {
   const auth = useAuth();
@@ -80,8 +80,7 @@ export function Shell({ nav, current, onNavigate, section, children }: { nav: Na
         </span>
         {both && <nav className="dip-switch" aria-label="Ways to play">
           <a href="/challenge" aria-current={section === 'challenge' ? 'page' : undefined}>Daily challenge</a>
-          <a href="/" aria-current={section === 'games' ? 'page' : undefined}>Hosted games</a>
-          {auth.profile === 'local' && <a href="/viewer" aria-current={section === 'viewer' ? 'page' : undefined}>Game viewer</a>}
+          <a href="/" aria-current={section === 'games' || section === 'viewer' ? 'page' : undefined}>Games</a>
         </nav>}
         <nav className="dip-nav" aria-label="Game sections">
           {nav.map(item => <button key={item.id} type="button" aria-current={current === item.id ? 'page' : undefined} onClick={() => onNavigate(item.id)}>

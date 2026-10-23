@@ -194,8 +194,10 @@ test('a player can delete their account and is signed out with nothing left behi
 test('a hosted game is created, filled and played for a turn in the same frame as the challenge, and the two pages link to each other', async ({ page }) => {
   await page.goto('/');
   const ways = page.getByLabel('Ways to play');
-  await expect(ways.getByRole('link', { name: 'Hosted games' })).toHaveAttribute('aria-current', 'page');
+  await expect(ways.getByRole('link', { name: 'Games', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('heading', { name: 'Play a full game' })).toBeVisible();
+  // Every full game starts here: against the AI, with friends, or watched.
+  for (const way of ['Play against the AI', 'Play with friends', 'Watch AI games']) await expect(page.getByRole('heading', { name: way, level: 3 })).toBeVisible();
   await page.getByRole('button', { name: 'Create a game' }).click();
   await expect(page.getByRole('heading', { name: 'Waiting for players' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Start the game' })).toBeDisabled();

@@ -1,8 +1,10 @@
 # Game viewer
 
-A development-only page for reviewing full games played by models
-([autoplay](autoplay.md)), and for playing one of the seats yourself. It is at `/viewer` on the development server
-and appears in the header as **Game viewer** in the local profile only.
+The AI games part of **Games**: reviewing full games played by models
+([autoplay](autoplay.md)), and playing one of the seats yourself. It is at
+`/viewer` (the library, **AI games**) and `/viewer#/new` (**Play the AI**), and
+is reached from the Games home's Play against the AI and Watch AI games cards.
+It runs in the local profile only for now.
 
 ## Starting and watching games from the page
 
@@ -18,18 +20,23 @@ starts the development server and client with the local profile and, for live
 games, the two provider keys read from `playtest.env` (only those two lines;
 nothing is printed). Then open `http://localhost:5173/viewer`.
 
-- **New game** offers the autoplay command's choices: a model per power
-  (Luna, Haiku, Sol, Sonnet), when it ends (a year, or a win with the
-  ten-year stalemate stop), reasoning effort, how many powers each may write
-  to, and stand-in or live models. A live game also asks for the funding grant
-  that authorizes it and a per-game cap (at most USD 15), and warns if the
-  server lacks a provider's key. The page shows each provider's budget.
-- **In the database** lists every full game: those the autoplay command played
-  and those started here. Opening one shows the usual viewer, with its status
-  above: being played (the page refreshes every few seconds and follows the
-  newest turn), paused or waiting (with the reason, and **Continue**), or
-  finished. **Stop after this phase** works like Ctrl-C. A continued game keeps
-  its models, effort and end; the log of the run is shown below the status.
+- **Play the AI** (`#/new`) offers the autoplay command's choices, player
+  first: your power (one is picked at random; choose Nobody to let the models
+  play alone), one model for every opponent or a model per power (Luna, Haiku,
+  Sol, Sonnet), the game length (a year, or a win with the ten-year stalemate
+  stop), and stand-in or live models. The game name, reasoning effort and how
+  many powers each may write to are under More settings. A live game also asks
+  for the funding grant that authorizes it and a per-game cap (at most USD 15),
+  shows each provider's budget, and warns if the server lacks a provider's key.
+- **AI games** (the library) lists every game once: a saved record and the same
+  game in the database are one row, opened live from the database when it is
+  there. Your games against the AI come first. Opening one shows the usual
+  viewer, with its status above: being played (the page refreshes every few
+  seconds and follows the newest turn), paused or waiting (with the reason, and
+  **Continue**), or finished. **Stop after this phase** works like Ctrl-C (in
+  your own game it reads **Pause the game**). A continued game keeps its
+  models, effort, message limit (including messages disabled), transport and end;
+  the log of the run is shown below the status.
 - One game is played at a time.
 
 Live games use the same ledger as the autoplay command (`data/autoplay.sqlite`,
@@ -37,17 +44,20 @@ or `DIPLOMACY_AUTOPLAY_DATABASE`), so its budgets and checks apply unchanged.
 Stand-in games are kept in a separate database with pretend funds
 (`data/autoplay-stand-in.sqlite`, or `DIPLOMACY_STAND_IN_DATABASE`) so their
 simulated costs never touch the real ledger; a stand-in game continues with
-stand-ins and a live game with live models. A game's settings are read back
-from its own calls, and the failures of a run are kept only by the server that
-ran it. The service exists only in the local profile; every request that
-starts or stops a game needs a trusted browser origin, and the server listens
-only on this machine. To run a second development server beside the usual one,
+stand-ins and a live game with live models. New games save their original
+settings before any provider calls; older games use best-effort inference from
+their calls. The failures of a run are kept only by the server that ran it.
+The service exists only on nonproduction local-profile servers bound to
+`127.0.0.1`, `localhost` or `::1`; it is not mounted on network-facing binds.
+Every request that starts or stops a game also needs a trusted browser origin.
+These are local-owner tools, not authenticated public-player endpoints.
+To run a second development server beside the usual one,
 give it another `PORT` and start the client with the same port in
 `DIPLOMACY_API_PORT`.
 
 ### Playing a seat yourself
 
-**Your seat** on the New game form puts you in place of one power's model;
+**Your power** on the Play the AI form puts you in place of one power's model;
 the other six are played as usual. The game then waits for you each phase, as
 long as you need (up to a week per phase), and the game's page shows a
 **Your turn** panel above the viewer: the board now, with your planned orders
@@ -66,8 +76,12 @@ drawn on it, and two tabs.
   submitted once the replies are in. On the map, click one of your units and
   then a highlighted place to move it there (by convoy when only a convoy can
   reach it; the fleet that can carry it is ordered to convoy it). Click the unit
-  again to let it go. Supports and convoys are chosen in the list. An army sent
-  by convoy without a fleet ordered to carry it cannot be submitted. When no
+  again to let it go. Friendly-occupied highlighted destinations can be chosen,
+  allowing swaps and circular moves. Split-coast moves ask which coast rather
+  than silently choosing one. Supports and convoys are chosen in the list.
+  Convoy coordination warnings are advisory: an ally can provide a convoy, but
+  a promise alone does not submit their orders. A matching convoy route must be
+  ordered and survive for the army to arrive. When no
   convoy is possible the panel says why: an army can be convoyed only from a
   coast touching the sea its fleet is in.
 
@@ -81,6 +95,12 @@ Each orders turn:
    the game accepts them.
 
 What you have read and unsent drafts are kept in this browser for each game.
+Accepted messages and orders are saved before the server acknowledges them.
+Phase retries and server restarts reuse submitted orders rather than asking
+again. Submissions identify the phase being answered, so a stale page cannot
+silently submit choices for a later turn. Failed legal-order loads offer a retry
+without discarding choices. A player with no units can still build or waive
+builds when they own eligible centers.
 
 While you hold a seat in a game that has not ended, the viewer below the panel
 shows only what every player can see: the board, the supply-center chart and
@@ -151,4 +171,6 @@ The records are private game data. The Vite development server serves
 serving; builds and the production server never include or serve it. Games in
 the database come from `/api/full-games`, which only a local-profile server has. A later
 public version would need its own decision about which games and messages to
-publish.
+publish, plus authenticated game ownership and operator-only paid controls.
+This development workflow does not enable public AI games or paid calls in
+production.

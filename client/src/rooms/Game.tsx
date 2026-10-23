@@ -19,9 +19,9 @@ const seatKind = (player: Player) => player.kind === 'HUMAN' ? (player.connected
   : player.provider === 'STUB' ? 'Offline bot · always holds' : `AI · ${player.provider} ${player.model}`;
 
 /**
- * Everything about the game itself, away from the turn: creating or joining one, who sits where,
- * how empty seats are filled, the host's settings and the start. Once the game is running it
- * becomes the reference page for players, supply centers and voice.
+ * Everything about the game itself, away from the turn: who sits where, how empty seats are filled,
+ * the host's settings and the start. Once the game is running it becomes the reference page for
+ * players, supply centers and voice. Creating or joining a game starts on the Games home.
  */
 export function GameView({ game, map, onPlay }: { game: GameSocket; map: ReactNode; onPlay: () => void }) {
   const auth = useAuth();
@@ -37,10 +37,9 @@ export function GameView({ game, map, onPlay }: { game: GameSocket; map: ReactNo
       <div>
         <div className="dip-heading">
           <p className="dip-meta">Hosted games{state ? ` · game ${state.gameId}` : ''}</p>
-          {!state ? <h1>Play a <span>full game</span></h1> : lobby ? <h1>Waiting for <span>players</span></h1>
+          {!state ? null : lobby ? <h1>Waiting for <span>players</span></h1>
             : state.status === 'FINISHED' ? <h1>Game <span>over</span></h1> : <h1>Game in <span>progress</span></h1>}
-          {!state ? <p>All seven powers, from Spring 1901 until one of them wins. Create a game and share its code, or join a friend’s game with theirs. Seats nobody takes can be filled before the start.</p>
-            : lobby ? <p>Share the code <strong>{state.gameId}</strong> with the people you want to play. The game needs all seven seats filled before {isHost ? 'you' : 'the host'} can start it.</p>
+          {!state ? null : lobby ? <p>Share the code <strong>{state.gameId}</strong> with the people you want to play. The game needs all seven seats filled before {isHost ? 'you' : 'the host'} can start it.</p>
             : state.status === 'FINISHED' ? <p>{state.winner ? `${title(state.winner)} won.` : 'The game has ended.'} The orders log is still available under History.</p>
             : <p>{phaseTitle(state)}. Orders are given on the Play page.</p>}
         </div>
@@ -56,8 +55,6 @@ export function GameView({ game, map, onPlay }: { game: GameSocket; map: ReactNo
       </div>
       <div className="dip-map" style={{ height: 'min(56dvh, 520px)', marginTop: 40 }}>{map}</div>
     </div>
-
-    {!state && <section className="dip-section" aria-labelledby="room-start"><h2 id="room-start">Create or join a game</h2><JoinForm game={game} /></section>}
 
     {state && <section className="dip-section" aria-labelledby="room-seats">
       <h2 id="room-seats">{lobby ? 'Seats' : 'Powers'}</h2>
@@ -92,8 +89,8 @@ export function GameView({ game, map, onPlay }: { game: GameSocket; map: ReactNo
       <JoinForm game={game} /><div style={{ height: 20 }} /></details>}
 
     <section className="dip-section" style={{ marginTop: 28 }}>
-      <h2>Short on time?</h2>
-      <p className="dip-muted">The <a href="/challenge">daily challenge</a> is a single scenario with one objective and a deadline, played alone against the other six powers.</p>
+      <h2>Other ways to play</h2>
+      <p className="dip-muted"><a href="/viewer#/new">Play against the AI</a>, <a href="/viewer">watch AI games</a>, or try the <a href="/challenge">daily challenge</a>: a single scenario with one objective and a deadline, played alone against the other six powers.</p>
     </section>
   </main>;
 }

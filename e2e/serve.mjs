@@ -21,6 +21,7 @@ await store.call('grantFunding', { amountNanousd: 200_000_000, authorizationRef:
 await store.close();
 writeFileSync(new URL('./.state.json', import.meta.url), JSON.stringify({ origin, cookieName: 'diplomacy_session', cookies }), { mode: 0o600 });
 Object.assign(process.env, { NODE_ENV: 'development', DIPLOMACY_PROFILE: 'local', HOST: '127.0.0.1', PORT: port, DIPLOMACY_DATABASE_PATH: database,
+  DIPLOMACY_AUTOPLAY_DATABASE: join(database, '..', 'autoplay.sqlite'), DIPLOMACY_STAND_IN_DATABASE: join(database, '..', 'stand-in.sqlite'),
   // Point at a file that does not exist so a developer's own .env is never loaded into the test server.
   DIPLOMACY_ENV_FILE: join(database, '..', 'no-env-file'), DIPLOMACY_AUTH_SESSION_SECRET: secret, DIPLOMACY_ADMIN_GITHUB_USER_IDS: operatorId,
   DIPLOMACY_AUTH_RETURN_ORIGIN: origin, DIPLOMACY_AUTH_CALLBACK_ORIGIN: origin, CORS_ORIGINS: origin, DIPLOMACY_LUNA_TRANSPORT: 'mock',

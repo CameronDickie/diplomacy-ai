@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ALL_POWERS, type AutoplayGameFile, type ChallengeLegalCatalog, type Power, type Unit } from '@diplomacy/shared';
 import { challengeRequest } from '../hooks/useChallenge.js';
+import { ArrowFillButton } from '../challenge/Shell.js';
 import { title } from '../challenge/text.js';
 import { MODEL_NAMES, modelKey } from './record.js';
 
@@ -8,7 +9,7 @@ import { MODEL_NAMES, modelKey } from './record.js';
 type Provider = 'OPENAI' | 'ANTHROPIC';
 export interface FullGamesList {
   /** `standIn`: a free game with simulated models, kept in a separate database from the real ledger. */
-  games: Array<{ runId: string; standIn: boolean; lifecycle: string; year: number; season: string; phase: string; centers: Record<Power, number>; running: boolean; waiting: boolean; createdAt: number; updatedAt: number }>;
+  games: Array<{ runId: string; standIn: boolean; seat: Power | null; lifecycle: string; year: number; season: string; phase: string; centers: Record<Power, number>; running: boolean; waiting: boolean; createdAt: number; updatedAt: number }>;
   funding: { availableNanousd: number; attemptCapNanousd: number; providers: Record<Provider, { availableNanousd: number } | null> };
   paidStopped: boolean; running: string | null; keys: Record<Provider, boolean>;
   models: Record<string, { model: string; provider: Provider }>; defaultAssignment: Record<Power, string>;
@@ -31,8 +32,8 @@ export const fullGamesApi = {
   start: (request: StartRequest) => challengeRequest<{ runId: string }>('/full-games', request),
   stop: (runId: string) => challengeRequest<{ stopping: boolean }>(`/full-games/${encodeURIComponent(runId)}/stop`, {}),
   legal: (runId: string) => challengeRequest<ChallengeLegalCatalog>(`/full-games/${encodeURIComponent(runId)}/legal`),
-  talk: (runId: string, messages: Array<{ to: Power; body: string }>) => challengeRequest<{ sent: boolean }>(`/full-games/${encodeURIComponent(runId)}/talk`, { messages }),
-  act: (runId: string, action: unknown) => challengeRequest<{ accepted: boolean }>(`/full-games/${encodeURIComponent(runId)}/act`, { action }),
+  talk: (runId: string, messages: Array<{ to: Power; body: string }>, phaseId: string) => challengeRequest<{ sent: boolean }>(`/full-games/${encodeURIComponent(runId)}/talk`, { messages, phaseId }),
+  act: (runId: string, action: unknown, phaseId: string) => challengeRequest<{ accepted: boolean }>(`/full-games/${encodeURIComponent(runId)}/act`, { action, phaseId }),
 };
 const usd = (nanousd: number) => `USD ${(nanousd / 1e9).toFixed(2)}`;
 // The last grant reference used is remembered in this browser only, as a convenience.
@@ -41,12 +42,13 @@ const rememberedRef = () => { try { return localStorage.getItem(REF_KEY) ?? ''; 
 const rememberRef = (ref: string) => { try { localStorage.setItem(REF_KEY, ref); } catch { /* optional */ } };
 
 /** Funding as the games will meet it: each provider's own budget where it has one. */
-export function Budgets({ list }: { list: FullGamesList }) {
+export function Budgets({ list, inline = false }: { list: FullGamesList; inline?: boolean }) {
   const budgets = (['OPENAI', 'ANTHROPIC'] as const).filter(p => list.funding.providers[p]);
-  return <p className="dip-muted dip-small">
+  const Tag = inline ? 'span' : 'p';
+  return <Tag className={inline ? undefined : 'dip-muted dip-small'}>
     {budgets.length ? budgets.map(p => `${p === 'OPENAI' ? 'OpenAI' : 'Anthropic'} ${usd(list.funding.providers[p]!.availableNanousd)} left`).join(' · ') : `${usd(list.funding.availableNanousd)} available`}
     {' '}· per-game cap {usd(list.funding.attemptCapNanousd)}{list.paidStopped ? ' · paid play is paused (a budget ran out); continuing a game can lift the pause' : ''}
-  </p>;
+  </Tag>;
 }
 
 /** Paid settings shared by starting and continuing: which grant authorizes it, the cap, lifting a pause. */
@@ -60,20 +62,29 @@ function PaidFields({ list, providers, state, onChange }: { list: FullGamesList;
   </>;
 }
 
-/** Starting a new game: the same choices as the autoplay command. */
+/**
+ * Starting a game against the AI: your power and who plays the others come first, then how long it lasts.
+ * The autoplay command's other choices (name, reasoning effort, messages per turn) are under More settings.
+ * Choosing no power starts a game the models play alone.
+ */
 export function NewGameForm({ list, onStarted }: { list: FullGamesList; onStarted: (runId: string) => void }) {
   const keys = Object.keys(list.models);
-  const [runId, setRunId] = useState(() => `game-${new Date().toISOString().slice(0, 10)}`);
+  const [runId, setRunId] = useState(() => `game-${new Date().toISOString().slice(0, 10)}-${Math.random().toString(36).slice(2, 6)}`);
   const [assignment, setAssignment] = useState<Record<Power, string>>(list.defaultAssignment);
+  const [perPower, setPerPower] = useState(false);
   const [until, setUntil] = useState('win');
   const [effort, setEffort] = useState<'low' | 'medium' | 'high'>('low');
   const [messages, setMessages] = useState(3);
   const [live, setLive] = useState(false);
-  const [seat, setSeat] = useState<Power | ''>('');
+  const [seat, setSeat] = useState<Power | ''>(() => ALL_POWERS[Math.floor(Math.random() * ALL_POWERS.length)]);
   const [paid, setPaid] = useState({ ref: rememberedRef(), cap: '5', resume: false });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const providers = [...new Set(ALL_POWERS.filter(p => p !== seat).map(p => list.models[assignment[p]]?.provider))].filter(Boolean) as Provider[];
+  const opponents = ALL_POWERS.filter(p => p !== seat);
+  const providers = [...new Set(opponents.map(p => list.models[assignment[p]]?.provider))].filter(Boolean) as Provider[];
+  // One model for every opponent, unless they have been chosen power by power.
+  const shared = new Set(opponents.map(p => assignment[p])).size === 1 ? assignment[opponents[0]] : 'mixed';
+  const name = (key: string) => MODEL_NAMES[modelKey(list.models[key].model)];
   async function submit() {
     setBusy(true); setError(null);
     try {
@@ -84,33 +95,38 @@ export function NewGameForm({ list, onStarted }: { list: FullGamesList; onStarte
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   return <main id="dip-content">
-    <div className="dip-heading"><p className="dip-meta">Development only</p><h1>New <span>game</span></h1>
-      <p>A full game with a model on every power, played here in the development server. Stand-in models are free and only exercise the plumbing; their games are kept apart from your real ledger. Live models cost money.</p></div>
-    <Budgets list={list} />
-    {list.running && <p className="dip-notice">Game {list.running} is being played. Stop it before starting another.</p>}
-    <form className="dip-form" onSubmit={e => { e.preventDefault(); void submit(); }}>
-      <label>Game name<input value={runId} onChange={e => setRunId(e.target.value.toLowerCase())} pattern="[a-z0-9-]{3,40}" required /></label>
-      <label>Your seat<select value={seat} onChange={e => setSeat(e.target.value as Power | '')}>
-        <option value="">None: watch the models play</option>{ALL_POWERS.map(p => <option key={p} value={p}>Play {title(p)} yourself</option>)}</select></label>
-      <fieldset className="dip-builder"><h3>Models</h3>
-        <div className="dip-form-grid">{ALL_POWERS.map(p => <label key={p}>{title(p)}
-          {p === seat ? <select disabled value="you"><option value="you">You</option></select>
-            : <select value={assignment[p]} onChange={e => setAssignment({ ...assignment, [p]: e.target.value })}>
-            {keys.map(k => <option key={k} value={k}>{MODEL_NAMES[modelKey(list.models[k].model)]}</option>)}</select>}</label>)}</div>
-      </fieldset>
+    <div className="dip-heading"><p className="dip-meta">Games</p><h1>Play against <span>the AI</span></h1>
+      <p>You take one power and AI models play the other six. Every orders turn they write first, you answer anyone you like, they reply, and everyone gives orders. The game waits for you as long as you need.</p></div>
+    {list.running && <p className="dip-notice" role="status">Game {list.running} is being played on this server. Stop it before starting another.</p>}
+    <form className="dip-form new-game" onSubmit={e => { e.preventDefault(); void submit(); }}>
       <div className="dip-form-grid">
-        <label>Ends<select value={until} onChange={e => setUntil(e.target.value)}>
-          <option value="win">When a power wins (or stalemate)</option>{[1910, 1920, 1930, 1950, 1975].map(y => <option key={y} value={y}>After Fall {y}</option>)}</select></label>
-        <label>Reasoning effort<select value={effort} onChange={e => setEffort(e.target.value as typeof effort)}>
-          <option value="low">Low (as the challenge)</option><option value="medium">Medium</option><option value="high">High</option></select></label>
-        <label>Messages per power per turn<select value={messages} onChange={e => setMessages(Number(e.target.value))}>
-          {[0, 1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n === 0 ? 'None' : `Up to ${n}`}</option>)}</select></label>
-        <label>Models<select value={live ? 'live' : 'mock'} onChange={e => setLive(e.target.value === 'live')}>
-          <option value="mock">Stand-in models (free)</option><option value="live">Live models (paid)</option></select></label>
+        <label>Your power<select value={seat} onChange={e => setSeat(e.target.value as Power | '')}>
+          {ALL_POWERS.map(p => <option key={p} value={p}>{title(p)}</option>)}<option value="">Nobody: watch the AI play itself</option></select></label>
+        <label>Opponents<select value={shared} disabled={perPower} onChange={e => { const key = e.target.value; setAssignment(a => ({ ...a, ...Object.fromEntries(opponents.map(p => [p, key])) })); }}>
+          {shared === 'mixed' && <option value="mixed">A mix of models</option>}
+          {keys.map(k => <option key={k} value={k}>{name(k)} on every power</option>)}</select></label>
+        <label>Game length<select value={until} onChange={e => setUntil(e.target.value)}>
+          <option value="win">Until a power wins (or ten years without a change)</option>{[1910, 1920, 1930, 1950, 1975].map(y => <option key={y} value={y}>Until Fall {y}</option>)}</select></label>
+        <label>AI models<select value={live ? 'live' : 'mock'} onChange={e => setLive(e.target.value === 'live')}>
+          <option value="mock">Stand-in models (free, random legal moves)</option><option value="live">Live models (paid)</option></select></label>
       </div>
-      {live && <PaidFields list={list} providers={providers} state={paid} onChange={setPaid} />}
+      <label className="dip-check"><input type="checkbox" checked={perPower} onChange={e => setPerPower(e.target.checked)} /> Choose a model for each power</label>
+      {perPower && <div className="dip-form-grid">{ALL_POWERS.map(p => <label key={p}>{title(p)}
+        {p === seat ? <select disabled value="you"><option value="you">You</option></select>
+          : <select value={assignment[p]} onChange={e => setAssignment({ ...assignment, [p]: e.target.value })}>
+          {keys.map(k => <option key={k} value={k}>{name(k)}</option>)}</select>}</label>)}</div>}
+      <details className="new-game-more"><summary>More settings</summary>
+        <div className="dip-form-grid">
+          <label>Game name<input value={runId} onChange={e => setRunId(e.target.value.toLowerCase())} pattern="[a-z0-9-]{3,40}" title="3–40 lowercase letters, digits or dashes" required /></label>
+          <label>Reasoning effort<select value={effort} onChange={e => setEffort(e.target.value as typeof effort)}>
+            <option value="low">Low (as the challenge)</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+          <label>Powers each AI may write to per turn<select value={messages} onChange={e => setMessages(Number(e.target.value))}>
+            {[0, 1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n === 0 ? 'None' : `Up to ${n}`}</option>)}</select></label>
+        </div>
+      </details>
+      {live && <><Budgets list={list} /><PaidFields list={list} providers={providers} state={paid} onChange={setPaid} /></>}
       {error && <p className="dip-notice is-error" role="alert">{error}</p>}
-      <div><button type="submit" className="dip-solid" disabled={busy || Boolean(list.running)}>{busy ? 'Starting…' : live ? 'Start the paid game' : 'Start the game'}</button></div>
+      <div><ArrowFillButton type="submit" disabled={busy || Boolean(list.running)}>{busy ? 'Starting…' : live ? 'Start the paid game' : 'Start the game'}</ArrowFillButton></div>
     </form>
   </main>;
 }
@@ -140,13 +156,13 @@ export function LiveControls({ game, list, onChanged }: { game: LiveGame; list: 
     {game.live.error && <p className="dip-notice is-error">{game.live.error}</p>}
     {error && <p className="dip-notice is-error" role="alert">{error}</p>}
     <div className="viewer-live-actions">
-      {game.live.running && <button type="button" disabled={busy} onClick={() => void act(() => fullGamesApi.stop(game.run.runId))}>Stop after this phase</button>}
+      {game.live.running && <button type="button" disabled={busy} onClick={() => void act(() => fullGamesApi.stop(game.run.runId))}>{game.settings.seat ? 'Pause the game' : 'Stop after this phase'}</button>}
       {!game.live.running && !finished && list && <>
         <button type="button" className="dip-solid" disabled={busy || Boolean(list.running)} onClick={() => void resume()}>{busy ? 'Starting…' : live ? 'Continue (paid)' : 'Continue (free)'}</button>
       </>}
     </div>
     {!game.live.running && !finished && list && live && <div className="dip-form"><PaidFields list={list} providers={providers} state={paid} onChange={setPaid} /></div>}
-    {log.length > 0 && <details open={game.live.running}><summary>Log ({log.length} lines)</summary>
+    {log.length > 0 && <details open={game.live.running && !game.settings.seat}><summary>Log ({log.length} lines)</summary>
       <pre className="viewer-log">{log.slice(-40).join('\n')}</pre></details>}
   </section>;
 }

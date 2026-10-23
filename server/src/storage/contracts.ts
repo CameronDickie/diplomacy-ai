@@ -4,6 +4,13 @@ import type { BoardFixture } from '../fixtures/BoardFixture.js';
 import type { ChallengeDefinition, ChallengeScore } from '../challenge/TunisPilot.js';
 import type { Power, PublicPhaseReport, SubmissionState } from '@diplomacy/shared';
 
+export interface AutoplaySettings {
+  assignment: Record<Power, import('../providers/OpponentContract.js').OpponentContract['key']>;
+  effort: import('../providers/LunaPreset.js').Effort;
+  transport: 'mock' | 'live';
+  talkRecipients: number;
+}
+
 export interface StoredPlayer {
   id: string;
   provider: 'github' | 'google';
@@ -88,6 +95,8 @@ export interface EvaluationPhase {
   completedAt:number|null; durationMs:number|null; recoveries:number;
 }
 export interface StoreOperations {
+  autoplaySettings: { input: { attemptId:string }; output: AutoplaySettings|null };
+  saveAutoplaySettings: { input: { attemptId:string; settings:AutoplaySettings; now:number }; output: null };
   registerEvaluationRun: { input:{manifest:EvaluationManifest;now:number}; output:EvaluationManifest };
   evaluationRun: { input:{runId:string}; output:EvaluationManifest|null };
   createEvaluationAttempt: { input:{runId:string;ordinal:number;playerId:string;reconnectTokenHash:string;sponsored:SponsoredStart;now:number}; output:StoredAttempt };
@@ -107,8 +116,10 @@ export interface StoreOperations {
   /** A person's messages in a full game where they hold one seat; written once per phase, with no paid call behind them. */
   saveHumanTalk: { input: { attemptId:string; operationId:string; phaseId:string; power:Power; messages:Array<{ to:Power; body:string }>; now:number }; output: null };
   powerTalks: { input: { attemptId:string }; output: Array<import('./talks.js').StoredPowerTalk> };
+  humanAction: { input: { operationId:string; power:Power }; output: PhaseAction|null };
+  saveHumanAction: { input: { attemptId:string; operationId:string; phaseId:string; power:Power; action:PhaseAction; now:number }; output: null };
   /** Model-only full games (development): every attempt the autoplay tool created, oldest first. */
-  fullGames: { input: {}; output: Array<{ id:string; lifecycle:string; execution:string; year:number; season:string; phase:string; territoryOwners:Record<string,string|null>; createdAt:number; updatedAt:number }> };
+  fullGames: { input: {}; output: Array<{ id:string; challengeId:string; lifecycle:string; execution:string; year:number; season:string; phase:string; territoryOwners:Record<string,string|null>; createdAt:number; updatedAt:number }> };
   /** A full-game power's private note to itself, written with its orders and kept with the call that produced it. */
   savePowerNote: { input: { callId:string; note:string; now:number }; output: null };
   powerNotes: { input: { attemptId:string }; output: Array<import('./notes.js').StoredPowerNote> };

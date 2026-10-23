@@ -258,6 +258,19 @@ CREATE INDEX power_notes_attempt ON power_notes(attempt_id,created_at);
 CREATE TRIGGER power_notes_immutable BEFORE UPDATE ON power_notes BEGIN SELECT RAISE(ABORT,'immutable power note'); END;
 ` }, { version: 17, sql: `
 ALTER TABLE funding_grants ADD COLUMN provider TEXT CHECK(provider IS NULL OR provider IN ('OPENAI','ANTHROPIC'));
+` }, { version: 18, sql: `
+CREATE TABLE human_actions (
+ operation_id TEXT NOT NULL REFERENCES phase_jobs(id) ON DELETE CASCADE,
+ power TEXT NOT NULL, action_json TEXT NOT NULL CHECK(json_valid(action_json)),
+ created_at INTEGER NOT NULL, PRIMARY KEY(operation_id,power)
+) STRICT;
+CREATE TRIGGER human_actions_immutable BEFORE UPDATE ON human_actions BEGIN SELECT RAISE(ABORT,'immutable human action'); END;
+` }, { version: 19, sql: `
+CREATE TABLE autoplay_settings (
+ attempt_id TEXT PRIMARY KEY REFERENCES attempts(id) ON DELETE CASCADE,
+ settings_json TEXT NOT NULL CHECK(json_valid(settings_json)), created_at INTEGER NOT NULL
+) STRICT;
+CREATE TRIGGER autoplay_settings_immutable BEFORE UPDATE ON autoplay_settings BEGIN SELECT RAISE(ABORT,'immutable autoplay settings'); END;
 ` }];
 
 export function verifyMigrationHistory(db: DatabaseSync, requireExisting = false): number {

@@ -9,6 +9,7 @@ import { SetupView } from '../challenge/Setup.js';
 import { Shell, useReveal, type NavItem } from '../challenge/Shell.js';
 import { title } from '../challenge/text.js';
 import { useOrderEntry } from '../challenge/useOrderEntry.js';
+import { CoastChoices } from '../challenge/CoastChoices.js';
 import { heldTerritories } from '../lib/game.js';
 import { MapGraph } from './MapGraph.js';
 import { OperatorPanel } from './OperatorPanel.js';
@@ -67,13 +68,8 @@ export function ChallengeApp() {
     pendingOrders={report?.phase === 'ORDERS' ? report.resolvedOrders : playing ? entry.chosenOrders : []}
     onSelectTerritory={territory => {
       if (!playing) return;
-      if (entry.active.some(u => u.territory === territory)) { entry.setSelected(now => now === territory ? null : territory); void game.activity(); return; }
-      // With a unit selected, a highlighted place orders the move (by convoy only when nothing else reaches it).
-      const unit = entry.selectedUnit;
-      if (!unit || !entry.editable || a?.board.phase !== 'ORDERS') return;
-      const moves = movesOf(unit.territory).filter(o => o.order.targetTerritory === territory);
-      const pick = moves.find(o => !o.order.viaConvoy) ?? moves[0];
-      if (pick) { entry.choose(unit, pick.id); entry.setSelected(null); void game.activity(); }
+      if (entry.editable && entry.moveTo(territory)) { void game.activity(); return; }
+      if (entry.active.some(u => u.territory === territory)) { entry.setSelected(now => now === territory ? null : territory); void game.activity(); }
     }}
     onClearSelection={() => entry.setSelected(null)} />;
 
@@ -94,7 +90,7 @@ export function ChallengeApp() {
     </main>
       : !game.loaded ? null
       : current === 'operator' ? <main id="dip-content" style={{ paddingTop: 24 }}><OperatorPanel /></main>
-      : current === 'play' && a && card ? <PlayView game={game} attempt={a} card={card} entry={entry} clock={clock} map={map} onHistory={() => go('history')} onSetup={() => go('setup')} />
+      : current === 'play' && a && card ? <PlayView game={game} attempt={a} card={card} entry={entry} clock={clock} map={map} onHistory={() => go('history')} onSetup={() => go('setup')} coastChoices={<CoastChoices entry={entry} disabled={!entry.editable} onChoose={() => void game.activity()} />} />
       : current === 'messages' && a && card && game.chat ? <MessagesView chat={game.chat} human={card.humanPower} busy={game.busy} onSend={game.sendChat} />
       : current === 'history' && a && card ? <HistoryView reports={game.reports} human={card.humanPower} onShow={index => setReplay({ reports: game.reports, index, after: true, kind: 'OWN' })} />
       : current === 'log' && game.playtest ? <DevLogView log={game.playtest} onExport={game.exportRecord} />

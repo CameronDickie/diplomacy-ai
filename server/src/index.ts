@@ -18,7 +18,7 @@ import { GameManager } from './GameManager.js';
 import { attachHandlers } from './handlers/connectionHandler.js';
 import { DiplomacyService } from './diplomacy/DiplomacyService.js';
 import { createIntegrations } from './integrations.js';
-import { FullGameService } from './autoplay/FullGameService.js';
+import { FullGameService, fullGamesEnabled } from './autoplay/FullGameService.js';
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const rootEnvFile = process.env.DIPLOMACY_ENV_FILE ?? resolve(currentDirectory, '../../.env');
@@ -85,7 +85,7 @@ app.use('/api/operator', operator.router(auth));
 app.use('/api', challenges.router(auth));
 // Model-only full games, played and watched from the browser: local development only. They use the
 // autoplay ledger (data/autoplay.sqlite by default), never this server's own database.
-const fullGames = config.profile === 'local' && !config.production
+const fullGames = fullGamesEnabled(config)
   ? new FullGameService(resolve(currentDirectory, '../..', process.env.DIPLOMACY_AUTOPLAY_DATABASE ?? 'data/autoplay.sqlite'),
     resolve(currentDirectory, '../..', process.env.DIPLOMACY_STAND_IN_DATABASE ?? 'data/autoplay-stand-in.sqlite')) : null;
 if (fullGames) app.use('/api/full-games', fullGames.router());

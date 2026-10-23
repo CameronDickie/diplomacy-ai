@@ -15,6 +15,7 @@ export function useChallenge(){
   const [catalog,setCatalog]=useState<ChallengeCatalog|null>(null),[demo,setDemo]=useState<ChallengeReplay|null>(null);
   const [attempt,setAttempt]=useState<ChallengeAttemptView|null>(null),[history,setHistory]=useState<ChallengeAttemptView[]>([]);
   const [legal,setLegal]=useState<ChallengeLegalCatalog|null>(null),[reports,setReports]=useState<PublicPhaseReport[]>([]);
+  const [legalError,setLegalError]=useState(''),[legalRetry,setLegalRetry]=useState(0);
   const [playtest,setPlaytest]=useState<PlaytestLog|null>(null);
   const [chat,setChat]=useState<ChatView|null>(null);
   // The operator, and anyone on a local development server, may choose among every challenge; everyone else gets the day's.
@@ -74,6 +75,7 @@ export function useChallenge(){
   },[attempt?.id,attempt?.lifecycle,identity]);
   useEffect(()=>{
     setLegal(null);
+    setLegalError('');
     if(!attempt||!identity)return;
     const controller=new AbortController(),version=attempt.revision,id=attempt.id;
     // Offered by development servers only; the route does not exist anywhere else.
@@ -88,9 +90,9 @@ export function useChallenge(){
     if(attempt.lifecycle==='ACTIVE'&&attempt.execution==='ACCEPTING'&&attempt.board.phase==='ORDERS')
       challengeRequest<ChallengeLegalCatalog>(`/attempts/${id}/legal`,undefined,controller.signal).then(r=>{
         if(identityRef.current===identity&&current.current?.id===id&&current.current.revision===version)setLegal(r);
-      }).catch(e=>{if(!controller.signal.aborted)setError(e.message);});
+      }).catch(e=>{if(!controller.signal.aborted)setLegalError(e.message);});
     return()=>controller.abort();
-  },[attempt?.id,attempt?.revision,attempt?.execution,identity]);
+  },[attempt?.id,attempt?.revision,attempt?.execution,identity,legalRetry]);
   async function mutate(work:(owner:string)=>Promise<void>){
     if(!identity||mutation.current)return;
     mutation.current=true;setBusy(true);setError('');
@@ -104,7 +106,7 @@ export function useChallenge(){
     const list=await challengeRequest<ChallengeHistoryPage>('/attempts');
     if(identityRef.current===owner){setHistory(list.attempts);setOlder(list.next);}
   }
-  return {auth,older,exhibitions,loadExhibition:(id:string)=>challengeRequest<ExhibitionReplay>(`/exhibitions/${id}`),cards:catalog?.challenges??[],limits:catalog?.limits??null,rotation:catalog?.rotation??null,sponsoredPlay:catalog?.sponsoredPlay??null,sponsoredMock:catalog?.sponsoredMock??false,sponsoredLive:catalog?.sponsoredLive??false,sponsoredChat:catalog?.sponsoredChat??false,playtest,chat,
+  return {auth,older,exhibitions,legalError,retryLegal:()=>setLegalRetry(value=>value+1),loadExhibition:(id:string)=>challengeRequest<ExhibitionReplay>(`/exhibitions/${id}`),cards:catalog?.challenges??[],limits:catalog?.limits??null,rotation:catalog?.rotation??null,sponsoredPlay:catalog?.sponsoredPlay??null,sponsoredMock:catalog?.sponsoredMock??false,sponsoredLive:catalog?.sponsoredLive??false,sponsoredChat:catalog?.sponsoredChat??false,playtest,chat,
     library,choose:setChosenId,
     // The challenge Setup is showing: the one picked from the library, otherwise the day's.
     selected:library?.challenges.find(c=>c.id===chosenId)??catalog?.challenges[0],

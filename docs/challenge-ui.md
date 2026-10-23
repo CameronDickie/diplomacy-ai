@@ -6,11 +6,11 @@ shared frame (`client/src/challenge/Shell.tsx`):
 | Page | Address | What it is | Code |
 | -- | -- | -- | -- |
 | Daily challenge | `/challenge` | one scenario with an objective and a deadline, played alone | `client/src/challenge/`, `client/src/ui/ChallengeApp.tsx` |
-| Hosted games | `/` | a full seven-power game that people create, share by code and play to its end | `client/src/rooms/` |
+| Games | `/`, `/viewer` | full seven-power games: against the AI, with friends, or watched | `client/src/rooms/`, `client/src/viewer/` |
 
-The header has a switch between the two. Hosted games do not exist in the
-showcase profile (production), so there `/` is the challenge and the switch is
-not shown. Both pages use the same map component (`client/src/ui/MapGraph.tsx`),
+The header has a switch between the two. Games do not exist in the showcase
+profile (production), so there `/` is the challenge and the switch is not
+shown. Both pages use the same map component (`client/src/ui/MapGraph.tsx`),
 so trackpad panning, pinch zoom and centring on the selected unit behave the
 same in both.
 
@@ -63,11 +63,32 @@ An error is shown at the top of the page and is brought into view and focused
 when it appears, wherever the action that caused it was (`useReveal` in
 `Shell.tsx`).
 
-## Hosted games
+## Games
+
+Every full game starts on the Games home (`/`, `GamesHome.tsx`), shown whenever
+this browser is not seated in a friends' game. Like the challenge's setup it
+sets the ways to play side by side, each saying who decides the other powers:
+
+1. **Play against the AI**: opens the setup form (`/viewer#/new`): your power,
+   one model for the opponents (or one per power), the game length, stand-in
+   or live models; the game name, reasoning effort and messages per turn are
+   under More settings. The game then runs in the game viewer with the seat
+   panel ([game-viewer.md](game-viewer.md)).
+2. **Play with friends**: your name and power, then create a game (you host it
+   and share its code) or join one with a code. The game's own views follow.
+3. **Watch AI games**: the AI games library (`/viewer`): every recorded or
+   database game once, your games against the AI first.
+
+Below the cards, **Your games against the AI** lists the games you hold a seat
+in. A way the server does not offer says so in its card instead of
+disappearing. While you are seated in a friends' game, `/` shows that game; its
+Game page links to the other ways to play.
+
+### A game with friends
 
 | View | Address | Holds |
 | -- | -- | -- |
-| Game | `#/game` | creating or joining a game; then the game code, who sits where, how empty seats are filled, the host's settings and the start; once running, each power's player, supply centers, status and voice controls; Discord linking |
+| Game | `#/game` | the game code, who sits where, how empty seats are filled, the host's settings and the start; once running, each power's player, supply centers, status and voice controls; Discord linking |
 | Play | `#/play` | the map and your orders for the current turn, and which powers the turn is waiting on |
 | Messages | `#/messages` | one private thread per power |
 | History | `#/history` | the orders log, the animated replay of any phase, and the public game export |

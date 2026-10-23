@@ -19,9 +19,9 @@ import { PreflightError, type LunaTransport } from './Transport.js';
 export interface HumanSeat {
   power: Power;
   /** After the models' opening messages are stored: the messages the person sends this turn (possibly none). */
-  talk(context: { attemptId: string; operationId: string; phaseId: string; board: DecisionContext['job']['board'] }): Promise<Array<{ to: Power; body: string }>>;
+  talk(context: { attemptId: string; operationId: string; phaseId: string; board: DecisionContext['job']['board']; signal: AbortSignal }): Promise<Array<{ to: Power; body: string }>>;
   /** The person's action for this phase, already checked against the rules. */
-  act(context: { attemptId: string; operationId: string; phaseId: string; board: DecisionContext['job']['board'] }): Promise<PhaseAction>;
+  act(context: { attemptId: string; operationId: string; phaseId: string; board: DecisionContext['job']['board']; signal: AbortSignal }): Promise<PhaseAction>;
 }
 export type LunaFailure = 'BUDGET_EXHAUSTED' | 'ATTEMPT_BUDGET_EXHAUSTED' | 'PAUSED_OR_CLOSED' | 'CALL_LIMIT' | 'PREFLIGHT' | 'PROVIDER' | 'PRESET_MISMATCH';
 /** Why a sponsored phase could not be decided. The phase is left recoverable; opponents are never swapped for holds. */
@@ -187,7 +187,7 @@ export class LunaDecisionProvider implements DecisionProvider {
     const asked = job.board.phase === 'ORDERS' ? own.some(u => !u.mustRetreat) : job.board.phase === 'RETREATS' ? own.some(u => u.mustRetreat) : Boolean(buildChoices(job.board,human.power));
     if (!asked) return forcedAction(job.board);
     signal.throwIfAborted();
-    return await abortable(human.act({ attemptId: job.attemptId, operationId: job.operationId, phaseId: job.phaseId, board: job.board }),signal);
+    return await abortable(human.act({ attemptId: job.attemptId, operationId: job.operationId, phaseId: job.phaseId, board: job.board, signal }),signal);
   }
 
   /**
@@ -275,7 +275,7 @@ export class LunaDecisionProvider implements DecisionProvider {
       // Saved once per phase: a recovered phase reuses what the person already sent.
       const sent = (await this.store.call('powerTalks',{ attemptId: job.attemptId })).some(t => t.operationId === job.operationId && t.power === human.power);
       if (!sent) {
-        const messages = await abortable(human.talk({ attemptId: job.attemptId, operationId: job.operationId, phaseId: job.phaseId, board: job.board }),signal);
+        const messages = await abortable(human.talk({ attemptId: job.attemptId, operationId: job.operationId, phaseId: job.phaseId, board: job.board, signal }),signal);
         await this.store.call('saveHumanTalk',{ attemptId: job.attemptId, operationId: job.operationId, phaseId: job.phaseId, power: human.power,
           messages: messages.filter(m => alive.includes(m.to) && m.to !== human.power), now: this.now() });
       }

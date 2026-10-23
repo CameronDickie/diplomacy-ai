@@ -32,10 +32,9 @@ function modelsLine(assignment: Record<Power, string>) {
 }
 
 /**
- * The game viewer (development only): full games played by models with no human. Saved records come from
- * `game-records/`, which only the development server serves. Games in the autoplay database come from the
- * development server's full-games service, which also starts, stops and continues them, so a game can be
- * watched as it is played.
+ * AI games, part of Games: full games played by models, and games a person plays against them. Saved records
+ * come from `game-records/`. Games in the autoplay database come from the full-games service, which also
+ * starts, stops and continues them, so a game can be watched, or played, as it happens.
  */
 export function ViewerApp() {
   const [route, setRoute] = useState(fromHash);
@@ -64,12 +63,12 @@ export function ViewerApp() {
   }, [entry?.file]);
 
   const ready = loaded.records && loaded.db, current = route.kind === 'new' ? 'new' : route.run ? 'game' : 'library';
-  const nav: NavItem[] = [{ id: 'library', label: 'All games' }, ...(list ? [{ id: 'new', label: 'New game' }] : []), ...(route.run ? [{ id: 'game', label: route.run }] : [])];
-  return <Shell section="viewer" nav={nav} current={current} onNavigate={id => { window.location.hash = id === 'library' ? '' : id === 'new' ? '/new' : window.location.hash; }}>
+  const nav: NavItem[] = [{ id: 'library', label: 'AI games' }, ...(list ? [{ id: 'new', label: 'Play the AI' }] : []), ...(route.run ? [{ id: 'game', label: route.run }] : [])];
+  return <Shell section="games" nav={nav} current={current} onNavigate={id => { window.location.hash = id === 'library' ? '' : id === 'new' ? '/new' : window.location.hash; }}>
     {error && <p className="dip-notice is-error" role="alert" style={{ marginTop: 16 }}>{error}</p>}
     {!ready && <p style={{ padding: '40px 0' }} role="status">Loading the games…</p>}
     {ready && route.kind === 'new' && (list ? <NewGameForm list={list} onStarted={runId => { void refreshList(); window.location.hash = `/db/${runId}`; }} />
-      : <p style={{ padding: '40px 0' }}>Games can be started only from the development server (npm run dev, or scripts/dev-games.sh for live models).</p>)}
+      : <p style={{ padding: '40px 0' }}>Games against the AI are not offered on this server. <a href="#">See the AI games</a>.</p>)}
     {ready && route.kind !== 'new' && !route.run && <Library games={index ?? []} list={list} />}
     {ready && route.kind === 'record' && route.run && !entry && <p style={{ padding: '40px 0' }}>There is no saved record called {route.run}. <a href="#">See all games</a>.</p>}
     {entry && !game && !error && <p style={{ padding: '40px 0' }} role="status">Loading {entry.runId} ({(entry.bytes / 1e6).toFixed(1)} MB)…</p>}
@@ -102,34 +101,48 @@ function DatabaseGame({ runId, at, list, onChanged }: { runId: string; at: numbe
   // While you hold a seat in a game that has not ended, show only what every player may see.
   const player = game.settings.seat && game.status !== 'FINISHED' ? game.settings.seat : undefined;
   return game.record.phases.some(p => p.report) ? <GameView game={game} at={at} follow={game.live.running} prefix="db" controls={controls} player={player} />
-    : <main id="dip-content"><div className="dip-heading"><h1>{runId}</h1></div>{controls}<p className="dip-muted">No phase has been played yet.</p></main>;
+    : <main id="dip-content"><div className="dip-heading">{player ? <><p className="dip-meta">Your game against the AI · {runId}</p><h1>{title(player)} <span>against the AI</span></h1></> : <h1>{runId}</h1>}</div>
+      {controls}<p className="dip-muted">{player ? 'The first turn’s results will appear here.' : 'No phase has been played yet.'}</p></main>;
 }
 
+type Row = { runId: string; record?: AutoplayIndexEntry; db?: FullGamesList['games'][number] };
+/**
+ * Every AI game once: a saved record and the same game in this server's database are one row, opened live
+ * from the database when it is there. Games you play a seat in come first, then the rest, newest first.
+ */
 function Library({ games, list }: { games: AutoplayIndexEntry[]; list: FullGamesList | null }) {
+  const rows = new Map<string, Row>();
+  for (const record of games) rows.set(record.runId, { runId: record.runId, record });
+  for (const db of list?.games ?? []) rows.set(db.runId, { ...rows.get(db.runId), runId: db.runId, db });
+  const rank = (r: Row) => r.db?.waiting ? 3 : r.db?.running ? 2 : r.db ? 1 : 0;
+  const all = [...rows.values()].sort((a, b) => rank(b) - rank(a) || (b.db?.updatedAt ?? 0) - (a.db?.updatedAt ?? 0));
+  const yours = all.filter(r => r.db?.seat), others = all.filter(r => !r.db?.seat);
   return <main id="dip-content">
-    <div className="dip-heading"><p className="dip-meta">Development only</p><h1>Game <span>viewer</span></h1>
-      <p>Full games with a model on every power and no human player. Pick one to step through it turn by turn{list ? ', or start a new one' : ''}.</p>
-      {list && <a className="dip-solid viewer-new" href="#/new">New game</a>}</div>
-    {list && <section className="dip-section"><h2>In the database</h2><Budgets list={list} />
-      {list.games.length === 0 ? <p className="dip-muted">No games yet.</p> : <ul className="dip-list viewer-games">
-        {[...list.games].reverse().map(g => {
-          const top = ALL_POWERS.reduce((a, b) => g.centers[b] > g.centers[a] ? b : a);
-          return <li key={g.runId}><span><a href={`#/db/${g.runId}`}><strong>{g.runId}</strong></a>
-            <small>{g.standIn ? 'Stand-in · ' : ''}{g.waiting ? 'Waiting for you' : g.running ? 'Being played' : g.lifecycle === 'ACTIVE' ? 'Paused' : 'Finished'} · {title(g.season)} {g.year} · {
-              g.centers[top] >= 18 ? `${title(top)} won with ${g.centers[top]}` : `${title(top)} ${g.lifecycle === 'ACTIVE' ? 'leads' : 'finished first'} with ${g.centers[top]}`}</small></span>
-            <a href={`#/db/${g.runId}`}>{g.waiting ? 'Play' : g.running ? 'Watch' : 'Open'}</a></li>;
-        })}</ul>}</section>}
-    <section className="dip-section"><h2>Saved records</h2>
-    {games.length === 0 ? <p className="dip-muted">No saved records. Run npm run records -- collect autoplay-*.json to add the files the autoplay command wrote.</p> : <ul className="dip-list viewer-games">
-      {games.map(g => {
-        const top = ALL_POWERS.reduce((a, b) => g.centers[b] > g.centers[a] ? b : a);
-        return <li key={g.runId}><span><a href={`#/${g.runId}`}><strong>{g.runId}</strong></a>
-          <small>{modelsLine(g.assignment)}</small>
-          <small>{g.status === 'FINISHED' ? `Ended by ${ENDED[g.endedBy ?? ''] ?? 'finishing'}` : g.status.toLowerCase()} · {title(g.reached.split(' ')[0])} {g.reached.split(' ')[1]} · {g.winner ? `${title(g.winner)} won` : `${title(top)} led with ${g.centers[top]}`}
-            {' '}· {g.phases} phases · {usd(g.settledNanousd)}{g.instructionsHashes.length ? ` · instructions ${g.instructionsHashes.join(', ')}` : ' · before instructions were stamped'}{g.parts > 1 ? ` · ${g.parts} runs` : ''}</small></span>
-          <a href={`#/${g.runId}`}>Open</a></li>;
-      })}</ul>}</section>
+    <div className="dip-heading"><p className="dip-meta">Games</p><h1>AI <span>games</span></h1>
+      <p>Full games played by AI models. Open one to step through it turn by turn: the board, every order and its result, and the messages the powers sent each other.</p>
+      {list && <a className="dip-solid viewer-new" href="#/new">Play against the AI</a>}</div>
+    {yours.length > 0 && <section className="dip-section"><h2>Your games against the AI</h2><Rows rows={yours} /></section>}
+    <section className="dip-section"><h2>{yours.length ? 'AI against AI' : 'All games'}</h2>
+      {others.length === 0 ? <p className="dip-muted">No games yet.{list ? ' Start one with Play against the AI, or run npm run records -- collect autoplay-*.json to add recorded games.' : ''}</p> : <Rows rows={others} />}
+    </section>
+    {list && <p className="dip-small dip-muted viewer-funding">This server: <Budgets list={list} inline /></p>}
   </main>;
+}
+
+function Rows({ rows }: { rows: Row[] }) {
+  return <ul className="dip-list viewer-games">{rows.map(({ runId, record, db }) => {
+    const centers = db?.centers ?? record!.centers, top = ALL_POWERS.reduce((a, b) => centers[b] > centers[a] ? b : a);
+    const active = db ? db.lifecycle === 'ACTIVE' : record!.status !== 'FINISHED';
+    const status = db?.waiting ? 'Waiting for you' : db?.running ? 'Being played' : active ? 'Paused' : record?.endedBy ? `Ended by ${ENDED[record.endedBy] ?? 'finishing'}` : 'Finished';
+    const reached = db ? `${title(db.season)} ${db.year}` : `${title(record!.reached.split(' ')[0])} ${record!.reached.split(' ')[1]}`;
+    const result = centers[top] >= 18 ? `${title(top)} won with ${centers[top]}` : `${title(top)} ${active ? 'leads' : 'finished first'} with ${centers[top]}`;
+    const href = db ? `#/db/${runId}` : `#/${runId}`;
+    return <li key={runId}><span><a href={href}><strong>{runId}</strong></a>
+      {record && <small>{modelsLine(record.assignment)}</small>}
+      <small>{db?.seat ? `You play ${title(db.seat)} · ` : ''}{db?.standIn ? 'Stand-in models · ' : ''}{status} · {reached} · {result}
+        {record ? ` · ${record.phases} phases · ${usd(record.settledNanousd)}` : ''}{record?.instructionsHashes.length ? ` · instructions ${record.instructionsHashes.join(', ')}` : ''}{record && record.parts > 1 ? ` · ${record.parts} runs` : ''}</small></span>
+      <a href={href}>{db?.waiting ? 'Play' : db?.running ? 'Watch' : 'Open'}</a></li>;
+  })}</ul>;
 }
 
 /** `follow`: a game being played; the view moves to each new phase as it arrives if it was showing the latest. */
@@ -165,7 +178,7 @@ function GameView({ game, at, follow = false, prefix, controls, player }: { game
   }, [playing, result, index, speed]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if ((event.target as HTMLElement)?.closest('input, select, textarea')) return;
+      if (event.defaultPrevented || event.target instanceof Element && event.target.closest('input, select, textarea, button, a, summary, [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="switch"], [role="tab"], [role="menuitem"], [role="slider"], [role="spinbutton"], [role="textbox"], [role="combobox"], [role="listbox"], [tabindex]')) return;
       if (event.key === 'ArrowRight') { setPlaying(false); go(index + 1); } else if (event.key === 'ArrowLeft') { setPlaying(false); go(index - 1); }
       else if (event.key === ' ') { event.preventDefault(); setPlaying(p => !p); }
     };
@@ -179,9 +192,12 @@ function GameView({ game, at, follow = false, prefix, controls, player }: { game
   const reports = useMemo(() => turns.map(t => t.report), [turns]);
   const held = useMemo(() => heldTerritories(reports.slice(0, index), shown.units), [reports, index, shown]);
   return <main id="dip-content">
-    <div className="dip-heading viewer-heading"><p className="dip-meta">{game.run.transport === 'live' ? 'Live models' : 'Stand-in models'}{game.status === 'FINISHED' ? ` · ended by ${ENDED[game.endedBy ?? ''] ?? 'finishing'}` : controls ? '' : ` · ${game.status.toLowerCase()}`}</p>
+    {player ? <div className="dip-heading viewer-heading"><p className="dip-meta">Your game against the AI · {game.run.runId}{game.run.transport === 'live' ? '' : ' · stand-in models'}</p>
+      <h1>{title(player)} <span>against the AI</span></h1>
+      <p>{modelsLine(game.run.assignment)}. {title(game.summary.season)} {game.summary.year}, after {turns.length} phase{turns.length === 1 ? '' : 's'}{game.run.transport === 'live' ? `; the AI has cost ${usd(game.summary.settledNanousd)} so far` : ''}.</p></div>
+    : <div className="dip-heading viewer-heading"><p className="dip-meta">{game.run.transport === 'live' ? 'Live models' : 'Stand-in models'}{game.status === 'FINISHED' ? ` · ended by ${ENDED[game.endedBy ?? ''] ?? 'finishing'}` : controls ? '' : ` · ${game.status.toLowerCase()}`}</p>
       <h1>{game.run.runId}</h1>
-      <p>{modelsLine(game.run.assignment)}. {game.summary.winner ? `${title(game.summary.winner)} won` : 'No winner'} in {title(game.summary.season)} {game.summary.year} after {turns.length} phases, for {usd(game.summary.settledNanousd)}.</p></div>
+      <p>{modelsLine(game.run.assignment)}. {game.summary.winner ? `${title(game.summary.winner)} won` : 'No winner'} in {title(game.summary.season)} {game.summary.year} after {turns.length} phases, for {usd(game.summary.settledNanousd)}.</p></div>}
     {controls}
     <CenterChart game={game} turns={turns} index={index} onSelect={i => { setPlaying(false); go(i, true); }} />
     <div className="viewer-stepper" role="group" aria-label="Turn controls">

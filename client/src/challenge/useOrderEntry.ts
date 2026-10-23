@@ -10,6 +10,8 @@ const name = (t: string) => territoryName(t.split('/')[0] as Parameters<typeof t
  */
 export function useOrderEntry(attempt: ChallengeAttemptView | null, card: ChallengeCard | undefined, legal: ChallengeLegalCatalog | null, busy: boolean, playerId: string | undefined) {
   const [selected, setSelected] = useState<string | null>(null), [choices, setChoices] = useState<Record<string, string>>({});
+  const [destination, setDestination] = useState<string | null>(null);
+  useEffect(() => { setDestination(null); }, [selected, attempt?.id, attempt?.phaseId, playerId]);
   const [retreats, setRetreats] = useState<Record<string, string>>({}), [builds, setBuilds] = useState<Record<string, string>>({}), [disbands, setDisbands] = useState<string[]>([]);
   useEffect(() => { setChoices({}); setRetreats({}); setBuilds({}); setDisbands([]); setSelected(null); }, [attempt?.id, attempt?.phaseId, playerId]);
   const board = attempt?.board ?? card?.board;
@@ -33,6 +35,7 @@ export function useOrderEntry(attempt: ChallengeAttemptView | null, card: Challe
   // An army only crosses by convoy if a fleet is ordered to carry it. When exactly one of the player's fleets can do it
   // alone, choosing the army's convoy move sets that fleet's order too; otherwise the warning below asks.
   function choose(u: Unit, id: string) {
+    setDestination(null);
     setChoices(v => {
       const next = { ...v, [u.id]: id }, [, type, target] = id.split('|');
       if (type === 'MOVE_VIA_CONVOY') {
@@ -45,10 +48,20 @@ export function useOrderEntry(attempt: ChallengeAttemptView | null, card: Challe
       return next;
     });
   }
+  const movesTo = (territory: string) => options.filter(o => o.unitTerritory === selectedUnit?.territory && o.order.type === 'MOVE' && o.order.targetTerritory === territory);
+  const coastChoices = destination ? movesTo(destination) : [];
+  function moveTo(territory: string) {
+    if (!selectedUnit || board?.phase !== 'ORDERS') return false;
+    const moves = movesTo(territory);
+    if (!moves.length) return false;
+    if (new Set(moves.map(o => o.order.targetCoast)).size > 1) setDestination(territory);
+    else { choose(selectedUnit, (moves.find(o => !o.order.viaConvoy) ?? moves[0]).id); setSelected(null); }
+    return true;
+  }
   const chosenIds = active.map(u => choices[u.id] ?? defaultOrder(u)).filter(Boolean).map(id => id.split('|'));
   const convoyWarnings = board?.phase === 'ORDERS' ? [
     ...chosenIds.filter(([unit, type, target]) => type === 'MOVE_VIA_CONVOY' && !chosenIds.some(([, t, army, to]) => t === 'CONVOY' && army === unit && to === target))
-      .map(([unit, , target]) => `${name(unit)} is ordered to ${name(target)} by convoy, but none of your fleets is ordered to convoy it there. Set a fleet to "Convoy ${name(unit)} to ${name(target)}", or the move will fail.`),
+      .map(([unit, , target]) => `${name(unit)} is ordered to ${name(target)} by convoy, but none of your fleets is ordered to convoy it there. An allied fleet may provide the convoy, but an ally's promise does not submit their order. They must order a matching convoy route, and it must survive, or the move will fail.`),
     ...chosenIds.filter(([, type, army, to]) => type === 'CONVOY' && own.some(u => u.territory === army) && !chosenIds.some(([unit, t, target]) => unit === army && t === 'MOVE_VIA_CONVOY' && target === to))
       .map(([fleet, , army, to]) => `${name(fleet)} is ordered to convoy ${name(army)} to ${name(to)}, but that army is not ordered to move there by convoy.`),
   ] : [];
@@ -62,6 +75,6 @@ export function useOrderEntry(attempt: ChallengeAttemptView | null, card: Challe
   }
   const complete = attempt?.board.phase !== 'ORDERS' || (!!legal && chosenOrders.length === active.length);
   return { board, own, active, selected, setSelected, selectedUnit, editable, options, defaultOrder, choices, choose, chosenOrders, retreats, setRetreats, builds, setBuilds, disbands, setDisbands,
-    buildDelta, homes, convoyHint, convoyWarnings, nothingToDo, submission, complete };
+    buildDelta, homes, convoyHint, convoyWarnings, nothingToDo, submission, complete, coastChoices, moveTo };
 }
 export type OrderEntry = ReturnType<typeof useOrderEntry>;

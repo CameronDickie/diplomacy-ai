@@ -11,6 +11,7 @@ import { canonicalJson, parseBoard } from '../fixtures/BoardFixture.js';
 import { scoreChallenge } from '../challenge/TunisPilot.js';
 import { NoteRepository } from './notes.js';
 import { TalkRepository } from './talks.js';
+import { HumanActionRepository } from './humanActions.js';
 import { migrate, verifyMigrationHistory } from './migrations.js';
 import { PhaseRepository } from './phases.js';
 import { RetentionRepository } from './retention.js';
@@ -19,6 +20,7 @@ import { OutboxRepository } from './outbox.js';
 import { FundingRepository } from './funding.js';
 import { EvaluationRepository } from './evaluation.js';
 import { ExhibitionRepository } from './exhibitions.js';
+import { AutoplaySettingsRepository } from './autoplaySettings.js';
 import type { StoreOperations } from './contracts.js';
 import { parseChallenge, publicBoard, publicReport } from './publicData.js';
 import { StoreError, type StoreRequest, type StoredAttempt, type StoredPlayer, type StoredReceipt, type StoredChallenge } from './contracts.js';
@@ -185,6 +187,8 @@ async function handle(request: StoreRequest): Promise<unknown> {
   await boot;
   const {operation,input} = request;
   switch (operation) {
+    case 'autoplaySettings': return new AutoplaySettingsRepository(db).get(input.attemptId);
+    case 'saveAutoplaySettings': return transaction(() => new AutoplaySettingsRepository(db).save(input));
     case 'prepareProviderCall': {
       // The refusal is thrown only after COMMIT so the stop recorded on exhaustion is durable.
       const prepared = transaction(() => new ProviderCallRepository(db).prepare(input));
@@ -203,9 +207,11 @@ async function handle(request: StoreRequest): Promise<unknown> {
     case 'savePowerTalk': return transaction(() => new TalkRepository(db).save(input));
     case 'saveHumanTalk': return transaction(() => new TalkRepository(db).saveHuman(input));
     case 'powerTalks': return new TalkRepository(db).list(input.attemptId);
-    case 'fullGames': return db.prepare("SELECT id,lifecycle,execution,board_json,created_at,updated_at FROM attempts WHERE id LIKE 'auto-%' ORDER BY created_at LIMIT 500").all().map(r => {
+    case 'humanAction': return new HumanActionRepository(db).get(input);
+    case 'saveHumanAction': return transaction(() => new HumanActionRepository(db).save(input));
+    case 'fullGames': return db.prepare("SELECT id,challenge_id,lifecycle,execution,board_json,created_at,updated_at FROM attempts WHERE id LIKE 'auto-%' ORDER BY created_at LIMIT 500").all().map(r => {
       const board = JSON.parse(String(r.board_json)) as { year: number; season: string; phase: string; territoryOwners: Record<string, string | null> };
-      return { id: String(r.id), lifecycle: String(r.lifecycle), execution: String(r.execution), year: board.year, season: board.season, phase: board.phase, territoryOwners: board.territoryOwners,
+      return { id: String(r.id), challengeId: String(r.challenge_id), lifecycle: String(r.lifecycle), execution: String(r.execution), year: board.year, season: board.season, phase: board.phase, territoryOwners: board.territoryOwners,
         createdAt: Number(r.created_at), updatedAt: Number(r.updated_at) };
     });
     case 'savePowerNote': return transaction(() => new NoteRepository(db).save(input));

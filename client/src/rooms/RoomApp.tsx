@@ -7,6 +7,7 @@ import { useGameSocket } from '../hooks/useGameSocket.js';
 import { adjacentTerritories, convoyDestinations, convoyRoute, heldTerritories, TERRITORY_BY_ID, territoryName } from '../lib/game.js';
 import { MapGraph } from '../ui/MapGraph.js';
 import { GameView } from './Game.js';
+import { GamesHome } from './GamesHome.js';
 import { MessagesView } from './Messages.js';
 import { PlayView } from './Play.js';
 import { ReplayBar } from './ReplayBar.js';
@@ -69,7 +70,8 @@ export function RoomApp() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const nav: NavItem[] = [{ id: 'game', label: 'Game' },
+  // Outside a game the Games home stands alone; in one, its views.
+  const nav: NavItem[] = !state ? [] : [{ id: 'game', label: 'Game' },
     ...(started ? [{ id: 'play', label: 'Play' }] : []),
     ...(state && game.myPower ? [{ id: 'messages', label: 'Messages', count: Math.max(0, game.diplomaticMessages.length - seenMessages) }] : []),
     ...(started ? [{ id: 'history', label: 'History', count: game.phaseHistory.length }] : []),
@@ -177,7 +179,8 @@ export function RoomApp() {
             <thead><tr><th scope="col">Time</th><th scope="col">Event</th><th scope="col">Detail</th></tr></thead>
             <tbody>{game.logs.map(entry => <tr key={entry.id} className={entry.kind === 'error' ? 'is-failed' : ''}><td>{entry.at}</td><td>{entry.event}</td><td><code>{entry.detail}</code></td></tr>)}</tbody></table></div>}
         </main>
-      : <GameView game={game} map={<>{map}{credit}</>} onPlay={() => go('play')} />}
+      : state ? <GameView game={game} map={<>{map}{credit}</>} onPlay={() => go('play')} />
+      : <GamesHome game={game} map={<>{map}{credit}</>} />}
   </Shell>;
 }
 

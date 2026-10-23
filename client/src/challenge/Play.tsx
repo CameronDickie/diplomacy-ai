@@ -9,8 +9,8 @@ import type { OrderEntry } from './useOrderEntry.js';
 type Game = ReturnType<typeof useChallenge>;
 
 /** The current turn: the map beside the orders being chosen for it, and nothing else. */
-export function PlayView({ game, attempt, card, entry, clock, map, onHistory, onSetup }: {
-  game: Game; attempt: ChallengeAttemptView; card: ChallengeCard; entry: OrderEntry; clock: number; map: React.ReactNode; onHistory: () => void; onSetup: () => void;
+export function PlayView({ game, attempt, card, entry, clock, map, onHistory, onSetup, coastChoices }: {
+  game: Game; attempt: ChallengeAttemptView; card: ChallengeCard; entry: OrderEntry; clock: number; map: React.ReactNode; onHistory: () => void; onSetup: () => void; coastChoices: React.ReactNode;
 }) {
   const [confirmAbandon, setConfirmAbandon] = useState(false);
   const a = attempt, live = a.lifecycle === 'ACTIVE', activity = () => void game.activity();
@@ -36,6 +36,8 @@ export function PlayView({ game, attempt, card, entry, clock, map, onHistory, on
         {clock >= a.idleWarnAt && <div className="dip-notice">Your game expires after inactivity. <button onClick={() => void game.activity(true)}>I’m still here</button></div>}
         {entry.convoyHint && entry.editable && <p className="dip-muted dip-small">No convoy is possible this turn. A convoy needs one of your fleets in a sea space next to the army; move a fleet out to sea first, and the convoy orders will appear next turn.</p>}
         <div className="dip-orders">
+          {game.legalError && <p className="dip-notice is-error" role="alert">Could not load legal orders: {game.legalError} <button type="button" disabled={game.busy} onClick={game.retryLegal}>Retry legal orders</button></p>}
+          {coastChoices}
           {a.acceptedAction && a.execution !== 'ACCEPTING' && <div><p className="dip-small dip-muted">Submitted for this turn:</p>{a.acceptedAction.phase === 'ORDERS' && <ul className="dip-small">{a.acceptedAction.orderIds.map(id => <li key={id}>{describeOrder(id)}</li>)}</ul>}</div>}
           {a.board.phase === 'ORDERS' && entry.active.map(u => <label key={u.id} className={entry.selected === u.territory ? 'is-selected' : ''}>
             <button className="dip-unit" aria-pressed={entry.selected === u.territory} onClick={() => { entry.setSelected(current => current === u.territory ? null : u.territory); activity(); }}>{title(u.type)} · {territoryName(u.territory)}</button>

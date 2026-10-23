@@ -175,3 +175,44 @@ test('showcase server starts without Discord or provider secrets and serves heal
     rmSync(databaseDirectory, { recursive: true, force: true });
   }
 });
+
+test('a local-profile server bound to the network never exposes full-game controls or ledgers', async () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'diplomacy-fullgames-boundary-'));
+  const listener = createServer();
+  listener.listen(0, '127.0.0.1');
+  await once(listener, 'listening');
+  const address = listener.address();
+  assert.ok(address && typeof address === 'object');
+  await new Promise<void>(resolve => listener.close(() => resolve()));
+  const origin = `http://127.0.0.1:${address.port}`;
+  const child = spawn(process.execPath, [resolve(root, 'server/dist/index.js')], {
+    env: { NODE_ENV: 'development', DIPLOMACY_PROFILE: 'local', HOST: '0.0.0.0', PORT: String(address.port),
+      DIPLOMACY_ENV_FILE: '/dev/null', DIPLOMACY_DATABASE_PATH: resolve(directory, 'game.sqlite'),
+      DIPLOMACY_AUTOPLAY_DATABASE: resolve(directory, 'autoplay.sqlite'), DIPLOMACY_STAND_IN_DATABASE: resolve(directory, 'stand-in.sqlite'),
+      CORS_ORIGINS: origin, DIPLOMACY_AUTH_CALLBACK_ORIGIN: origin, DIPLOMACY_AUTH_RETURN_ORIGIN: origin },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const closed = once(child, 'close');
+  let output = '';
+  child.stdout.on('data', data => { output += data; });
+  child.stderr.on('data', data => { output += data; });
+  try {
+    let healthy = false;
+    for (let count = 0; count < 100; count++) {
+      if (child.exitCode !== null) break;
+      try { healthy = (await fetch(`${origin}/healthz`, { signal: AbortSignal.timeout(500) })).ok; } catch {}
+      if (healthy) break;
+      await delay(25);
+    }
+    assert.equal(healthy,true,output);
+    assert.equal((await fetch(`${origin}/api/full-games`, { headers: { Origin: origin } })).status,404);
+    assert.equal((await fetch(`${origin}/api/full-games`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runId: 'unauthorized', live: true, until: 1901 }) })).status,404);
+  } finally {
+    child.kill('SIGTERM');
+    const [code, signal] = await closed;
+    assert.equal(code,0);
+    assert.equal(signal,null);
+    rmSync(directory,{ recursive: true, force: true });
+  }
+});

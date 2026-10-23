@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ALL_POWERS, TERRITORIES, type ChallengeLegalCatalog, type Power } from '@diplomacy/shared';
 import { coastName, describeChoice, foreignOwner, phaseTitle, placeName, title } from '../challenge/text.js';
 import { useOrderEntry } from '../challenge/useOrderEntry.js';
+import { CoastChoices } from '../challenge/CoastChoices.js';
 import { heldTerritories, territoryName } from '../lib/game.js';
 import { MapGraph } from '../ui/MapGraph.js';
 import { lineColor } from './CenterChart.js';
@@ -54,6 +55,8 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
   const post = (p: Power) => { if (drafts[p]?.trim()) change(d => ({ ...d, ready: [...new Set([...d.ready, p])] })); };
   const unpost = (p: Power) => change(d => ({ ...d, ready: d.ready.filter(x => x !== p) }));
   const [legal, setLegal] = useState<{ key: string; catalog: ChallengeLegalCatalog } | null>(null);
+  const [legalRetry, setLegalRetry] = useState(0), [legalError, setLegalError] = useState<string | null>(null);
+  const legalKey = `${game.run.runId}:${boardKey}`;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -69,12 +72,13 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
   useEffect(() => { const log = logRef.current; if (log) log.scrollTop = log.scrollHeight; }, [open, openCount, tab]);
   // Legal orders load as soon as the game is waiting for you in an orders turn, so you can plan while you write.
   useEffect(() => {
-    if (!waiting || board.phase !== 'ORDERS' || legal?.key === boardKey) return;
+    setLegalError(null);
+    if (!waiting || board.phase !== 'ORDERS' || legal?.key === legalKey) return;
     let live = true;
-    void fullGamesApi.legal(game.run.runId).then(catalog => { if (live) setLegal({ key: boardKey, catalog }); }).catch(e => { if (live) setError((e as Error).message); });
+    void fullGamesApi.legal(game.run.runId).then(catalog => { if (live) setLegal({ key: legalKey, catalog }); }).catch(e => { if (live) setLegalError((e as Error).message); });
     return () => { live = false; };
-  }, [boardKey, Boolean(waiting)]);
-  const catalog = board.phase === 'ORDERS' ? (legal?.key === boardKey ? legal.catalog : null) : NO_OPTIONS;
+  }, [legalKey, Boolean(waiting), legalRetry]);
+  const catalog = board.phase === 'ORDERS' ? (legal?.key === legalKey ? legal.catalog : null) : NO_OPTIONS;
   // The challenge's own order entry: legal options per unit, convoy pairing, retreats and builds. Choices are
   // kept from the messages to the orders step, since both belong to the same phase.
   const attemptLike = useMemo(() => ({ id: game.run.runId, phaseId: boardKey, lifecycle: 'ACTIVE', execution: ordering ? 'ACCEPTING' : 'DECIDING', board }), [game.run.runId, boardKey, ordering, board]);
@@ -85,21 +89,17 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
   const baseOf = (id: string) => id.split('|')[2].split('/')[0];
   const moveTargets = board.phase === 'ORDERS' && entry.selectedUnit ? [...new Set(movesOf(entry.selectedUnit.territory).map(o => baseOf(o.id)))] as never[] : [];
   function clickMap(territory: string) {
+    if (busy) return;
+    if (entry.moveTo(territory)) { setTab('orders'); return; }
     if (entry.active.some(u => u.territory === territory)) { setTab('orders'); entry.setSelected(now => now === territory ? null : territory); return; }
-    const unit = entry.selectedUnit;
-    if (!unit || board.phase !== 'ORDERS') return;
-    const moves = movesOf(unit.territory).filter(o => baseOf(o.id) === territory);
-    const pick = moves.find(o => o.id.split('|')[1] === 'MOVE') ?? moves[0];
-    if (pick) { entry.choose(unit, pick.id); entry.setSelected(null); }
   }
   const mapState = useMemo(() => ({ units: board.units, territories: Object.fromEntries(TERRITORIES.map(t => [t.id, { id: t.id, isSupplyCenter: t.isSupplyCenter, owner: board.territoryOwners[t.id] }])) }), [board]);
   const held = useMemo(() => heldTerritories(game.record.phases.flatMap(p => p.report ? [p.report] : []), board.units), [game.record.phases, board]);
 
-  // A convoy only works with its fleet: an army sent by convoy with no fleet ordered to carry it is not submitted.
   // Builds are limited to the centers you hold beyond your units; disbands must remove exactly the surplus.
   const built = Object.values(entry.builds).filter(Boolean).length, mustDisband = Math.max(0, -entry.buildDelta);
   const countsOk = board.phase !== 'BUILDS' || (entry.buildDelta >= 0 ? built <= entry.buildDelta : entry.disbands.length === mustDisband);
-  const ready = entry.complete && entry.convoyWarnings.length === 0 && countsOk;
+  const ready = entry.complete && countsOk;
   async function send(action: () => Promise<unknown>) {
     setBusy(true); setError(null);
     try { await action(); setConfirming(false); onChanged(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -110,7 +110,7 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
   const unreadCount = others.filter(unread).length;
   const out = !board.units.some(u => u.power === seat);
   const step = !game.live.running ? 'The game is not being played. Continue it to take your turn.'
-    : out ? 'You have been eliminated; the game plays on without you.'
+    : out && !waiting ? 'You have no units; the game plays on without you.'
     : talking ? 'Write to anyone you like (one message each), then send. Each replies once; plan your orders meanwhile.'
     : ordering ? (board.phase === 'ORDERS' ? 'Your orders: the replies are in. The others are choosing their orders now.' : board.phase === 'RETREATS' ? 'Your retreats: choose where your dislodged units go.' : 'Your builds: choose what to build or disband.')
     : 'The other powers are writing or deciding…';
@@ -169,15 +169,18 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
       {tab === 'messages' && talking && <div className="viewer-send">
         <p className="dip-small">{messages.length ? `Ready to deliver to ${messages.map(m => title(m.to)).join(', ')}.` : 'Nothing sent yet.'}
           {unsent.length > 0 && <span className="dip-muted"> Unsent draft{unsent.length === 1 ? '' : 's'} to {unsent.map(title).join(', ')} will not be delivered.</span>}</p>
-        <button type="button" className="dip-solid" disabled={busy} onClick={() => void send(() => fullGamesApi.talk(game.run.runId, messages))}>
+        <button type="button" className="dip-solid" disabled={busy} onClick={() => void send(() => fullGamesApi.talk(game.run.runId, messages, waiting!.phaseId))}>
           {busy ? 'Delivering…' : messages.length ? `Finish writing · deliver ${messages.length}` : 'Finish writing · say nothing'}</button>
       </div>}
 
       {tab === 'orders' && <div className="viewer-block viewer-orders">
-        {out ? <p className="dip-muted">You have no units.</p> : <>
+        {out && <p className="dip-muted">You have no units.</p>}
+        <>
+          {legalError && <p className="dip-notice is-error" role="alert">Could not load legal orders: {legalError} <button type="button" disabled={busy} onClick={() => setLegalRetry(value => value + 1)}>Retry legal orders</button></p>}
+          <CoastChoices entry={entry} disabled={busy} />
           {!ordering && board.phase === 'ORDERS' && <p className="dip-small dip-muted">{talking ? 'Plan your orders while you write; they are kept. You can submit them once the replies are in.' : 'Your planned orders are kept until you can submit them.'}</p>}
           {board.phase === 'ORDERS' && entry.active.map(u => <label key={u.id}>{title(u.type)} in {territoryName(u.territory)}
-            <select disabled={busy || !catalog} value={entry.choices[u.id] ?? entry.defaultOrder(u)} onChange={e => entry.choose(u, e.target.value)}>
+            <select aria-label={`Order for the ${u.type.toLowerCase()} in ${territoryName(u.territory)}`} disabled={busy || !catalog} value={entry.choices[u.id] ?? entry.defaultOrder(u)} onChange={e => entry.choose(u, e.target.value)}>
               {!catalog && <option value="">{waiting ? 'Loading legal orders…' : 'Available when the game waits for you'}</option>}
               {entry.options.filter(o => o.unitTerritory === u.territory).map(o => <option key={o.id} value={o.id}>{describeChoice(o.id, foreignOwner(board.units, seat))}</option>)}</select></label>)}
           {board.phase !== 'ORDERS' && !ordering && <p className="dip-small dip-muted">Nothing to decide yet.</p>}
@@ -195,13 +198,13 @@ export function SeatPanel({ game, onChanged }: { game: LiveGame; onChanged: () =
           {board.phase === 'BUILDS' && ordering && entry.buildDelta > 0 && built >= entry.buildDelta && entry.homes.length > built && <p className="dip-small dip-muted">That is all your builds; set one back to "No build" to build elsewhere instead.</p>}
           {entry.convoyHint && <p className="dip-small dip-muted">No convoys are possible this turn. A fleet can carry an army only from a coast that touches the sea the fleet is in (for example, an army in Yorkshire with a fleet in the North Sea), and the fleet must be ordered to convoy it.</p>}
           {entry.convoyWarnings.map(w => <p className="dip-notice" key={w}>{w}</p>)}
-          {ordering && entry.convoyWarnings.length > 0 && <p className="dip-small">Pair each convoy with its fleet before submitting.</p>}
+          {ordering && entry.convoyWarnings.length > 0 && <p className="dip-small">Convoy warnings are advisory. You can submit these legal orders, including convoys supplied by allies.</p>}
           {ordering && (confirming ? <div className="viewer-live-actions"><span className="dip-small">Submit these orders? They cannot be changed afterwards.</span>
-            <button type="button" className="dip-solid" disabled={busy || !ready} onClick={() => { const action = entry.submission(); if (action) void send(() => fullGamesApi.act(game.run.runId, action)); }}>{busy ? 'Submitting…' : 'Yes, submit'}</button>
+            <button type="button" className="dip-solid" disabled={busy || !ready} onClick={() => { const action = entry.submission(); if (action) void send(() => fullGamesApi.act(game.run.runId, action, waiting!.phaseId)); }}>{busy ? 'Submitting…' : 'Yes, submit'}</button>
             <button type="button" className="dip-link" onClick={() => setConfirming(false)}>Keep editing</button></div>
             : <button type="button" className="dip-solid" disabled={busy || !ready} onClick={() => setConfirming(true)}>Submit orders</button>)}
           {talking && board.phase === 'ORDERS' && <button type="button" className="dip-link" onClick={() => setTab('messages')}>Back to your messages</button>}
-        </>}
+        </>
       </div>}
       {error && <p className="dip-notice is-error" role="alert">{error}</p>}
     </aside>

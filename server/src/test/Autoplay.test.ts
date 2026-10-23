@@ -5,8 +5,9 @@ import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { ALL_POWERS, type Power } from '@diplomacy/shared';
-import { CALL_TIMEOUT_MS, DEFAULT_ASSIGNMENT, autoplay, fullGameDefinition, harnessInstructions, quietYears, type ModelKey } from '../autoplay/Autoplay.js';
+import { CALL_TIMEOUT_MS, DEFAULT_ASSIGNMENT, autoplay, describeGame, fullGameDefinition, harnessInstructions, quietYears, type ModelKey } from '../autoplay/Autoplay.js';
 import { assertDevelopment, harnessVersion, parseAssignment } from '../autoplay/cli.js';
 import { ASK_INSTRUCTIONS, FULL_GAME_UNIT_INSTRUCTIONS, OPPONENT_INSTRUCTIONS, REPLY_INSTRUCTIONS } from '../providers/OpponentInstructions.js';
 import { noteLines, parseMessages, sharedContext, talkLines, threadLines, type PowerMessage } from '../luna/Context.js';
@@ -18,6 +19,9 @@ import { OPPONENT_CONTRACTS, opponentContract } from '../providers/OpponentContr
 import { parseChallenge } from '../storage/publicData.js';
 import { Store } from '../storage/Store.js';
 import { TUNIS_PILOT_V1, scoreChallenge } from '../challenge/TunisPilot.js';
+import { scriptedHumanAction } from '../evaluation/ScriptedPlayer.js';
+import { PhaseRules } from '../attempts/PhaseRules.js';
+import type { ScenarioFixture } from '../fixtures/ScenarioFixture.js';
 
 async function setup(t: test.TestContext, granted = 5_000_000_000) {
   const dir = await mkdtemp(join(tmpdir(),'diplomacy-autoplay-')), store = await Store.open(join(dir,'game.sqlite'));
@@ -39,10 +43,76 @@ async function setup(t: test.TestContext, granted = 5_000_000_000) {
   const run = (extra: Partial<Parameters<typeof autoplay>[0]> = {}) => autoplay({ store, runId: 'game-a', lastYear: 1902, transports: transports(), transportKind: 'mock', now: () => 1_800_000_000_000,
     // The stand-ins often send two units to one place; these tests count calls, so the extra question is asked only where a test turns it on.
     askAgainWhenBlocked: false, ...extra });
-  return { store, sent, transports, run };
+  return { store, sent, transports, run, path: join(dir,'game.sqlite') };
 }
 const player = (_attemptId: string) => 'test-operator';
 const speaker = (context: string) => /\nYou are ([A-Z]+)\./.exec(context)![1] as Power;
+
+test('original settings survive a pause before calls and a storage restart, and resume cannot change them',async t => {
+  const fixture = await setup(t);
+  const assignment = Object.fromEntries(ALL_POWERS.map(power => [power,'sonnet'])) as Record<Power, ModelKey>;
+  const transports = { sonnet: mockOpponentTransport(OPPONENT_CONTRACTS.sonnet,{ pick: 'seeded', seed: 3 }) };
+  const paused = await fixture.run({ assignment, transports, effort: 'high', talkRecipients: 0, maxPhases: 0 });
+  assert.equal(paused.status,'PAUSED');
+  assert.deepEqual(await fixture.store.call('providerCallsForAttempt',{ attemptId: paused.run.attemptId }),[]);
+  await fixture.store.close();
+  const store = await Store.open(fixture.path);
+  try {
+    const described = (await describeGame(store,'game-a'))!;
+    assert.deepEqual(described.settings,{ assignment, effort: 'high', transport: 'mock', talkRecipients: 0, lastYear: 1902, seat: null });
+    assert.deepEqual(described.run.assignment,paused.run.assignment);
+    assert.equal(described.run.transport,'mock'); assert.equal(described.run.talkRecipients,0);
+    const resume = { store, runId: 'game-a', ...described.settings, transports, transportKind: described.settings.transport, maxPhases: 0 };
+    assert.equal((await autoplay(resume)).status,'PAUSED');
+    await assert.rejects(autoplay({ ...resume, effort: 'low' }),/different reasoning effort/);
+    await assert.rejects(autoplay({ ...resume, transportKind: 'live' }),/different transport/);
+    await assert.rejects(autoplay({ ...resume, talkRecipients: 3 }),/different talkRecipients/);
+    await assert.rejects(autoplay({ ...resume, assignment: DEFAULT_ASSIGNMENT, transports: fixture.transports() }),/different models/);
+    const settings = (await store.call('autoplaySettings',{ attemptId: paused.run.attemptId }))!;
+    await assert.rejects(store.call('saveAutoplaySettings',{ attemptId: paused.run.attemptId, settings: { ...settings, talkRecipients: 2 }, now: 2 }),/different autoplay settings/);
+    assert.deepEqual(await store.call('providerCallsForAttempt',{ attemptId: paused.run.attemptId }),[]);
+    const resumed = await autoplay({ ...resume, maxPhases: 1 });
+    assert.ok(resumed.summary.calls > 0); assert.equal(resumed.summary.talkCalls,0);
+    assert.deepEqual((await describeGame(store,'game-a'))!.settings,described.settings);
+  } finally { await store.close(); }
+});
+
+test('six human recipients never inflate the configured one-recipient model limit',async t => {
+  const fixture = await setup(t);
+  const result = await fixture.run({ talkRecipients: 1, maxPhases: 1, human: {
+    power: 'AUSTRIA',
+    talk: async () => ALL_POWERS.filter(power => power !== 'AUSTRIA').map(to => ({ to, body: 'Hello.' })),
+    act: async ({ board }) => scriptedHumanAction(new PhaseRules(),board,'AUSTRIA',{ witnesses: [] } as unknown as ScenarioFixture,''),
+  } });
+  const talks = await fixture.store.call('powerTalks',{ attemptId: result.run.attemptId });
+  assert.equal(talks.find(talk => talk.callId.startsWith('human:'))!.messages.length,6);
+  assert.ok(talks.filter(talk => talk.kind === 'ASK' && !talk.callId.startsWith('human:')).every(talk => talk.messages.length <= 1));
+  assert.equal((await describeGame(fixture.store,'game-a'))!.settings.talkRecipients,1);
+});
+
+test('pre-settings databases remain describable without migration and legacy resumes save settings',async t => {
+  const fixture = await setup(t);
+  const result = await fixture.run({ maxPhases: 1, effort: 'medium', talkRecipients: 1 });
+  await fixture.store.close();
+  const database = new DatabaseSync(fixture.path);
+  database.exec('DROP TABLE autoplay_settings; DELETE FROM schema_migrations WHERE version=19; PRAGMA user_version=18;');
+  database.close();
+  const inspected = await Store.inspect(fixture.path);
+  try {
+    assert.equal((await inspected.call('health',{})).schemaVersion,18);
+    const legacy = (await describeGame(inspected,'game-a'))!;
+    assert.deepEqual(legacy.settings,{ assignment: DEFAULT_ASSIGNMENT, effort: 'medium', transport: 'mock', talkRecipients: 1, lastYear: 1902, seat: null });
+  } finally { await inspected.close(); }
+  const store = await Store.open(fixture.path);
+  try {
+    assert.equal(await store.call('autoplaySettings',{ attemptId: result.run.attemptId }),null);
+    const resumed = await fixture.run({ store, maxPhases: 0, effort: 'medium', talkRecipients: 1 });
+    assert.equal(resumed.summary.calls,result.summary.calls);
+    assert.deepEqual(await store.call('autoplaySettings',{ attemptId: result.run.attemptId }),{
+      assignment: DEFAULT_ASSIGNMENT, effort: 'medium', transport: 'mock', talkRecipients: 1,
+    });
+  } finally { await store.close(); }
+});
 
 test('a full game with a model on every power plays to its last year through the ledger, with both models and messages between powers',async t => {
   const f = await setup(t), result = await f.run();

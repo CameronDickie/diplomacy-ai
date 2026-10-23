@@ -26,3 +26,12 @@
 .dip-map-menu p { margin: 0; }
 .dip-map-menu > div { display: grid; gap: 6px; }
 .dip-map-menu em { font-style: normal; font-size: 13px; color: var(--folio-muted); }
+
+/* Games home: the friends card holds its own small form. */
+.games-friends { display: grid; gap: 12px; }
+.games-friends p { flex: none; margin: 0; }
+.games-friends > .dip-fill { justify-self: start; }
+.games-join { display: flex; align-items: flex-end; gap: 10px; padding-top: 12px; border-top: 1px solid var(--folio-line); }
+.games-join label { flex: 1; display: grid; gap: 6px; font-size: 14px; }
+/* On a phone the starting board is decoration; the ways to play come first. */
+@media (max-width: 640px) { .games-hero-map { display: none; } }

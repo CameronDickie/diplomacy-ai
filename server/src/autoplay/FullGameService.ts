@@ -12,6 +12,10 @@ import type { PhaseAction } from '../attempts/types.js';
 import type { BoardFixture } from '../fixtures/BoardFixture.js';
 import type { HumanSeat } from '../luna/LunaDecisionProvider.js';
 import { harnessVersion } from './cli.js';
+import type { RuntimeConfig } from '../../../config/runtime.cjs';
+
+export const fullGamesEnabled = (config: Pick<RuntimeConfig, 'profile' | 'production' | 'host'>): boolean =>
+  config.profile === 'local' && !config.production && ['127.0.0.1','localhost','::1'].includes(config.host);
 
 /** What starting (or continuing) a game asks for: the same choices as the autoplay command's flags. */
 export interface StartRequest {
@@ -21,7 +25,7 @@ export interface StartRequest {
   seat?: Power;
 }
 /** What the person in a seat is being asked for right now, and how to hand their answer to the game. */
-interface Pending { kind: 'TALK' | 'ACT'; phaseId: string; board?: BoardFixture; resolve: (value: never) => void }
+interface Pending { kind: 'TALK' | 'ACT'; operationId: string; phaseId: string; board?: BoardFixture; resolve: (value: never) => void }
 interface Run { controller: AbortController; log: string[]; startedAt: number; settings: StartRequest; pending: Pending | null }
 const LOG_LINES = 300;
 type Kind = 'live' | 'standIn';
@@ -43,6 +47,8 @@ class RequestError extends Error {}
 export class FullGameService {
   private stores: Record<Kind, Promise<Store> | null> = { live: null, standIn: null };
   private running: { runId: string; run: Run } | null = null;
+  private starting = false;
+  private completion: Promise<void> | null = null;
   /** The last run of each game this process played: its log, and how it ended, kept for its page. */
   private finished = new Map<string, { log: string[]; endedAt: number; error: string | null; result: Pick<AutoplayResult, 'status' | 'waitingOn' | 'endedBy'> | null; failures: AutoplayResult['record']['failures'] }>();
   private rules = new PhaseRules();
@@ -60,6 +66,7 @@ export class FullGameService {
   }
   async close(): Promise<void> {
     this.running?.run.controller.abort();
+    await this.completion;
     for (const store of Object.values(this.stores)) if (store) await (await store).close();
   }
   /** Which database holds a game: the real ledger first, then the stand-in one. */
@@ -73,7 +80,9 @@ export class FullGameService {
     const store = await this.open('live');
     const centers = (owners: Record<string, string | null>) => Object.fromEntries(ALL_POWERS.map(p => [p,TERRITORIES.filter(t => t.isSupplyCenter && owners[t.id] === p).length]));
     const games = (await Promise.all((['live','standIn'] as const).map(async kind => (await (await this.open(kind)).call('fullGames',{})).map(g => ({ runId: g.id.replace(/^auto-/,''), standIn: kind === 'standIn',
-      lifecycle: g.lifecycle, year: g.year, season: g.season, phase: g.phase, centers: centers(g.territoryOwners), running: this.running?.runId === g.id.replace(/^auto-/,''),
+      lifecycle: g.lifecycle, year: g.year, season: g.season, phase: g.phase, centers: centers(g.territoryOwners),
+      // The power a person plays, from the game's challenge id (`full-game-to-1999-seat-france`), or null.
+      seat: (/-seat-([a-z]+)$/.exec(g.challengeId)?.[1].toUpperCase() ?? null) as Power | null, running: this.running?.runId === g.id.replace(/^auto-/,''),
       waiting: this.running?.runId === g.id.replace(/^auto-/,'') && Boolean(this.running.run.pending), createdAt: g.createdAt, updatedAt: g.updatedAt }))))).flat().sort((a,b) => a.createdAt - b.createdAt);
     const funding = await store.call('fundingTotals',{}), paid = await store.call('paidState',{});
     return { games, funding, paidStopped: paid.stopped, running: this.running?.runId ?? null,
@@ -99,6 +108,13 @@ export class FullGameService {
 
   /** Starts a new game or continues one; it plays in the background and its page follows it. */
   async start(request: StartRequest): Promise<{ runId: string }> {
+    if (this.starting) throw new RequestError('A game is already starting. Wait for it to finish starting.');
+    this.starting = true;
+    try { return await this.startGame(request); }
+    finally { this.starting = false; }
+  }
+
+  private async startGame(request: StartRequest): Promise<{ runId: string }> {
     if (this.running) throw new RequestError(`Game ${this.running.runId} is still being played. Stop it first.`);
     if (typeof request.runId !== 'string' || !/^[a-z0-9-]{3,40}$/.test(request.runId)) throw new RequestError('A game name is 3–40 lowercase letters, digits or dashes.');
     const lastYear = request.until === 'win' ? LATEST_LAST_YEAR : Number(request.until);
@@ -110,6 +126,7 @@ export class FullGameService {
     for (const p of ALL_POWERS) if (!Object.hasOwn(OPPONENT_CONTRACTS,assignment[p])) throw new RequestError(`Unknown model for ${p}.`);
     const messages = request.messages ?? 3, orderCalls = request.orderCalls ?? 6;
     if (!Number.isSafeInteger(messages) || messages < 0 || messages > 6) throw new RequestError('Powers may write to between 0 and 6 others.');
+    if (!Number.isSafeInteger(orderCalls) || orderCalls < 3 || orderCalls > 10) throw new RequestError('A power may have between 3 and 10 orders calls for a phase.');
     const kind: Kind = request.live ? 'live' : 'standIn', elsewhere = await this.locate(request.runId);
     if (elsewhere && elsewhere !== kind) throw new RequestError(elsewhere === 'standIn' ? 'This is a stand-in game; it continues with stand-in models.' : 'This game was played with live models; it continues with live models.');
     const store = await this.open(kind);
@@ -131,21 +148,37 @@ export class FullGameService {
     const run: Run = { controller: new AbortController(), log: [], startedAt: this.now(), settings: request, pending: null };
     // The person's seat: each request parks until their answer arrives through talk() or act() below. A game
     // stops only between phases, and this phase is waiting for the person, so Stop interrupts it instead;
-    // continuing the game plays the phase again, keeping what was already said and decided.
-    const ask = <T>(kind: Pending['kind'], phaseId: string, board?: BoardFixture) => new Promise<T>((resolve, reject) => {
-      const stopped = () => { if (run.pending?.resolve === resolve) run.pending = null; reject(new DOMException('Stopped by you.','AbortError')); };
-      if (run.controller.signal.aborted) { stopped(); return; }
-      run.pending = { kind, phaseId, board, resolve: resolve as (value: never) => void };
-      run.controller.signal.addEventListener('abort',stopped,{ once: true });
-      log(`  … waiting for you (${kind === 'TALK' ? 'messages' : 'orders'}) · ${phaseId.split(':').slice(-3).reverse().join(' ')}`);
-    });
-    const human: HumanSeat | undefined = request.seat ? { power: request.seat,
-      talk: context => ask('TALK',context.phaseId,context.board), act: context => ask('ACT',context.phaseId,context.board) } : undefined;
+    // continuing the game plays the phase again, keeping what was already said and decided. A request also
+    // ends with the attempt at its phase (a failed model call, say): the recovery that plays the phase again
+    // asks afresh, and must not find the old request still standing.
+    const ask = async <T>(kind: Pending['kind'], operationId: string, phaseId: string, board: BoardFixture, phase: AbortSignal): Promise<T> => {
+      const given = kind === 'ACT' ? await store.call('humanAction',{ operationId, power: request.seat! }) : null;
+      run.controller.signal.throwIfAborted(); phase.throwIfAborted();
+      if (given) return given as T;
+      return new Promise<T>((resolve, reject) => {
+        const cleanup = () => {
+          run.controller.signal.removeEventListener('abort',ended); phase.removeEventListener('abort',ended);
+        };
+        const ended = () => {
+          if (run.pending?.resolve === answer) run.pending = null;
+          cleanup();
+          reject(new DOMException('Stopped by you.','AbortError'));
+        };
+        const answer = (value: never) => { cleanup(); resolve(value); };
+        if (run.controller.signal.aborted || phase.aborted) { ended(); return; }
+        run.pending = { kind, operationId, phaseId, board, resolve: answer };
+        run.controller.signal.addEventListener('abort',ended,{ once: true });
+        phase.addEventListener('abort',ended,{ once: true });
+        log(`  … waiting for you (${kind === 'TALK' ? 'messages' : 'orders'}) · ${phaseId.split(':').slice(-3).reverse().join(' ')}`);
+      });
+    };
     const log = (line: string) => { run.log.push(line); if (run.log.length > LOG_LINES) run.log.splice(0,run.log.length - LOG_LINES); };
+    const human: HumanSeat | undefined = request.seat ? { power: request.seat,
+      talk: context => ask('TALK',context.operationId,context.phaseId,context.board,context.signal), act: context => ask('ACT',context.operationId,context.phaseId,context.board,context.signal) } : undefined;
     this.running = { runId: request.runId, run };
     this.finished.delete(request.runId);
     log(`Started ${request.live ? 'with live models' : 'with stand-in models (free)'} · ${request.until === 'win' ? 'until a power wins' : `to Fall ${lastYear}`} · ${effort} reasoning effort`);
-    void autoplay({ store, runId: request.runId, lastYear, assignment, transports, transportKind: request.live ? 'live' : 'mock', talkRecipients: messages,
+    this.completion = autoplay({ store, runId: request.runId, lastYear, assignment, transports, transportKind: request.live ? 'live' : 'mock', talkRecipients: messages,
       orderCalls, effort, stalemateYears: request.until === 'win' ? 10 : 0, harness: harnessVersion(), signal: run.controller.signal, log, now: this.now, ...(human ? { human } : {}) })
       .then(result => {
         log(`${result.status}${result.endedBy ? ` · ${result.endedBy}` : ''}${result.waitingOn ? ` · ${result.waitingOn}` : ''}`);
@@ -170,27 +203,33 @@ export class FullGameService {
     return { options: options.map(o => ({ id: o.id, unitTerritory: o.unitTerritory, order: o.order, description: o.description })) };
   }
   /** The person's messages for this turn: at most one to each other power still in the game. */
-  talk(runId: string, messages: unknown): void {
-    const pending = this.waiting(runId,'TALK'), seat = this.running!.run.settings.seat!;
+  async talk(runId: string, messages: unknown, phaseId?: string): Promise<void> {
+    const pending = this.waiting(runId,'TALK',phaseId), run = this.running!.run, seat = run.settings.seat!;
     if (!Array.isArray(messages) || messages.length > 6) throw new RequestError('Send at most one message to each power.');
     const clean = messages.map(m => ({ to: String((m as { to?: unknown })?.to ?? '').toUpperCase() as Power, body: String((m as { body?: unknown })?.body ?? '').replace(/\s+/g,' ').trim() }));
-    if (clean.some(m => !ALL_POWERS.includes(m.to) || m.to === seat || !m.body || m.body.length > 500) || new Set(clean.map(m => m.to)).size !== clean.length)
+    if (clean.some(m => !ALL_POWERS.includes(m.to) || m.to === seat || !pending.board!.units.some(unit => unit.power === m.to) || !m.body || m.body.length > 500) || new Set(clean.map(m => m.to)).size !== clean.length)
       throw new RequestError('Each message needs another power and 1–500 characters, one per power.');
-    this.running!.run.pending = null;
-    pending.resolve(clean as never);
+    const store = await this.open(run.settings.live ? 'live' : 'standIn');
+    await store.call('saveHumanTalk',{ attemptId: `auto-${runId}`, operationId: pending.operationId, phaseId: pending.phaseId, power: seat, messages: clean, now: this.now() });
+    if (this.running?.run === run && run.pending === pending) { run.pending = null; pending.resolve(clean as never); }
   }
   /** The person's action for this phase, checked against the rules before the game sees it. */
-  async act(runId: string, action: PhaseAction): Promise<void> {
-    const pending = this.waiting(runId,'ACT'), seat = this.running!.run.settings.seat!;
+  async act(runId: string, action: PhaseAction, phaseId?: string): Promise<void> {
+    const pending = this.waiting(runId,'ACT',phaseId), run = this.running!.run, seat = run.settings.seat!;
     try { await this.rules.validate(pending.board!,seat,action,new AbortController().signal); }
     catch { throw new RequestError('Those orders are not legal for this phase. Check each unit and try again.'); }
-    if (this.running?.run.pending !== pending) throw new RequestError('This phase is no longer waiting for you.');
-    this.running.run.pending = null;
-    pending.resolve(action as never);
+    if (this.running?.run !== run || run.controller.signal.aborted)
+      throw new RequestError('This game is no longer waiting for these orders.');
+    const store = await this.open(run.settings.live ? 'live' : 'standIn');
+    await store.call('saveHumanAction',{ attemptId: `auto-${runId}`, operationId: pending.operationId, phaseId: pending.phaseId, power: seat, action, now: this.now() });
+    // The phase may have started again while the orders were checked; they answer its new request.
+    const current = this.running?.runId === runId ? this.running.run.pending : null;
+    if (current && current.kind === 'ACT' && current.phaseId === pending.phaseId && current.operationId === pending.operationId) { this.running!.run.pending = null; current.resolve(action as never); }
   }
-  private waiting(runId: string, kind: Pending['kind']): Pending {
+  private waiting(runId: string, kind: Pending['kind'], phaseId?: string): Pending {
     const pending = this.running?.runId === runId ? this.running.run.pending : null;
     if (!pending || pending.kind !== kind) throw new RequestError(kind === 'TALK' ? 'This game is not waiting for your messages.' : 'This game is not waiting for your orders.');
+    if (phaseId !== undefined && pending.phaseId !== phaseId) throw new RequestError('This phase has changed. Reload the game before submitting.');
     return pending;
   }
 
@@ -215,8 +254,18 @@ export class FullGameService {
     router.post('/',async (req,res) => { try { res.json(await this.start(req.body as StartRequest)); } catch (e) { fail(res,e); } });
     router.post('/:runId/stop',(req,res) => { res.json({ stopping: this.stop(req.params.runId) }); });
     router.get('/:runId/legal',async (req,res) => { try { res.json(await this.legal(req.params.runId)); } catch (e) { fail(res,e); } });
-    router.post('/:runId/talk',(req,res) => { try { this.talk(req.params.runId,(req.body as { messages?: unknown })?.messages); res.json({ sent: true }); } catch (e) { fail(res,e); } });
-    router.post('/:runId/act',async (req,res) => { try { await this.act(req.params.runId,(req.body as { action: PhaseAction })?.action); res.json({ accepted: true }); } catch (e) { fail(res,e); } });
+    router.post('/:runId/talk',async (req,res) => {
+      try {
+        if (typeof req.body?.phaseId !== 'string') throw new RequestError('The phase being answered is required. Reload the game before submitting.');
+        await this.talk(req.params.runId,req.body?.messages,req.body.phaseId); res.json({ sent: true });
+      } catch (e) { fail(res,e); }
+    });
+    router.post('/:runId/act',async (req,res) => {
+      try {
+        if (typeof req.body?.phaseId !== 'string') throw new RequestError('The phase being answered is required. Reload the game before submitting.');
+        await this.act(req.params.runId,req.body?.action,req.body.phaseId); res.json({ accepted: true });
+      } catch (e) { fail(res,e); }
+    });
     return router;
   }
 }

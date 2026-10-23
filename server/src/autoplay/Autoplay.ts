@@ -171,6 +171,15 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   if (attempt && (attempt.preset?.id !== plan.id || attempt.preset?.pricingVersion !== plan.pricingVersion))
     throw new Error('This run was started with different models or prices. Continue it with the same assignment, or choose a new run ID.');
   if (attempt && (attempt.challengeId !== definition.id)) throw new Error('This run was started with a different last year. Continue it with the same one, or choose a new run ID.');
+  const settings = { assignment: { ...assignment }, effort, transport: options.transportKind, talkRecipients };
+  const savedSettings = attempt ? await store.call('autoplaySettings',{ attemptId: id }) : null;
+  if (savedSettings) {
+    if (ALL_POWERS.some(power => savedSettings.assignment[power] !== assignment[power]))
+      throw new Error('This run was started with different models. Continue it with the same assignment, or choose a new run ID.');
+    if (savedSettings.effort !== effort) throw new Error('This run was played at a different reasoning effort. Continue it with the same --effort, or choose a new run ID.');
+    if (savedSettings.transport !== options.transportKind) throw new Error('This run was started with a different transport. Continue it with the same transport, or choose a new run ID.');
+    if (savedSettings.talkRecipients !== talkRecipients) throw new Error('This run was started with a different talkRecipients limit. Continue it with the same limit, or choose a new run ID.');
+  }
   // Each call reserved the worst case at the output ceiling of its effort, so the last one says which effort the game was played at.
   const lastCall = attempt ? (await store.call('providerCallsForAttempt',{ attemptId: attempt.id })).filter(c => c.role !== 'CHAT').sort((a,b) => b.createdAt - a.createdAt)[0] : undefined;
   if (lastCall) {
@@ -191,6 +200,7 @@ export async function autoplay(options: AutoplayOptions): Promise<AutoplayResult
   }
   attempt ??= await store.call('createAttempt',{ id, playerId: player.id, challengeId: definition.id, challengeVersion: definition.version, now: now(), reconnectTokenHash: hashToken(id),
     sponsored: { preset: { id: plan.id, pricingVersion: plan.pricingVersion }, minimumAvailableNanousd: plan.reservationNanousd } });
+  await store.call('saveAutoplaySettings',{ attemptId: id, settings, now: now() });
 
   const rules = new PhaseRules(), failures: Array<{ at: number; phaseId: string; reason: string }> = [];
   const main = options.transports[plan.contracts[0].key]!;
@@ -303,12 +313,12 @@ async function gameResult(store: Store, attempt: StoredAttempt, challenge: NonNu
   };
 }
 
-/** How a game in the database was set up, read back from its own calls (it is stored nowhere else). */
+/** The original game setup, with best-effort call inference for games predating saved settings. */
 export interface GameSettings { assignment: Record<Power, ModelKey>; lastYear: number; effort: Effort; transport: 'mock' | 'live'; talkRecipients: number; seat: Power | null }
 
 /**
  * Any full game in the database as a record, whether it is running, paused or finished: what the
- * development server's game pages show. Its settings are read back from its calls: each power's
+ * development server's game pages show. Legacy settings are read back from calls: each power's
  * model from its latest call, the effort from the worst case that call reserved, stand-in models
  * from their answers' ids, the message limit from the most any power wrote in one turn.
  */
@@ -318,15 +328,16 @@ export async function describeGame(store: Store, runId: string, extra: { failure
   if (!attempt) return null;
   const challenge = await store.call('challenge',{ id: attempt.challengeId, version: attempt.challengeVersion });
   if (!challenge) return null;
+  const savedSettings = await store.call('autoplaySettings',{ attemptId: attempt.id });
   const calls = (await store.call('providerCallsForAttempt',{ attemptId: attempt.id })).filter(c => c.role !== 'CHAT').sort((a,b) => a.createdAt - b.createdAt);
   const keyOf = (model: string) => (Object.keys(OPPONENT_CONTRACTS) as ModelKey[]).find(k => OPPONENT_CONTRACTS[k].preset.model === model) ?? 'luna';
-  const assignment = Object.fromEntries(ALL_POWERS.map(p => [p,keyOf(calls.filter(c => c.power === p).at(-1)?.model ?? '')])) as Record<Power, ModelKey>;
+  const assignment = savedSettings?.assignment ?? Object.fromEntries(ALL_POWERS.map(p => [p,keyOf(calls.filter(c => c.power === p).at(-1)?.model ?? '')])) as Record<Power, ModelKey>;
   // A power that has made no calls (a person's seat, or a game paused before its first call) still counted
   // in the run's plan with whatever model it was given. Find the choice that reproduces the stored plan, so
   // continuing the game is not refused as a change of models.
   const silent = ALL_POWERS.filter(p => !calls.some(c => c.power === p)), keys = Object.keys(OPPONENT_CONTRACTS) as ModelKey[];
   const planOf = (a: Record<Power, ModelKey>) => mixedPlan(a,opponentContract(a.AUSTRIA)).id;
-  if (attempt.preset && silent.length > 0 && silent.length <= 3 && planOf(assignment) !== attempt.preset.id) {
+  if (!savedSettings && attempt.preset && silent.length > 0 && silent.length <= 3 && planOf(assignment) !== attempt.preset.id) {
     for (let n = 0; n < keys.length ** silent.length; n++) {
       const tried = { ...assignment };
       silent.forEach((p,i) => { tried[p] = keys[Math.floor(n / keys.length ** i) % keys.length]; });
@@ -334,10 +345,10 @@ export async function describeGame(store: Store, runId: string, extra: { failure
     }
   }
   const last = calls.at(-1), contract = last ? OPPONENT_CONTRACTS[keyOf(last.model)] : undefined;
-  const effort = (contract && EFFORTS.find(e => contract.reservationNanousd(contract.preset.maxInputTokens,contract.fullGameOutputTokens[e]) === last!.maxCostNanousd)) ?? 'low';
-  const transport = calls.some(c => /^(resp|msg)_mock_/.test(c.responseId ?? '')) ? 'mock' : 'live';
+  const effort = savedSettings?.effort ?? (contract && EFFORTS.find(e => contract.reservationNanousd(contract.preset.maxInputTokens,contract.fullGameOutputTokens[e]) === last!.maxCostNanousd)) ?? 'low';
+  const transport = savedSettings?.transport ?? (calls.some(c => /^(resp|msg)_mock_/.test(c.responseId ?? '')) ? 'mock' : 'live');
   const talks = await store.call('powerTalks',{ attemptId: attempt.id });
-  const talkRecipients = Math.max(0,...talks.filter(t => t.kind === 'ASK').map(t => t.messages.length)) || 3;
+  const talkRecipients = savedSettings?.talkRecipients ?? (Math.max(0,...talks.filter(t => t.kind === 'ASK' && !t.callId.startsWith('human:')).map(t => t.messages.length)) || 3);
   const named = /^full-game-to-(\d{4})(?:-seat-([a-z]+))?$/.exec(attempt.challengeId), lastYear = Number(named?.[1] ?? LATEST_LAST_YEAR);
   const seat = named?.[2] ? named[2].toUpperCase() as Power : null;
   const models = Object.fromEntries(ALL_POWERS.map(p => [p,p === seat ? 'human' : OPPONENT_CONTRACTS[assignment[p]].preset.model])) as Record<Power, string>;
