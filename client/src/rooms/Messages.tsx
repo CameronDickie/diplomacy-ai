@@ -32,7 +32,7 @@ export function MessagesView({ game }: { game: GameSocket }) {
       <div className="dip-chat-powers" role="tablist" aria-label="Powers">{others.map(other => {
         const count = between(other.power).length;
         return <button key={other.id} role="tab" aria-selected={other.power === power} onClick={() => setChosen(other.power)}>
-          <span>{title(other.power)}<small className="dip-muted" style={{ display: 'block', fontWeight: 400 }}>{other.name}{other.kind !== 'LLM' ? '' : other.provider === 'STUB' ? ' · offline bot' : ' · AI'}</small></span>{count ? <span className="dip-small">{count}</span> : null}</button>;
+          <span>{title(other.power)}<small className="dip-muted" style={{ display: 'block', fontWeight: 400 }}>{other.name}{other.kind !== 'LLM' ? '' : other.provider === 'STUB' ? (other.model === 'practice-bot-v1' ? ' · practice bot' : ' · offline bot') : ' · AI'}</small></span>{count ? <span className="dip-small">{count}</span> : null}</button>;
       })}</div>
       <section aria-label={`Conversation with ${title(power)}`}>
         <h2>{title(power)}</h2>

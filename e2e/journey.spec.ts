@@ -201,7 +201,7 @@ test('a hosted game is created, filled and played for a turn in the same frame a
   await page.getByRole('button', { name: 'Create a game' }).click();
   await expect(page.getByRole('heading', { name: 'Waiting for players' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Start the game' })).toBeDisabled();
-  await page.getByRole('button', { name: /Fill all 6 with offline bots/ }).click();
+  await page.getByRole('button', { name: /Fill all 6 with practice bots/ }).click();
   await page.getByRole('button', { name: 'Start the game' }).click();
   // Starting takes everyone to the map with this turn's orders beside it.
   await expect(phase(page)).toHaveText('Spring 1901 · orders');

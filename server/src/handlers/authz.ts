@@ -1,3 +1,4 @@
+import { isOfflineSeatModel } from '../llm/PracticeBotController.js';
 import type { Socket } from 'socket.io';
 import type {
   ClientToServerEvents,
@@ -14,8 +15,7 @@ export function isSocketAuthenticated(socket: AppSocket): boolean {
 }
 
 export function modelRequiresAuthenticatedAi(model: string | undefined): boolean {
-  const normalized = model?.trim().toLowerCase();
-  return Boolean(normalized && normalized !== 'idle' && normalized !== 'auto-hold-v0');
+  return !isOfflineSeatModel(model);
 }
 
 export function settingsRequireAuthenticatedAi(settings: Partial<GameSettings>): boolean {

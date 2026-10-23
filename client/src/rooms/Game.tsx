@@ -5,6 +5,9 @@ import { phaseTitle, title } from '../challenge/text.js';
 import { useAuth } from '../hooks/useAuth.js';
 import type { useGameSocket } from '../hooks/useGameSocket.js';
 import { POWER_COLORS } from '../lib/game.js';
+
+/** The free practice bot seat (`server/src/llm/PracticeBotController.ts`). */
+const PRACTICE_BOT = 'practice-bot-v1';
 import { centers, powerStatus } from './Play.js';
 
 type GameSocket = ReturnType<typeof useGameSocket>;
@@ -16,7 +19,7 @@ const MODEL_SUGGESTIONS: Partial<Record<LlmProviderId, string[]>> = {
 };
 const DEFAULT_MODEL: Record<string, string> = { OPENAI: 'gpt-5.4-mini', GEMINI: 'gemini-3.1-flash-lite', OLLAMA: '', STUB: 'auto-hold-v0' };
 const seatKind = (player: Player) => player.kind === 'HUMAN' ? (player.connected ? 'Person · online' : 'Person · offline')
-  : player.provider === 'STUB' ? 'Offline bot · always holds' : `AI · ${player.provider} ${player.model}`;
+  : player.provider === 'STUB' ? (player.model === PRACTICE_BOT ? 'Practice bot · free, no AI model' : 'Offline bot · always holds') : `AI · ${player.provider} ${player.model}`;
 
 /**
  * Everything about the game itself, away from the turn: who sits where, how empty seats are filled,
@@ -125,7 +128,7 @@ function FillSeats({ game, empty, taken }: { game: GameSocket; empty: number; ta
   const auth = useAuth();
   const [power, setPower] = useState<Seat>('RANDOM');
   const [provider, setProvider] = useState<LlmProviderId>('STUB');
-  const [model, setModel] = useState('auto-hold-v0');
+  const [model, setModel] = useState(PRACTICE_BOT);
   const [persona, setPersona] = useState('');
   const [realtimeModel, setRealtimeModel] = useState('gpt-realtime-2');
   const [voice, setVoice] = useState('');
@@ -133,9 +136,10 @@ function FillSeats({ game, empty, taken }: { game: GameSocket; empty: number; ta
   const seat = (to: Seat) => ({ power: to, provider, model, persona: persona || null, realtimeModel, voice: voice.trim() || undefined, voiceInstructions: voiceInstructions || null });
 
   if (!auth.capabilities.providerSettings) return auth.profile === 'local' && !auth.operator
-    ? <><p className="dip-muted">Offline bots need no AI model and cost nothing. They hold every unit in place every turn, so they are only useful for trying the controls.</p>
-        <div className="dip-orders-actions"><button onClick={() => game.addLlmPlayer({ provider: 'STUB', model: 'auto-hold-v0' })}>Add one offline bot</button>
-          <button onClick={() => Array.from({ length: empty }).forEach(() => game.addLlmPlayer({ provider: 'STUB', model: 'auto-hold-v0' }))}>Fill all {empty} with offline bots</button></div></>
+    ? <><p className="dip-muted">Practice bots are the daily challenge’s free opponent: they go for supply centers, back their own attacks and defend their home centers. They use no AI model, send no messages and cost nothing.</p>
+        <div className="dip-orders-actions"><button onClick={() => game.addLlmPlayer({ provider: 'STUB', model: PRACTICE_BOT })}>Add one practice bot</button>
+          <button onClick={() => Array.from({ length: empty }).forEach(() => game.addLlmPlayer({ provider: 'STUB', model: PRACTICE_BOT }))}>Fill all {empty} with practice bots</button>
+          <button className="dip-link" onClick={() => game.addLlmPlayer({ provider: 'STUB', model: 'auto-hold-v0' })}>Add a bot that always holds</button></div></>
     : <p className="dip-muted">Empty seats are filled by people joining with the game code. Adding AI opponents is limited to the site operator, because their model calls are paid for by the server.</p>;
 
   return <div className="dip-form">
@@ -147,8 +151,11 @@ function FillSeats({ game, empty, taken }: { game: GameSocket; empty: number; ta
           {ALL_POWERS.filter(option => !taken.includes(option)).map(option => <option value={option} key={option}>{title(option)}</option>)}
         </select></label>
       <label>Who plays it
-        <select value={provider} onChange={event => { const next = event.target.value as LlmProviderId; setProvider(next); setModel(DEFAULT_MODEL[next] ?? ''); }}>
-          <option value="STUB">Offline bot (always holds, free)</option>
+        <select value={provider === 'STUB' ? model : provider} onChange={event => {
+          const value = event.target.value, next = (value === PRACTICE_BOT || value === 'auto-hold-v0' ? 'STUB' : value) as LlmProviderId;
+          setProvider(next); setModel(next === 'STUB' ? value : DEFAULT_MODEL[next] ?? ''); }}>
+          <option value={PRACTICE_BOT}>Practice bot (free, no AI model)</option>
+          <option value="auto-hold-v0">Bot that always holds (free)</option>
           <option value="OPENAI">OpenAI model</option>
           <option value="GEMINI">Gemini model</option>
           <option value="OLLAMA">Ollama (a model on this machine)</option>

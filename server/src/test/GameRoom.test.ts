@@ -12,6 +12,7 @@ import type { PowerController } from '../llm/PowerController.js';
 import { CONTROLLER_SYSTEM_PROMPT } from '../llm/PromptBuilder.js';
 import { buildLlmRuntimePolicy } from '../llm/policy.js';
 import { GameRoom } from '../GameRoom.js';
+import { modelRequiresAuthenticatedAi } from '../handlers/authz.js';
 
 test('human sessions resume without exposing socket IDs', () => {
   const room = new GameRoom();
@@ -1385,3 +1386,19 @@ function testOrder(
     supportedDestination: null,
   };
 }
+
+test('a practice-bot seat plays the free practice bot: it moves for centers and asks for no AI access', async () => {
+  const room = new GameRoom();
+  assert.ok(room.addPlayer('human-socket', 'Human', 'AUSTRIA'));
+  for (let index = 0; index < 6; index++) assert.ok(room.addLlmPlayer({ provider: 'STUB', model: 'practice-bot-v1' }));
+  const before = new Map(room.getState().units.map(unit => [unit.id, unit.territory]));
+  assert.equal(await room.startGame(), true);
+  await room.submitOrders('AUSTRIA', []);
+  assert.equal(room.getState().season, 'FALL');
+  // Holding bots would leave every unit where it was; the practice bot sets out for centers.
+  const moved = room.getState().units.filter(unit => unit.power !== 'AUSTRIA' && before.get(unit.id) !== unit.territory);
+  assert.ok(moved.length >= 6, `only ${moved.length} bot units moved`);
+  assert.ok(room.getLlmRunArtifacts().every(artifact => !artifact.fallbackReason));
+  assert.equal(modelRequiresAuthenticatedAi('practice-bot-v1'),false);
+  assert.equal(modelRequiresAuthenticatedAi('gpt-6-luna'),true);
+});

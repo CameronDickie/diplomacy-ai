@@ -98,8 +98,12 @@ function adjustments(board: BoardFixture, power: Power, random: () => number): P
 
 /** One power's bot decision for a position. `seed` parts make the tie-breaks reproducible. */
 export async function botAction(rules: PhaseRules, board: BoardFixture, power: Power, signal: AbortSignal, ...seed: string[]): Promise<PhaseAction> {
+  return botDecision(board,power,board.phase === 'ORDERS' ? await rules.legal(board,power,signal) : [],...seed);
+}
+/** The same decision from legal orders already in hand (a hosted room has its own catalog); only orders need them. */
+export function botDecision(board: BoardFixture, power: Power, legal: readonly LegalOption[], ...seed: string[]): PhaseAction {
   const random = seeded(...seed,power);
-  return board.phase === 'ORDERS' ? orders(board,power,await rules.legal(board,power,signal),random) : board.phase === 'RETREATS' ? retreats(board,power) : adjustments(board,power,random);
+  return board.phase === 'ORDERS' ? orders(board,power,legal,random) : board.phase === 'RETREATS' ? retreats(board,power) : adjustments(board,power,random);
 }
 /**
  * A free practice opponent: seeded, deterministic and legal by construction. It seeks supply

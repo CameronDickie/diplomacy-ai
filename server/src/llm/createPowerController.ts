@@ -1,3 +1,4 @@
+import { PRACTICE_BOT_MODEL, PracticeBotController } from './PracticeBotController.js';
 import type { LlmProviderId, Power } from '@diplomacy/shared';
 import { readLlmConfig } from '../../../config/runtime.cjs';
 import { GeminiProvider } from './GeminiProvider.js';
@@ -19,7 +20,7 @@ export function createPowerController(options: {
   /** Server configuration only; defaults to the validated OLLAMA_BASE_URL. */
   ollamaBaseUrl?: string;
 }): PowerController {
-  if (options.provider === 'STUB') return new StubLlmController(options.power);
+  if (options.provider === 'STUB') return options.model === PRACTICE_BOT_MODEL ? new PracticeBotController(options.power) : new StubLlmController(options.power);
   if (options.provider === 'OPENAI') {
     return new StructuredLlmController(
       options.power,

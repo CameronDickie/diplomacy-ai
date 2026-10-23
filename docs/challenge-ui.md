@@ -114,8 +114,10 @@ submitted, the orders are listed in words until the turn resolves. Starting
 the game takes every player to Play.
 
 What the host is offered for empty seats depends on who they are: the operator
-can add model opponents; on a local server anyone can add offline bots, which
-always hold; otherwise seats are filled by people joining.
+can add model opponents; on a local server anyone can add practice bots (the
+daily challenge's free opponent, `PracticeBotController.ts`, which goes for
+supply centers and sends no messages) or bots that always hold; otherwise
+seats are filled by people joining.
 
 ## Style
 

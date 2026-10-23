@@ -3,6 +3,7 @@ import { isLocalEvent } from '../auth/socketPolicy.js';
 import { onClientEvent } from './clientEvent.js';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
 import type { GameManager } from '../GameManager.js';
+import { isOfflineSeatModel } from '../llm/PracticeBotController.js';
 import {
   requireOperator,
   requireRoomAccess,
@@ -176,8 +177,7 @@ export function attachGameHandlers(
       return;
     }
 
-    const offlineSeat = isLocalEvent() && (provider === undefined || provider === 'STUB') &&
-      (model === undefined || model === 'idle' || model === 'auto-hold-v0');
+    const offlineSeat = isLocalEvent() && (provider === undefined || provider === 'STUB') && isOfflineSeatModel(model);
     if (!offlineSeat && !requireOperator(socket)) return;
 
     const validation = room.validateLlmPlayerOptions({ provider, model });
