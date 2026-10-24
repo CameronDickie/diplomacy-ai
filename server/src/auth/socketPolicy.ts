@@ -5,11 +5,15 @@ import type { AuthService, Principal } from '../auth.js';
 
 type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 type Profile = 'local' | 'private' | 'showcase';
-interface Policy { profile: Profile; resolve(): Promise<Principal | null> }
+/** `games`: the showcase profile's hosted games are turned on (DIPLOMACY_SHOWCASE_GAMES). */
+interface Policy { profile: Profile; games?: boolean; resolve(): Promise<Principal | null> }
 const policies = new WeakMap<object, Policy>();
-const context = new AsyncLocalStorage<{ principal: Principal | null; profile: Profile }>();
+const context = new AsyncLocalStorage<{ principal: Principal | null; profile: Profile; practiceSeats: boolean }>();
 export function bindSocketPolicy(socket: object, policy: Policy): void { policies.set(socket, policy); }
-export const isLocalEvent = (): boolean => context.getStore()?.profile === 'local';
+/** Anyone hosting a room may fill seats with the free offline bots: locally, and in showcase games. */
+export const practiceSeatsAllowed = (): boolean => context.getStore()?.practiceSeats === true;
+/** Showcase games cap how many rooms one account hosts; the other profiles only cap the total. */
+export const isShowcaseEvent = (): boolean => context.getStore()?.profile === 'showcase';
 export const eventPrincipal = (): Principal | null => context.getStore()?.principal ?? null;
 const integrations = new Set<keyof ClientToServerEvents>([
   'create_discord_guild_bind_code', 'create_discord_player_link_code', 'request_discord_link_status',
@@ -20,13 +24,17 @@ export async function withSocketAccess(socket: AppSocket, event: keyof ClientToS
   if (!policy) throw new Error('Socket policy is not bound');
   const principal = await policy.resolve(); // never trust handshake auth fields or a cached boolean
   const errorEvent = event === 'join_game' ? 'join_error' : event === 'resume_game' ? 'resume_error' : 'error';
-  if (policy.profile === 'showcase') {
+  if (policy.profile === 'showcase' && !policy.games) {
     // These are legacy free-form room commands. Owned challenge commands have a
     // separate service; even an operator cannot bypass its preset/admission here.
     if (event !== 'request_state') socket.emit(errorEvent, {
       code: principal ? 'FEATURE_DISABLED' : 'AUTH_REQUIRED', message: 'Use the challenge page to play in showcase mode.',
     });
     return;
+  }
+  // Showcase games are for signed-in players: an account is what the per-account room cap counts.
+  if (policy.profile === 'showcase' && !principal) {
+    socket.emit(errorEvent, { code: 'AUTH_REQUIRED', message: 'Sign in to play a game with friends or practice bots.' }); return;
   }
   if (policy.profile === 'private' && !principal) {
     socket.emit(errorEvent, { code: 'AUTH_REQUIRED', message: 'Sign in to access private games.' }); return;
@@ -36,13 +44,14 @@ export async function withSocketAccess(socket: AppSocket, event: keyof ClientToS
   }
   // Request-local context prevents concurrent events from overwriting each
   // other's resolved identity while they await storage or the rules engine.
-  await context.run({ principal, profile: policy.profile }, work);
+  const practiceSeats = policy.profile === 'local' || (policy.profile === 'showcase' && policy.games === true);
+  await context.run({ principal, profile: policy.profile, practiceSeats }, work);
 }
 
 export function installSocketPolicy(socket: AppSocket, auth: AuthService): void {
   const cookie = socket.handshake.headers.cookie;
   const hash = auth.tokenHash(cookie);
-  bindSocketPolicy(socket, { profile: auth.config.profile, resolve: () => auth.resolve(cookie) });
+  bindSocketPolicy(socket, { profile: auth.config.profile, games: auth.config.showcaseGames, resolve: () => auth.resolve(cookie) });
   const remove = auth.onRevoke(revoked => { if (hash === revoked) socket.disconnect(true); });
   let expiry: NodeJS.Timeout | undefined;
   let checking = false;

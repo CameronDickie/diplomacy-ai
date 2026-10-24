@@ -8,9 +8,10 @@ shared frame (`client/src/challenge/Shell.tsx`):
 | Daily challenge | `/challenge` | one scenario with an objective and a deadline, played alone | `client/src/challenge/`, `client/src/ui/ChallengeApp.tsx` |
 | Games | `/`, `/viewer` | full seven-power games: against the AI, with friends, or watched | `client/src/rooms/`, `client/src/viewer/` |
 
-The header has a switch between the two. Games do not exist in the showcase
-profile (production), so there `/` is the challenge and the switch is not
-shown. Both pages use the same map component (`client/src/ui/MapGraph.tsx`),
+The header has a switch between the two. In the showcase profile (production)
+Games exist only once the owner sets `DIPLOMACY_SHOWCASE_GAMES=true`
+(`capabilities.games` in the session); until then `/` is the challenge and the
+switch is not shown. Both pages use the same map component (`client/src/ui/MapGraph.tsx`),
 so trackpad panning, pinch zoom and centring on the selected unit behave the
 same in both.
 
@@ -93,6 +94,11 @@ sets the ways to play side by side, each saying who decides the other powers:
 3. **Watch AI games**: the AI games library (`/viewer`): every recorded or
    database game once, your games against the AI first.
 
+Where the AI games service does not run (the public site), the first card is
+**Play against practice bots** instead: pick a power and one button creates a
+game, fills the other six seats with practice bots and starts it
+(`usePracticeStart` in `Game.tsx`).
+
 Below the cards, **Your games against the AI** lists the games you hold a seat
 in. A way the server does not offer says so in its card instead of
 disappearing. While you are seated in a friends' game, `/` shows that game; its
@@ -114,10 +120,26 @@ submitted, the orders are listed in words until the turn resolves. Starting
 the game takes every player to Play.
 
 What the host is offered for empty seats depends on who they are: the operator
-can add model opponents; on a local server anyone can add practice bots (the
-daily challenge's free opponent, `PracticeBotController.ts`, which goes for
-supply centers and sends no messages) or bots that always hold; otherwise
-seats are filled by people joining.
+can add model opponents; on a local server, and on the public site once games
+are on, anyone can add practice bots (the daily challenge's free opponent,
+`PracticeBotController.ts`, which goes for supply centers and sends no
+messages) or bots that always hold; otherwise seats are filled by people
+joining.
+
+### Games on the public site
+
+Off by default. With `DIPLOMACY_SHOWCASE_GAMES=true` in the showcase profile:
+
+- only signed-in players can create, join or play a game (the socket policy
+  answers `AUTH_REQUIRED` otherwise);
+- empty seats take free offline bots only. Model seats stay operator-only and,
+  with paid AI off, no provider other than STUB is allowed at all;
+- one account hosts one unfinished game at a time
+  (`DIPLOMACY_MAX_ROOMS_PER_ACCOUNT`), and the server holds at most
+  `DIPLOMACY_MAX_ROOMS`. Finished games and games nobody is connected to are
+  given up first when a cap is reached (`GameManager.refusal`);
+- games live in the server's memory, so a restart or deploy ends them;
+- AI games (against models, or watched) are not offered there.
 
 ## Style
 

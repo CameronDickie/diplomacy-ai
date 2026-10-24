@@ -11,6 +11,14 @@ active attempts globally (`DIPLOMACY_MAX_ACTIVE_ATTEMPTS`), per account
 original attempt and consumes nothing. There is no waiting room: a full site
 answers `409 CAPACITY_FULL`.
 
+## Hosted games (memory)
+
+Games with friends or practice bots are held in memory: at most
+`DIPLOMACY_MAX_ROOMS` at once, and in the showcase profile at most
+`DIPLOMACY_MAX_ROOMS_PER_ACCOUNT` unfinished games hosted per account. At a
+cap, finished games and games with nobody connected are given up first; then
+creation is refused with `SERVER_FULL` or `HOSTING_LIMIT`.
+
 ## Short-window rate buckets (memory)
 
 `server/src/limits/RateLimiter.ts` applies fixed one-minute windows per route

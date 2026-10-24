@@ -65,7 +65,7 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   },
 });
 
-const gameManager = new GameManager();
+const gameManager = new GameManager({}, { maxRooms: config.maxRooms, maxRoomsPerAccount: config.maxRoomsPerAccount });
 const diplomacy = new DiplomacyService(gameManager);
 const integrations = await createIntegrations(config, gameManager, diplomacy);
 

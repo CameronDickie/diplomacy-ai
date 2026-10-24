@@ -5,6 +5,7 @@ import { title } from '../challenge/text.js';
 import { useAuth } from '../hooks/useAuth.js';
 import type { useGameSocket } from '../hooks/useGameSocket.js';
 import { fullGamesApi, type FullGamesList } from '../viewer/FullGames.js';
+import { PRACTICE_START } from './Game.js';
 
 type GameSocket = ReturnType<typeof useGameSocket>;
 type Seat = Power | 'RANDOM';
@@ -41,13 +42,17 @@ export function GamesHome({ game, map }: { game: GameSocket; map: ReactNode }) {
     <section className="dip-section" aria-labelledby="games-ways">
       <h2 id="games-ways">Choose how to play</h2>
       <ol className="dip-modes">
-        <li className="dip-mode"><span>01 · AGAINST THE AI</span><h3>Play against the AI</h3>
+        {!service && ai !== null && auth.capabilities.practiceBots ? <li className="dip-mode"><span>01 · AGAINST BOTS</span><h3>Play against practice bots</h3>
+          <dl><dt>You play</dt><dd>One power of your choice</dd><dt>Opponents</dt><dd>Six practice bots, one per power</dd><dt>Messages</dt><dd>None: the bots do not write</dd></dl>
+          <p>The daily challenge’s free opponent on every other power: it goes for supply centers, backs its own attacks and defends its home. It uses no AI model. The game waits for you each turn.</p>
+          <PracticeForm game={game} /></li>
+        : <li className="dip-mode"><span>01 · AGAINST THE AI</span><h3>Play against the AI</h3>
           <dl><dt>You play</dt><dd>One power of your choice</dd><dt>Opponents</dt><dd>Six AI models, one per power</dd><dt>Messages</dt><dd>They write to you every turn, and reply</dd></dl>
           <p>Each orders turn the AI powers write first, you answer anyone you like, they reply, and everyone gives orders. The game waits for you.</p>
           {service ? <ArrowFillButton onClick={() => { window.location.href = '/viewer#/new'; }}>Set up a game</ArrowFillButton>
-            : <p className="dip-small dip-muted" role="status">{ai === null ? 'Checking whether this server offers AI games…' : 'Not offered on this server yet.'}</p>}</li>
+            : <p className="dip-small dip-muted" role="status">{ai === null ? 'Checking whether this server offers AI games…' : 'Not offered on this server yet.'}</p>}</li>}
         <li className="dip-mode"><span>02 · WITH FRIENDS</span><h3>Play with friends</h3>
-          <dl><dt>Players</dt><dd>People you share a game code with</dd><dt>Empty seats</dt><dd>{auth.capabilities.providerSettings ? 'AI opponents or people' : auth.profile === 'local' ? 'Offline bots or people' : 'Filled by people joining'}</dd><dt>Messages</dt><dd>Private, between any two powers</dd></dl>
+          <dl><dt>Players</dt><dd>People you share a game code with</dd><dt>Empty seats</dt><dd>{auth.capabilities.providerSettings ? 'AI opponents or people' : auth.capabilities.practiceBots ? 'Practice bots or people' : 'Filled by people joining'}</dd><dt>Messages</dt><dd>Private, between any two powers</dd></dl>
           <FriendsForm game={game} /></li>
         <li className="dip-mode"><span>03 · WATCH</span><h3>Watch AI games</h3>
           <dl><dt>Players</dt><dd>AI models on every power</dd><dt>See</dt><dd>Every order, message and result, turn by turn</dd><dt>Account</dt><dd>Not needed</dd></dl>
@@ -77,6 +82,24 @@ export function GamesHome({ game, map }: { game: GameSocket; map: ReactNode }) {
   </main>;
 }
 
+/** Where only signed-in players may play (the public site), say so instead of offering a form that is refused. */
+const signInFirst = (auth: ReturnType<typeof useAuth>) => auth.profile === 'showcase' && !auth.authenticated;
+
+/** One power, then a game created, filled with practice bots and started (`usePracticeStart` in Game.tsx). */
+function PracticeForm({ game }: { game: GameSocket }) {
+  const auth = useAuth();
+  const [power, setPower] = useState<Seat>('RANDOM');
+  if (signInFirst(auth)) return <p className="dip-small dip-muted" role="status">Sign in to play. It is free; the account is only used to keep your game yours.</p>;
+  return <div className="games-friends">
+    <label>Power you would like
+      <select value={power} onChange={event => setPower(event.target.value as Seat)}>
+        <option value="RANDOM">Any power</option>
+        {ALL_POWERS.map(option => <option value={option} key={option}>{title(option)}</option>)}
+      </select></label>
+    <ArrowFillButton onClick={() => { sessionStorage.setItem(PRACTICE_START, 'pending'); game.createGame(auth.user?.displayName?.slice(0, 40) || 'Player', power); }}>Start the game</ArrowFillButton>
+  </div>;
+}
+
 /** Create a game to share by code, or join one: one name and power for both. */
 function FriendsForm({ game }: { game: GameSocket }) {
   const auth = useAuth();
@@ -84,6 +107,7 @@ function FriendsForm({ game }: { game: GameSocket }) {
   const [power, setPower] = useState<Seat>('RANDOM');
   const [code, setCode] = useState('');
   const ready = name.trim().length > 0;
+  if (signInFirst(auth)) return <p className="dip-small dip-muted" role="status">Sign in to create or join a game.</p>;
   return <div className="games-friends">
     <div className="dip-form-grid">
       <label>Your name<input value={name} maxLength={40} autoComplete="nickname" onChange={event => setName(event.target.value)} /></label>
@@ -94,7 +118,7 @@ function FriendsForm({ game }: { game: GameSocket }) {
         </select></label>
     </div>
     <p className="dip-small dip-muted">Create a game and you are its host: you get a code to share, decide how empty seats are filled, and start it.</p>
-    <ArrowFillButton disabled={!ready} onClick={() => game.createGame(name.trim(), power)}>Create a game</ArrowFillButton>
+    <ArrowFillButton disabled={!ready} onClick={() => { sessionStorage.removeItem(PRACTICE_START); game.createGame(name.trim(), power); }}>Create a game</ArrowFillButton>
     <form className="games-join" onSubmit={event => { event.preventDefault(); if (ready && code.trim()) game.joinGame(code.trim(), name.trim(), power); }}>
       <label>Or join with a code<input value={code} autoCapitalize="characters" autoComplete="off" spellCheck={false} placeholder="C447A36E" onChange={event => setCode(event.target.value)} /></label>
       <button type="submit" className="dip-solid" disabled={!ready || !code.trim()}>Join</button>

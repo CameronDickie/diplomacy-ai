@@ -1,14 +1,16 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ALL_POWERS, type LlmProviderId, type Player, type Power } from '@diplomacy/shared';
 import { ArrowFillButton } from '../challenge/Shell.js';
 import { phaseTitle, title } from '../challenge/text.js';
 import { useAuth } from '../hooks/useAuth.js';
 import type { useGameSocket } from '../hooks/useGameSocket.js';
 import { POWER_COLORS } from '../lib/game.js';
+import { centers, powerStatus } from './Play.js';
 
 /** The free practice bot seat (`server/src/llm/PracticeBotController.ts`). */
 const PRACTICE_BOT = 'practice-bot-v1';
-import { centers, powerStatus } from './Play.js';
+/** Set by the Games home's "against practice bots": the game it creates is filled with them and started. */
+export const PRACTICE_START = 'dip-practice-start';
 
 type GameSocket = ReturnType<typeof useGameSocket>;
 type Seat = Power | 'RANDOM';
@@ -34,6 +36,7 @@ export function GameView({ game, map, onPlay }: { game: GameSocket; map: ReactNo
   const isHost = Boolean(state && state.hostPlayerId === game.myPlayerId);
   const lobby = state?.status === 'LOBBY';
   const host = players.find(player => player.id === state?.hostPlayerId);
+  usePracticeStart(game, isHost && lobby, empty);
 
   return <main id="dip-content">
     <div className="dip-setup">
@@ -93,7 +96,7 @@ export function GameView({ game, map, onPlay }: { game: GameSocket; map: ReactNo
 
     <section className="dip-section" style={{ marginTop: 28 }}>
       <h2>Other ways to play</h2>
-      <p className="dip-muted"><a href="/viewer#/new">Play against the AI</a>, <a href="/viewer">watch AI games</a>, or try the <a href="/challenge">daily challenge</a>: a single scenario with one objective and a deadline, played alone against the other six powers.</p>
+      <p className="dip-muted">{auth.profile === 'local' && <><a href="/viewer#/new">Play against the AI</a>, <a href="/viewer">watch AI games</a>, or try </>}{auth.profile === 'local' ? 'the' : 'Try the'} <a href="/challenge">daily challenge</a>: a single scenario with one objective and a deadline, played alone against the other six powers.</p>
     </section>
   </main>;
 }
@@ -123,6 +126,21 @@ function JoinForm({ game }: { game: GameSocket }) {
   </div>;
 }
 
+/** A game started against practice bots: fill every empty seat with one, once, then start it. */
+function usePracticeStart(game: GameSocket, hosting: boolean, empty: number) {
+  const filled = useRef(false);
+  useEffect(() => {
+    if (!hosting || sessionStorage.getItem(PRACTICE_START) !== 'pending') return;
+    if (empty > 0 && !filled.current) {
+      filled.current = true;
+      Array.from({ length: empty }).forEach(() => game.addLlmPlayer({ provider: 'STUB', model: PRACTICE_BOT }));
+    } else if (empty === 0) {
+      sessionStorage.removeItem(PRACTICE_START);
+      game.startGame();
+    }
+  }, [game, hosting, empty]);
+}
+
 /** How the host fills seats nobody took. What is offered depends on who is signed in. */
 function FillSeats({ game, empty, taken }: { game: GameSocket; empty: number; taken: Power[] }) {
   const auth = useAuth();
@@ -135,7 +153,7 @@ function FillSeats({ game, empty, taken }: { game: GameSocket; empty: number; ta
   const [voiceInstructions, setVoiceInstructions] = useState('');
   const seat = (to: Seat) => ({ power: to, provider, model, persona: persona || null, realtimeModel, voice: voice.trim() || undefined, voiceInstructions: voiceInstructions || null });
 
-  if (!auth.capabilities.providerSettings) return auth.profile === 'local' && !auth.operator
+  if (!auth.capabilities.providerSettings) return auth.capabilities.practiceBots
     ? <><p className="dip-muted">Practice bots are the daily challenge’s free opponent: they go for supply centers, back their own attacks and defend their home centers. They use no AI model, send no messages and cost nothing.</p>
         <div className="dip-orders-actions"><button onClick={() => game.addLlmPlayer({ provider: 'STUB', model: PRACTICE_BOT })}>Add one practice bot</button>
           <button onClick={() => Array.from({ length: empty }).forEach(() => game.addLlmPlayer({ provider: 'STUB', model: PRACTICE_BOT }))}>Fill all {empty} with practice bots</button>

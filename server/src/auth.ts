@@ -131,6 +131,8 @@ export class AuthService {
             providerSettings: !!principal?.operator && this.config.profile !== 'showcase',
             discord: !!principal?.operator && this.config.profile !== 'showcase' && this.config.discord.enabled,
             voice: !!principal?.operator && this.config.profile !== 'showcase' && this.config.discord.enabled && this.config.discord.voiceEnabled,
+            games: this.config.profile !== 'showcase' || this.config.showcaseGames,
+            practiceBots: this.config.profile === 'local' || (this.config.profile === 'showcase' && this.config.showcaseGames),
           },
         };
         response.json(payload);

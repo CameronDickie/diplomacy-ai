@@ -12,7 +12,7 @@ import { readRuntimeConfig } from '../../../config/runtime.cjs';
 import { AuthService, readCookie } from '../auth.js';
 import { OAuthProvider, boundedFetch, type Fetch } from '../auth/provider.js';
 import { Store } from '../storage/Store.js';
-import { installSocketPolicy, bindSocketPolicy, eventPrincipal } from '../auth/socketPolicy.js';
+import { installSocketPolicy, bindSocketPolicy, eventPrincipal, practiceSeatsAllowed } from '../auth/socketPolicy.js';
 import { onClientEvent } from '../handlers/clientEvent.js';
 import { Server } from 'socket.io';
 import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
@@ -112,7 +112,7 @@ async function fixture(t: test.TestContext, options: FixtureOptions = {}) {
 test('anonymous local mode is never authenticated and missing providers have no bypass', async t => {
   const f = await fixture(t, { environment: { DIPLOMACY_PROFILE: 'local' } });
   const result = await (await f.request('/api/auth/session')).json();
-  assert.deepEqual(result, { authenticated: false, enabled: false, profile: 'local', user: null, operator: false, providers: [], capabilities: { providerSettings: false, discord: false, voice: false } });
+  assert.deepEqual(result, { authenticated: false, enabled: false, profile: 'local', user: null, operator: false, providers: [], capabilities: { providerSettings: false, discord: false, voice: false, games: true, practiceBots: true } });
   assert.equal((await f.request('/api/auth/github')).status, 503);
   assert.equal((await f.request('/api/owned', '', { method: 'POST', headers: { Origin: f.config.returnOrigin } })).status, 401);
   assert.equal((await f.request('/api/auth/login', '', { method: 'POST', headers: { Origin: f.config.returnOrigin } })).status, 404);
@@ -139,7 +139,7 @@ test('GitHub login binds state and S256 PKCE to a browser, pins redirects, and s
   assert.equal(f.calls[1].init.headers && (f.calls[1].init.headers as Record<string,string>).Authorization, 'Bearer private-provider-token');
   const session = await (await f.request('/api/auth/session', cookie.split(';')[0])).json();
   assert.equal(session.authenticated, true); assert.equal(session.operator, true); assert.equal(session.user.provider, 'github');
-  assert.deepEqual(session.capabilities, { providerSettings: true, discord: false, voice: false });
+  assert.deepEqual(session.capabilities, { providerSettings: true, discord: false, voice: false, games: true, practiceBots: false });
   assert.equal(JSON.stringify(session).includes('22545470'), false);
   assert.equal((await f.finish(flow)).headers.get('location'), `${f.config.returnOrigin}/?auth=failed`);
   assert.equal(f.calls.length, 2, 'state is one-time');
@@ -155,7 +155,7 @@ test('Google verifies signed ID tokens, separates identical subjects/emails, and
   const g = await f.auth.resolve(github.cookie), other = await f.auth.resolve(google.cookie);
   assert.ok(g && other); assert.notEqual(g.player.id, other.player.id);
   assert.equal(other.operator, false); assert.equal(other.player.provider, 'google');
-  assert.deepEqual((await (await f.request('/api/auth/session', google.cookie)).json()).capabilities, { providerSettings: false, discord: false, voice: false });
+  assert.deepEqual((await (await f.request('/api/auth/session', google.cookie)).json()).capabilities, { providerSettings: false, discord: false, voice: false, games: true, practiceBots: false });
   assert.equal(google.flow.location.searchParams.get('scope'), 'openid profile email');
   assert.equal(google.flow.location.searchParams.get('access_type'), 'online');
   const denied = await f.request('/api/admin', google.cookie, { method: 'POST', headers: { Origin: f.config.returnOrigin } });
@@ -265,7 +265,7 @@ test('logout disconnects passive socket subscriptions immediately', async t => {
 test('showcase denies legacy commands even to an operator and ignores client-supplied authority', async t => {
   const f = await fixture(t, { environment: { ...env, DIPLOMACY_PROFILE: 'showcase' } });
   for (const cookie of ['', (await f.login()).cookie]) {
-    assert.deepEqual((await (await f.request('/api/auth/session', cookie)).json()).capabilities, { providerSettings: false, discord: false, voice: false });
+    assert.deepEqual((await (await f.request('/api/auth/session', cookie)).json()).capabilities, { providerSettings: false, discord: false, voice: false, games: false, practiceBots: false });
     let listener: ((payload: unknown) => Promise<void>) | undefined;
     const errors: Array<{ code: string }> = [];
     const fake = { data: { authenticated: true, operator: true }, on: (_event: string, fn: typeof listener) => { listener = fn; }, emit: (_event: string, error: { code: string }) => errors.push(error) };
@@ -275,6 +275,23 @@ test('showcase denies legacy commands even to an operator and ignores client-sup
     await listener!({ playerName: 'Owner' });
     assert.equal(invoked, false); assert.equal(errors[0].code, cookie ? 'FEATURE_DISABLED' : 'AUTH_REQUIRED');
   }
+});
+
+test('showcase games, once the owner turns them on, admit signed-in players with free seats only', async t => {
+  const f = await fixture(t, { environment: { ...env, DIPLOMACY_PROFILE: 'showcase', DIPLOMACY_SHOWCASE_GAMES: 'true' } });
+  const { cookie } = await f.login();
+  assert.deepEqual((await (await f.request('/api/auth/session', cookie)).json()).capabilities, { providerSettings: false, discord: false, voice: false, games: true, practiceBots: true });
+  for (const signedIn of [false, true]) {
+    let listener: ((payload: unknown) => Promise<void>) | undefined;
+    const errors: Array<{ code: string }> = [];
+    const fake = { on: (_event: string, fn: typeof listener) => { listener = fn; }, emit: (_event: string, error: { code: string }) => errors.push(error) };
+    bindSocketPolicy(fake, { profile: 'showcase', games: true, resolve: () => f.auth.resolve(signedIn ? cookie : '') });
+    let seats: boolean | undefined;
+    onClientEvent(fake as never, 'create_game', () => { seats = practiceSeatsAllowed(); });
+    await listener!({ playerName: 'Player' });
+    if (signedIn) { assert.equal(seats, true); assert.deepEqual(errors, []); } else { assert.equal(seats, undefined); assert.equal(errors[0].code, 'AUTH_REQUIRED'); }
+  }
+  assert.throws(() => readRuntimeConfig({ ...env, DIPLOMACY_SHOWCASE_GAMES: 'true' }), /DIPLOMACY_SHOWCASE_GAMES/);
 });
 
 test('cookie parsing and login rate limits reject malformed and excessive requests', async t => {
@@ -304,8 +321,8 @@ test('private integration capabilities require explicit enablement and operator 
   const f = await fixture(t, { environment: { ...env, DISCORD_ENABLED: 'true', DISCORD_GUILD_ID: 'synthetic', DISCORD_COORDINATOR_TOKEN: 'synthetic' } });
   const owner = await f.login();
   const session = await (await f.request('/api/auth/session', owner.cookie)).json();
-  assert.deepEqual(session.capabilities, { providerSettings: true, discord: true, voice: false });
+  assert.deepEqual(session.capabilities, { providerSettings: true, discord: true, voice: false, games: true, practiceBots: false });
   assert.equal(JSON.stringify(session).includes('synthetic'), false);
   const player = await f.login('google');
-  assert.deepEqual((await (await f.request('/api/auth/session', player.cookie)).json()).capabilities, { providerSettings: false, discord: false, voice: false });
+  assert.deepEqual((await (await f.request('/api/auth/session', player.cookie)).json()).capabilities, { providerSettings: false, discord: false, voice: false, games: true, practiceBots: false });
 });

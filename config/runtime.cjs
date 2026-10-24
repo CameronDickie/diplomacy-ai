@@ -42,6 +42,7 @@ const SUPPORTED_ENV_NAMES = [
   'DISCORD_VOICE_ENABLED', 'DISCORD_VOICE_DEBUG', 'DISCORD_VOICE_AUTO_LISTEN',
   'DIPLOMACY_NOTIFY_MODE', 'RESEND_API_KEY', 'DIPLOMACY_NOTIFY_FROM', 'DIPLOMACY_NOTIFY_TO',
   'DIPLOMACY_MAX_ACTIVE_ATTEMPTS', 'DIPLOMACY_MAX_ACTIVE_PER_ACCOUNT',
+  'DIPLOMACY_SHOWCASE_GAMES', 'DIPLOMACY_MAX_ROOMS', 'DIPLOMACY_MAX_ROOMS_PER_ACCOUNT',
   'DIPLOMACY_DAILY_START_LIMIT', 'DIPLOMACY_IDLE_WARN_MINUTES', 'DIPLOMACY_IDLE_EXPIRE_MINUTES',
   'DIPLOMACY_RESULT_RETENTION_DAYS', 'DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS', 'DIPLOMACY_RECEIPT_RETENTION_DAYS',
   'DIPLOMACY_TRUSTED_PROXY', 'DIPLOMACY_LUNA_TRANSPORT', 'DIPLOMACY_SPONSORED_PRESET',
@@ -252,6 +253,13 @@ function readRuntimeConfig(env = process.env, options = {}) {
   const maxActiveAttempts = number(env, 'DIPLOMACY_MAX_ACTIVE_ATTEMPTS', 3, 1, 100, true);
   const maxActivePerAccount = number(env, 'DIPLOMACY_MAX_ACTIVE_PER_ACCOUNT', 1, 1, 100, true);
   if (maxActivePerAccount > maxActiveAttempts) fail('DIPLOMACY_MAX_ACTIVE_PER_ACCOUNT', 'must not exceed global capacity');
+  // Games with friends and against practice bots on the public site. Off until the owner turns it on;
+  // the other profiles always have games. Rooms are held in memory, so both caps bound the server.
+  const showcaseGames = bool(env, 'DIPLOMACY_SHOWCASE_GAMES', false);
+  if (showcaseGames && mode !== 'showcase') fail('DIPLOMACY_SHOWCASE_GAMES', 'only applies to the showcase profile');
+  const maxRooms = number(env, 'DIPLOMACY_MAX_ROOMS', 20, 1, 500, true);
+  const maxRoomsPerAccount = number(env, 'DIPLOMACY_MAX_ROOMS_PER_ACCOUNT', 1, 1, 20, true);
+  if (maxRoomsPerAccount > maxRooms) fail('DIPLOMACY_MAX_ROOMS_PER_ACCOUNT', 'must not exceed DIPLOMACY_MAX_ROOMS');
   return {
     profile: mode, production, llm, authEnabled, callbackOrigin, returnOrigin, cookieSecure, corsOrigins,
     host,
@@ -261,6 +269,7 @@ function readRuntimeConfig(env = process.env, options = {}) {
       voiceDebug: bool(env, 'DISCORD_VOICE_DEBUG', false), autoListen: bool(env, 'DISCORD_VOICE_AUTO_LISTEN', true) },
     engine: readEngineConfig(env),
     notifyMode, admins, trustedProxy, lunaTransport, sponsoredPreset, playtestOpponents, devLogin, playtestChat, chatMessageLimit, idleWarnMinutes, idleExpireMinutes, maxActiveAttempts, maxActivePerAccount,
+    showcaseGames, maxRooms, maxRoomsPerAccount,
     dailyStartLimit: number(env, 'DIPLOMACY_DAILY_START_LIMIT', 3, 1, 100, true),
     resultRetentionDays: number(env, 'DIPLOMACY_RESULT_RETENTION_DAYS', 30, 1, 365, true),
     diagnosticRetentionDays: number(env, 'DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS', 7, 1, 365, true),

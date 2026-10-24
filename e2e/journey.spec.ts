@@ -242,3 +242,17 @@ test('a hosted game is created, filled and played for a turn in the same frame a
   await expect(page.getByLabel('Your mission')).toBeVisible();
   await expect(page.getByLabel('Ways to play').getByRole('link', { name: 'Daily challenge' })).toHaveAttribute('aria-current', 'page');
 });
+
+test('where AI games are not offered, one button starts a game against practice bots', async ({ page }) => {
+  await page.route('**/api/full-games**', route => route.fulfill({ status: 404, json: { code: 'NOT_FOUND' } }));
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Play against practice bots', level: 3 })).toBeVisible();
+  const card = page.locator('.dip-mode', { has: page.getByRole('heading', { name: 'Play against practice bots' }) });
+  await card.getByLabel('Power you would like').selectOption('FRANCE');
+  await card.getByRole('button', { name: 'Start the game' }).click();
+  // Created, filled and started without stopping in the lobby.
+  await expect(phase(page)).toHaveText('Spring 1901 · orders');
+  await section(page, 'Game').click();
+  await expect(content(page).getByText('Practice bot · free, no AI model')).toHaveCount(6);
+  await expect(content(page).getByText('France (you)')).toBeVisible();
+});

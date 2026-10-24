@@ -63,8 +63,8 @@ export interface NavItem { id: string; label: string; count?: number }
 /**
  * The shared frame of both ways to play: the site monogram home link, the switch between the daily
  * challenge and Games (full games against the AI, with friends, or watched; the game viewer is part of
- * Games), the views of the current game, the account and the theme. Games do not exist in the showcase
- * profile, so the switch is only shown where both do.
+ * Games), the views of the current game, the account and the theme. Games exist in the showcase profile
+ * only once the owner turns them on, so the switch is only shown where both do.
  */
 /** A disclosure that closes on a click outside it or Escape, as a menu would. */
 function SignInMenu({ children }: { children: ReactNode }) {
@@ -88,7 +88,7 @@ function SignInMenu({ children }: { children: ReactNode }) {
 export function Shell({ nav, current, onNavigate, section, children }: { nav: NavItem[]; current: string; onNavigate: (id: string) => void; section: 'challenge' | 'games' | 'viewer'; children: ReactNode }) {
   const auth = useAuth();
   const authMessage = useReveal<HTMLParagraphElement>(auth.message);
-  const both = auth.status !== 'CHECKING' && auth.status !== 'ERROR' && auth.profile !== 'showcase';
+  const both = auth.status !== 'CHECKING' && auth.status !== 'ERROR' && auth.capabilities.games;
   return <div className="dip">
     <div className="dip-wrap">
       <header className="dip-header">

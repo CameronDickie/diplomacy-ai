@@ -1,4 +1,5 @@
-export interface PlayerCapabilities { providerSettings: boolean; discord: boolean; voice: boolean }
+/** `games`: hosted games exist here. `practiceBots`: any host may fill empty seats with the free offline bots. */
+export interface PlayerCapabilities { providerSettings: boolean; discord: boolean; voice: boolean; games: boolean; practiceBots: boolean }
 export interface PlayerSession {
   authenticated: boolean;
   enabled: boolean;

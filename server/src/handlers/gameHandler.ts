@@ -1,5 +1,5 @@
 import type { Server, Socket } from 'socket.io';
-import { isLocalEvent } from '../auth/socketPolicy.js';
+import { eventPrincipal, isShowcaseEvent, practiceSeatsAllowed } from '../auth/socketPolicy.js';
 import { onClientEvent } from './clientEvent.js';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
 import type { GameManager } from '../GameManager.js';
@@ -27,7 +27,15 @@ export function attachGameHandlers(
       return;
     }
 
-    const room = gameManager.createGame();
+    const owner = eventPrincipal()?.player.id ?? null;
+    const refused = gameManager.refusal(owner, isShowcaseEvent());
+    if (refused) {
+      socket.emit('error', refused === 'SERVER_FULL'
+        ? { message: 'The server is hosting as many games as it can. Try again later.', code: 'SERVER_FULL' }
+        : { message: 'You are already hosting a game. Finish it, or come back to it with the code, before starting another.', code: 'HOSTING_LIMIT' });
+      return;
+    }
+    const room = gameManager.createGame(owner);
     room.setIO(io);
 
     const requestedPower = preferredPower ?? 'RANDOM';
@@ -177,7 +185,7 @@ export function attachGameHandlers(
       return;
     }
 
-    const offlineSeat = isLocalEvent() && (provider === undefined || provider === 'STUB') && isOfflineSeatModel(model);
+    const offlineSeat = practiceSeatsAllowed() && (provider === undefined || provider === 'STUB') && isOfflineSeatModel(model);
     if (!offlineSeat && !requireOperator(socket)) return;
 
     const validation = room.validateLlmPlayerOptions({ provider, model });

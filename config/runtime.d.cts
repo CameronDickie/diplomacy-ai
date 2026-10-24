@@ -47,6 +47,11 @@ export interface RuntimeConfig {
   idleExpireMinutes: number;
   maxActiveAttempts: number;
   maxActivePerAccount: number;
+  /** Showcase only: games with friends and against practice bots on the public site. */
+  showcaseGames: boolean;
+  /** Hosted games held in memory at once, and games one account may host (enforced in showcase). */
+  maxRooms: number;
+  maxRoomsPerAccount: number;
   dailyStartLimit: number;
   resultRetentionDays: number;
   diagnosticRetentionDays: number;

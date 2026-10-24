@@ -5,8 +5,9 @@ import { ChallengeApp } from './ChallengeApp.js';
 
 /**
  * Two ways to play, in one frame. `/challenge` is the daily challenge; `/` is hosted games, which
- * people create and play to the end. The showcase profile has no hosted games, so there the
- * challenge is the whole site. `/viewer` replays recorded model-only games, in local development only.
+ * people create and play to the end. The showcase profile has hosted games only once the owner turns
+ * them on (`capabilities.games`); until then the challenge is the whole site. `/viewer` replays
+ * recorded model-only games, in local development only.
  */
 export function App() {
   const auth = useAuth();
@@ -16,5 +17,5 @@ export function App() {
   if (viewer && auth.status === 'CHECKING') return null;
   if (viewer && auth.profile === 'local') return <ViewerApp />;
   // Until the server says which profile this is, `/` shows the hosted-games frame, which waits quietly.
-  return challenge || (auth.status !== 'CHECKING' && auth.profile === 'showcase') ? <ChallengeApp /> : <RoomApp />;
+  return challenge || (auth.status !== 'CHECKING' && auth.profile === 'showcase' && !auth.capabilities.games) ? <ChallengeApp /> : <RoomApp />;
 }
