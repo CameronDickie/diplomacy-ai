@@ -53,6 +53,7 @@ import type {
   PowerControllerFactory,
 } from './llm/PowerController.js';
 import { createPowerController } from './llm/createPowerController.js';
+import { PRACTICE_BOT_MODEL } from './llm/PracticeBotController.js';
 import { PROMPT_VERSION } from './llm/PromptBuilder.js';
 import { suggestMoveOrderSets } from './llm/MoveSuggestionEngine.js';
 import {
@@ -400,8 +401,13 @@ export class GameRoom {
     };
     this.state.players.push(player);
     if (player.provider !== 'STUB') this.enableAuthenticatedAiAccess();
-    this.llmMemories.set(available, {
-      power: available,
+    this.resetLlmMemory(available);
+    return player;
+  }
+
+  private resetLlmMemory(power: Power): void {
+    this.llmMemories.set(power, {
+      power,
       revision: 0,
       updatedAt: null,
       messageIdsByPower: {},
@@ -409,7 +415,40 @@ export class GameRoom {
       strategicSummary: '',
       agreements: [],
     });
-    return player;
+  }
+
+  /**
+   * A person gives up the seat held by this socket. In the lobby the seat is freed; once the game has
+   * started the free practice bot plays the power from here on (orders already sent this phase stand),
+   * so nobody is left waiting for them. The host's role passes to the next person. Returns whether
+   * anyone is still seated, or null when the socket holds no seat here.
+   */
+  async leavePlayer(socketId: string): Promise<{ peopleLeft: boolean } | null> {
+    const player = this.getPlayerBySocket(socketId);
+    if (!player) return null;
+    this.playerSessions.delete(player.id);
+    const index = this.state.players.indexOf(player);
+    if (this.state.status === 'LOBBY') {
+      this.state.players.splice(index, 1);
+    } else if (this.state.status === 'IN_PROGRESS') {
+      this.state.players[index] = {
+        id: randomUUID(), kind: 'LLM', name: `${player.power} Bot`, power: player.power, provider: 'STUB', model: PRACTICE_BOT_MODEL,
+        persona: null, realtimeModel: 'gpt-realtime-2', voice: normalizeRealtimeVoice(undefined, player.power), voiceInstructions: null,
+      };
+      this.resetLlmMemory(player.power);
+    } else {
+      player.connected = false;
+    }
+    if (this.state.hostPlayerId === player.id) {
+      this.state.hostPlayerId = this.state.players.find(candidate => candidate.kind === 'HUMAN' && candidate.id !== player.id)?.id ?? '';
+    }
+    const peopleLeft = this.state.players.some(candidate => candidate.kind === 'HUMAN' && candidate.id !== player.id && this.playerSessions.has(candidate.id));
+    if (peopleLeft && this.state.status === 'IN_PROGRESS') {
+      if (this.state.phase === 'ORDERS') await this.completeOrdersPhaseIfReady();
+      else if (this.state.phase === 'RETREATS') await this.completeRetreatsPhaseIfReady();
+      else await this.completeBuildsPhaseIfReady();
+    }
+    return { peopleLeft };
   }
 
   getAvailablePowers(): Power[] {

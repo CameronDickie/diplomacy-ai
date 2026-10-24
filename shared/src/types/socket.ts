@@ -118,6 +118,8 @@ export interface ClientToServerEvents {
   add_llm_player: (payload: AddLlmPlayerPayload) => void;
   update_game_settings: (payload: UpdateGameSettingsPayload) => void;
   start_game: (payload: StartGamePayload) => void;
+  /** Give up this browser's seat: freed in the lobby, played by a practice bot once the game has started. */
+  leave_game: (payload: { gameId: string }) => void;
   submit_orders: (payload: SubmitOrdersPayload & SubmissionIdentity) => void;
   submit_retreats: (payload: SubmitRetreatsPayload & SubmissionIdentity) => void;
   submit_builds: (payload: SubmitBuildsPayload & SubmissionIdentity) => void;
@@ -286,6 +288,8 @@ export interface ServerToClientEvents {
   retreat_phase_start: (payload: RetreatPhasePayload) => void;
   build_phase_start: (payload: BuildPhasePayload) => void;
   game_over: (payload: GameOverPayload) => void;
+  /** This browser no longer holds a seat in the game. */
+  game_left: (payload: { gameId: string }) => void;
   diplomacy_history: (payload: DiplomacyHistoryPayload) => void;
   diplomacy_message: (payload: DiplomacyMessagePayload) => void;
   phase_history: (payload: PhaseHistoryPayload) => void;

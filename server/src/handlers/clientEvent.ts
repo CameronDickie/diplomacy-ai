@@ -74,6 +74,7 @@ const validators: Record<Event, Check> = {
     voiceAutoCommitSilenceSeconds: optional(number),
   }),
   start_game: shape(game),
+  leave_game: shape(game),
   submit_orders: shape({ ...game, phaseId, requestId: identifier, orders: array(order) }),
   submit_retreats: shape({
     ...game, phaseId, requestId: identifier,

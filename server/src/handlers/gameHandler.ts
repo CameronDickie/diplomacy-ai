@@ -152,6 +152,21 @@ export function attachGameHandlers(
     room.broadcast('game_state_sync', { gameState: room.getState() });
   });
 
+  onClientEvent(socket, 'leave_game', async ({ gameId }) => {
+    const room = gameManager.getRoom(gameId.trim().toUpperCase());
+    if (!room || room !== gameManager.getRoomBySocket(socket.id)) {
+      socket.emit('error', { message: 'You do not hold a seat in that game.', code: 'NOT_IN_GAME' });
+      return;
+    }
+    const result = await room.leavePlayer(socket.id);
+    if (!result) return;
+    socket.leave(room.gameId);
+    socket.emit('game_left', { gameId: room.gameId });
+    // With nobody seated the game is over for good; otherwise everyone sees who plays the seat now.
+    if (!result.peopleLeft) gameManager.removeRoom(room.gameId);
+    else room.broadcast('game_state_sync', { gameState: room.getState() });
+  });
+
   onClientEvent(socket, 'add_llm_player', ({
     gameId,
     power,

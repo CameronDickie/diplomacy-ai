@@ -27,7 +27,7 @@ export type RateCategory = keyof typeof RATE_POLICY;
  * `room`; anything that runs the rules engine is `legal`; orders and messages are `command`.
  */
 export const SOCKET_RATE: Record<keyof ClientToServerEvents, Exclude<RateCategory, 'public'>> = {
-  create_game: 'room', join_game: 'room', resume_game: 'room', add_llm_player: 'room', update_game_settings: 'room', start_game: 'room',
+  create_game: 'room', join_game: 'room', resume_game: 'room', add_llm_player: 'room', update_game_settings: 'room', start_game: 'room', leave_game: 'room',
   request_legal_orders: 'legal',
   submit_orders: 'command', submit_retreats: 'command', submit_builds: 'command', send_diplomatic_message: 'command',
   request_diplomacy_history: 'read', request_phase_history: 'read', request_state: 'read', request_discord_link_status: 'read',

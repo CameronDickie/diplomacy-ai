@@ -90,9 +90,7 @@ export function GameView({ game, map, onPlay }: { game: GameSocket; map: ReactNo
     {state && lobby && isHost && auth.capabilities.providerSettings && <HostSettings game={game} voice={auth.capabilities.voice} />}
     {state && game.capabilities.discord && <DiscordSection game={game} isHost={isHost} />}
 
-    {state && <details style={{ marginTop: 28 }}><summary>Create or join a different game</summary>
-      <p className="dip-muted dip-small">This browser holds one seat at a time. Creating or joining another game leaves this one; it carries on without you.</p>
-      <JoinForm game={game} /><div style={{ height: 20 }} /></details>}
+    {state && game.myPower && <LeaveGame game={game} />}
 
     <section className="dip-section" style={{ marginTop: 28 }}>
       <h2>Other ways to play</h2>
@@ -101,29 +99,25 @@ export function GameView({ game, map, onPlay }: { game: GameSocket; map: ReactNo
   </main>;
 }
 
-function JoinForm({ game }: { game: GameSocket }) {
-  const auth = useAuth();
-  const [name, setName] = useState(() => auth.user?.displayName ?? 'Player');
-  const [power, setPower] = useState<Seat>('RANDOM');
-  const [code, setCode] = useState('');
-  const ready = name.trim().length > 0;
-  return <div className="dip-form">
-    <label>Your name, as other players will see it<input value={name} maxLength={40} onChange={event => setName(event.target.value)} /></label>
-    <label>Power you would like
-      <select value={power} onChange={event => setPower(event.target.value as Seat)}>
-        <option value="RANDOM">Any free power</option>
-        {ALL_POWERS.map(option => <option value={option} key={option}>{title(option)}</option>)}
-      </select></label>
-    <ul className="dip-modes">
-      <li className="dip-mode"><span>01</span><h3>Create a new game</h3>
-        <p>You become the host: you get a code to share, decide how empty seats are filled and start the game.</p>
-        <ArrowFillButton disabled={!ready} onClick={() => game.createGame(name.trim(), power)}>Create a game</ArrowFillButton></li>
-      <li className="dip-mode"><span>02</span><h3>Join with a code</h3>
-        <p>Enter the code the host gave you. If the power you asked for is taken, you get another.</p>
-        <label>Game code<input value={code} autoCapitalize="characters" autoComplete="off" onChange={event => setCode(event.target.value)} /></label>
-        <div><button className="dip-solid" disabled={!ready || !code.trim()} onClick={() => game.joinGame(code.trim(), name.trim(), power)}>Join the game</button></div></li>
-    </ul>
-  </div>;
+/**
+ * This browser holds one seat at a time, so creating or joining another game starts with leaving this
+ * one. In the lobby the seat is freed; once the game is running a practice bot plays the power from
+ * here on, so the others are not left waiting. Leaving cannot be undone.
+ */
+function LeaveGame({ game }: { game: GameSocket }) {
+  const [asking, setAsking] = useState(false);
+  const state = game.gameState!, power = title(game.myPower!);
+  const effect = state.status === 'LOBBY' ? `Your seat as ${power} is freed for someone else.`
+    : state.status === 'IN_PROGRESS' ? `A practice bot plays ${power} for the rest of the game, and you cannot come back to it.`
+    : 'The game stays in its finished state for the others.';
+  return <section className="dip-section" aria-labelledby="room-leave">
+    <h2 id="room-leave">Leave this game</h2>
+    <p className="dip-muted">This browser holds one seat at a time. To create or join another game, leave this one first. {effect}</p>
+    {asking ? <div className="dip-orders-actions">
+        <button className="dip-solid" onClick={() => { setAsking(false); game.leaveGame(); }}>Leave the game</button>
+        <button className="dip-link" onClick={() => setAsking(false)}>Stay</button></div>
+      : <div className="dip-orders-actions"><button onClick={() => setAsking(true)}>Leave this game…</button></div>}
+  </section>;
 }
 
 /** A game started against practice bots: fill every empty seat with one, once, then start it. */

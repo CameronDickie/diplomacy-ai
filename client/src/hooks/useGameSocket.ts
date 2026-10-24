@@ -275,6 +275,10 @@ export function useGameSocket() {
       setGameState(payload.gameState);
       log('incoming', 'build_phase_start', payload.buildCounts);
     });
+    nextSocket.on('game_left', payload => {
+      clearPrivateState();
+      log('incoming', 'game_left', payload.gameId);
+    });
     nextSocket.on('game_over', payload => {
       setGameState(payload.gameState);
       log('incoming', 'game_over', payload.winner);
@@ -446,6 +450,11 @@ export function useGameSocket() {
         ...settings,
       });
       log('outgoing', 'update_game_settings', settings);
+    },
+    leaveGame() {
+      if (!gameId) return;
+      socket?.emit('leave_game', { gameId });
+      log('outgoing', 'leave_game', gameId);
     },
     startGame() {
       if (!gameId) return;

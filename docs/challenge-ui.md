@@ -114,6 +114,13 @@ Game page links to the other ways to play.
 | History | `#/history` | the orders log, the animated replay of any phase, and the public game export |
 | Event log | `#/log` | what this browser sent and received (host only) |
 
+This browser holds one seat at a time. **Leave this game**, on the Game page,
+gives the seat up (`leave_game`): in the lobby it is freed and the host's role
+passes to the next person; once the game is running a practice bot plays the
+power from then on, so the others are not left waiting; when nobody is left
+the game is closed. Leaving brings back the Games home, where another game can
+be created or joined.
+
 Orders are given with the same controls as the daily challenge (above):
 click a unit on the map and then a highlighted place, or use its menu. Once
 submitted, the orders are listed in words until the turn resolves. Starting

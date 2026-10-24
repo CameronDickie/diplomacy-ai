@@ -255,4 +255,10 @@ test('where AI games are not offered, one button starts a game against practice 
   await section(page, 'Game').click();
   await expect(content(page).getByText('Practice bot · free, no AI model')).toHaveCount(6);
   await expect(content(page).getByText('France (you)')).toBeVisible();
+  // Another game starts by leaving this one; a practice bot keeps France, and the Games home comes back.
+  await expect(page.getByText('Create or join a different game')).toHaveCount(0);
+  await content(page).getByRole('button', { name: 'Leave this game…' }).click();
+  await content(page).getByRole('button', { name: 'Leave the game' }).click();
+  await expect(page.getByRole('heading', { name: 'Play a full game' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create a game' })).toBeVisible();
 });

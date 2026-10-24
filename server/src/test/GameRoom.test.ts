@@ -1402,3 +1402,30 @@ test('a practice-bot seat plays the free practice bot: it moves for centers and 
   assert.equal(modelRequiresAuthenticatedAi('practice-bot-v1'),false);
   assert.equal(modelRequiresAuthenticatedAi('gpt-6-luna'),true);
 });
+
+test('leaving frees a lobby seat and passes on the host; mid-game a practice bot takes the power so nobody waits', async () => {
+  const lobby = new GameRoom();
+  const host = lobby.addPlayer('host-socket', 'Host', 'AUSTRIA')!;
+  lobby.addPlayer('guest-socket', 'Guest', 'ENGLAND');
+  assert.deepEqual(await lobby.leavePlayer('host-socket'), { peopleLeft: true });
+  assert.equal(lobby.getState().players.some(player => player.power === 'AUSTRIA'), false, 'the seat is free again');
+  assert.equal(lobby.getState().hostPlayerId, lobby.getState().players.find(player => player.power === 'ENGLAND')!.id);
+  assert.equal(lobby.resumePlayer('host-socket', host.sessionToken), undefined, 'the old seat cannot be resumed');
+  assert.equal(await lobby.leavePlayer('host-socket'), null);
+  assert.deepEqual(await lobby.leavePlayer('guest-socket'), { peopleLeft: false });
+
+  const game = new GameRoom();
+  game.addPlayer('a-socket', 'A', 'AUSTRIA');
+  game.addPlayer('b-socket', 'B', 'ENGLAND');
+  for (let index = 0; index < 5; index++) assert.ok(game.addLlmPlayer({ provider: 'STUB', model: 'practice-bot-v1' }));
+  assert.equal(await game.startGame(), true);
+  await game.submitOrders('ENGLAND', []);
+  assert.equal(game.getState().season, 'SPRING', 'still waiting for Austria');
+  // Austria leaves without ordering: the practice bot orders for it and the turn resolves.
+  assert.deepEqual(await game.leavePlayer('a-socket'), { peopleLeft: true });
+  const austria = game.getState().players.find(player => player.power === 'AUSTRIA')!;
+  assert.equal(austria.kind, 'LLM');
+  assert.equal(austria.kind === 'LLM' && austria.model, 'practice-bot-v1');
+  assert.equal(game.getState().season, 'FALL');
+  assert.deepEqual(await game.leavePlayer('b-socket'), { peopleLeft: false });
+});
