@@ -18,7 +18,7 @@ export function PlayView({ game, attempt, card, entry, clock, map, onHistory, on
   const last = [...game.reports].reverse().find(r => r.phase === 'ORDERS');
   const lastOwn = last?.phase === 'ORDERS' ? last.resolvedOrders.filter(o => o.power === card.humanPower) : [];
   const failed = lastOwn.filter(o => o.resolution !== 'SUCCEEDS').length;
-  const kind = a.mode === 'SPONSORED' ? (game.sponsoredMock ? 'Mock model opponents' : game.sponsoredLive ? 'Live playtest · real model calls' : 'Sponsored · GPT-6 Luna opponents') : a.mode === 'BOT' ? 'Practice bot' : 'Controls practice';
+  const kind = a.mode === 'SPONSORED' ? (game.sponsoredMock ? 'Mock model opponents' : game.sponsoredLive ? 'Live playtest · real model calls' : `Sponsored · ${game.sponsoredModel} opponents`) : a.mode === 'BOT' ? 'Practice bot' : 'Controls practice';
   return <main id="dip-content" className="dip-play">
     <section className="dip-map" aria-label="Challenge board">{map}<a className="dip-map-credit" href="/legal.html">Map: Godip contributors · GPL-3.0</a></section>
     <aside aria-label="Your orders">

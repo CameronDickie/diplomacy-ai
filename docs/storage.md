@@ -15,7 +15,7 @@ counters. Provider call records, atomic reservations, cumulative spending,
 unknown liabilities, operator/outbox state, retention and exhibitions also use
 the repository. Private evaluation manifests and phase timing/recovery evidence
 are durable; see [evaluation.md](evaluation.md). Legacy rooms remain in memory.
-Paid startup is still interlocked.
+Paid AI is a deployment setting, reached by players only through the Operator switch.
 
 ## Chat messages
 

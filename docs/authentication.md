@@ -62,8 +62,9 @@ require operator authority. Local anonymous offline bots remain available.
 Showcase rejects legacy free-form room commands for everyone, including operators;
 the owned challenge service supplies its fixed offline-practice preset and
 transactional admission path. Showcase renders that challenge UI and never opens
-the legacy room socket or resumes a saved private room. Sponsored Luna play
-remains interlocked until financial accounting is integrated.
+the legacy room socket or resumes a saved private room. Sponsored play (AI
+opponents) exists only when the deployment sets `DIPLOMACY_PAID_AI_ENABLED=true`,
+and players reach it only while the Operator view's switch is on ([operations.md](operations.md#ai-opponents-for-players)).
 
 `/api/auth/session` returns explicit `providerSettings`, `discord` and `voice`
 capabilities. All are false for guests/ordinary players and in showcase mode.

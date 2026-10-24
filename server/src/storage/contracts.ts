@@ -137,6 +137,8 @@ export interface StoreOperations {
   operatorOverview: { input: {}; output: { funding:FundingTotals; activeAttempts:number; attempts:OperatorAttemptRow[]; spend:SpendTotals; paid:PaidState; outbox:{counts:Record<OutboxMessage['state'],number>;recent:OutboxMessage[]}; audit:Array<{at:number;operatorId:string;action:string;target:string|null}> } };
   operatorAttempt: { input: { id:string }; output: { attempt:OperatorAttemptRow; board:BoardFixture; score:ChallengeScore|null; reports:PublicPhaseReport[]; spend:SpendTotals; funding:{settledNanousd:number;heldNanousd:number} } | null };
   setPaidStopped: { input: { stopped:boolean; operatorId:string; now:number }; output: PaidState };
+  /** Paid play for players starts stopped the first time a server runs with paid AI available. */
+  initializePaidSwitch: { input: { now:number }; output: PaidState };
   recordOperatorAction: { input: { operatorId:string; action:OperatorAction; target:string; now:number }; output: null };
   paidState: { input: {}; output: PaidState };
   requestCredit: { input: { playerId:string; now:number }; output: { recorded:true; duplicate:boolean } };

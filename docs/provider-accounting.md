@@ -1,9 +1,8 @@
 # Provider-call evidence
 
 `providers/RecordedCall.ts` and `storage/providerCalls.ts` provide the durable
-accounting seam for the upcoming funded challenge adapter. They are not wired
-to production transport yet. Showcase still uses offline practice and rejects
-paid startup. These records alone do **not** reserve or authorize funds;
+accounting seam for the upcoming funded challenge adapter. Sponsored attempts use
+them whenever paid AI is available. These records alone do **not** reserve or authorize funds;
 DIC-64 must atomically admit a funded call before this seam can dispatch it.
 The caller must not use an estimate as permission to spend.
 
@@ -58,5 +57,5 @@ semantics, not official Luna pricing, funded admission or live quality.
 Next integration: DIC-66 supplies the exact Responses/preset/pricing contract;
 DIC-64 supplies durable total/per-attempt reservations and stop checks; DIC-60
 uses these records for paid recovery; DIC-67 supplies bounded private-safe
-prompts. Keep the paid interlock until that integrated path passes its failure
-and budget tests.
+prompts. That integrated path is what sponsored attempts use; the staging check
+exercises it end to end with a stand-in provider.

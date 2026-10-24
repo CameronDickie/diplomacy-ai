@@ -44,6 +44,8 @@ export class ChallengeService {
   private readonly plan:OpponentPlan;
   /** Development playtest against the real providers. Never true outside the local, non-production profile. */
   private readonly sponsoredLive:boolean;
+  /** Paid AI available: the preset's real provider plays sponsored attempts, behind the ledger and the Operator switch. */
+  private readonly sponsoredPaid:boolean;
   /** Development only: private conversations with opponents. Null everywhere else. */
   private readonly chat:OpponentChat|null;
   /** A local, non-production server: development conveniences are allowed. */
@@ -51,21 +53,24 @@ export class ChallengeService {
   /** Development only, in memory: why phases had to wait. Lost on restart by design. */
   private readonly failures=new Map<string,Array<{at:number;phaseId:string;reason:string}>>();
   private constructor(private store:Store,private config:RuntimeConfig,private now:()=>number,transport?:LunaTransport,env:NodeJS.ProcessEnv=process.env) {
-    // The real provider transport is deliberately not selectable here: paid startup stays refused until the owner authorizes spend.
-    if(config.llm.paidEnabled)throw Error('Funded challenge adapter is not integrated.');
     const development=this.development=config.profile==='local'&&!config.production;
     // Checked here as well as in the configuration contract: a hand-built config must not reach a provider either.
-    if(!development&&(config.lunaTransport!=='none'||Object.keys(config.playtestOpponents).length))throw Error('Development opponent transports are not available in this profile.');
+    // Outside development the only stand-in is the staging check's, on reserved .test origins (stagingStandIn).
+    if(!development&&(config.lunaTransport==='live'||Object.keys(config.playtestOpponents).length||(config.lunaTransport==='mock'&&!config.stagingStandIn)))throw Error('Development opponent transports are not available in this profile.');
     this.plan=mixedPlan(config.playtestOpponents,opponentContract(config.sponsoredPreset));
     this.sponsoredMock=!transport&&config.lunaTransport==='mock';
     this.sponsoredLive=!transport&&config.lunaTransport==='live';
+    // With paid AI available the real provider plays sponsored attempts. Every call still reserves its worst
+    // case in the funding ledger first, and players reach it only while the Operator view's switch is on.
+    // Unlike a development playtest it exposes no call log, timings or export to the player.
+    this.sponsoredPaid=!transport&&config.llm.paidEnabled&&config.lunaTransport==='none';
     const seed=now()%2_147_483_647;
     // One transport per preset in the plan. Live transports read only their own provider's key.
-    const build=(contract:OpponentContract):LunaTransport=>this.sponsoredLive
+    const build=(contract:OpponentContract):LunaTransport=>this.sponsoredLive||this.sponsoredPaid
       ?(contract.key==='haiku'?anthropicHaikuTransport(env.ANTHROPIC_API_KEY??''):httpLunaTransport(env.OPENAI_API_KEY??''))
       :mockOpponentTransport(contract,{pick:'seeded',seed});
-    const transports=this.sponsoredMock||this.sponsoredLive?Object.fromEntries(this.plan.contracts.map(c=>[c.key,build(c)])) as Partial<Record<OpponentContract['key'],LunaTransport>>:{};
-    const luna=transport??(this.sponsoredMock||this.sponsoredLive?build(this.plan.contracts[0]):undefined);
+    const transports=this.sponsoredMock||this.sponsoredLive||this.sponsoredPaid?Object.fromEntries(this.plan.contracts.map(c=>[c.key,build(c)])) as Partial<Record<OpponentContract['key'],LunaTransport>>:{};
+    const luna=transport??(this.sponsoredMock||this.sponsoredLive||this.sponsoredPaid?build(this.plan.contracts[0]):undefined);
     this.sponsoredOffered=Boolean(luna);
     // Chat exists only where a development transport does; an injected test transport serves every preset.
     this.chat=development&&config.playtestChat&&luna?new OpponentChat(store,this.plan,contract=>transports[contract.key]??luna,{limit:config.chatMessageLimit,now}):null;
@@ -93,6 +98,7 @@ export class ChallengeService {
     // Operating limits come from validated configuration; funds come only from explicit grants in the database.
     await store.call('setFundingPolicy',{attemptCapNanousd:Math.min(15_000_000_000,Math.max(1,Math.round(config.llm.maxGameSpendUsd*1e9))),
       ceilingLimitNanousd:config.llm.paidEnabled?Math.round(config.llm.totalBudgetUsd*1e9):null,now:now()});
+    if(config.llm.paidEnabled)await store.call('initializePaidSwitch',{now:now()});
     // Today's reference run is packaged before serving; the others are built on first use and cached.
     await service.replay(service.featured().entry);
     await service.sweep();
@@ -120,7 +126,7 @@ export class ChallengeService {
     const models=definition.opponentPowers.map(power=>`${power} ${this.plan.contractFor(power).preset.model}`).join(', ');
     // The single-Luna wording is what players of the public showcase have always been shown.
     const only=this.plan.contracts[0];
-    const who=this.plan.mixed?`Mixed opponents (${models})`:only.key==='luna'?'Luna opponents':`${only.preset.model} opponents`;
+    const who=this.plan.mixed?`Mixed opponents (${models})`:only.key==='luna'?'Luna opponents':only.key==='haiku'?'Claude Haiku 5.5 opponents':`${only.preset.model} opponents`;
     if(!this.sponsoredMock&&!this.sponsoredLive&&!this.plan.mixed&&only.key==='luna')return 'GPT-6 Luna opponents · sponsored';
     return this.sponsoredMock?`Mock ${who} · development stand-in, no provider calls`
       :this.sponsoredLive?`Live ${who} · development playtest, real provider calls from your local ledger`:`${who} · sponsored`;
@@ -201,7 +207,7 @@ export class ChallengeService {
     router.get('/challenges',this.limits.address('public'),run(async(_req,res)=>{
       const [active,paid]=await Promise.all([this.store.call('activeAttempts',{}),this.store.call('paidState',{})]);
       const {slot,entry}=this.featured();
-      const catalog:ChallengeCatalog={challenges:[entry.card],rotation:{id:this.rotation.id,version:this.rotation.version,label:'DEVELOPMENT_ROTATION',day:slot.day,index:slot.index,size:this.catalog.length,nextChangeAt:slot.nextChangeAt},sponsoredPlay:!this.sponsoredOffered?'NOT_OFFERED':paid.stopped?'PAUSED':'OPEN',sponsoredMock:this.sponsoredMock,...(this.sponsoredLive?{sponsoredLive:true}:{}),...(this.chat?{sponsoredChat:true}:{}),
+      const catalog:ChallengeCatalog={challenges:[entry.card],rotation:{id:this.rotation.id,version:this.rotation.version,label:'DEVELOPMENT_ROTATION',day:slot.day,index:slot.index,size:this.catalog.length,nextChangeAt:slot.nextChangeAt},sponsoredPlay:!this.sponsoredOffered?'NOT_OFFERED':paid.stopped?'PAUSED':'OPEN',sponsoredMock:this.sponsoredMock,...(this.sponsoredOffered?{sponsoredModel:this.plan.contracts[0].key==='haiku'?'Claude Haiku 5.5':'GPT-6 Luna'}:{}),...(this.sponsoredLive?{sponsoredLive:true}:{}),...(this.chat?{sponsoredChat:true}:{}),
         capacity:active.length>=this.config.maxActiveAttempts?'FULL':'OPEN',limits:{maxActiveAttempts:this.config.maxActiveAttempts,maxActivePerAccount:this.config.maxActivePerAccount,
         dailyStartLimit:this.config.dailyStartLimit,idleWarnMinutes:this.config.idleWarnMinutes,idleExpireMinutes:this.config.idleExpireMinutes,resultRetentionDays:this.config.resultRetentionDays}};
       res.json(catalog);

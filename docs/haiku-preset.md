@@ -8,7 +8,9 @@ legal-order validation and the bounded per-power context
 ([funding.md](funding.md), [luna-context.md](luna-context.md)).
 
 **Status: first live baseline completed October 9, 2026; not enabled for
-players.** The server still refuses to start with paid AI enabled.
+players.** A deployment can make it available (`DIPLOMACY_SPONSORED_PRESET=haiku`,
+`DIPLOMACY_PAID_AI_ENABLED=true`, `ANTHROPIC_API_KEY`); players reach it only
+while the Operator view's switch is on.
 
 ## Live baseline (October 9, 2026)
 

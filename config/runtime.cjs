@@ -246,7 +246,14 @@ function readRuntimeConfig(env = process.env, options = {}) {
     developmentOnly('DIPLOMACY_DEV_LOGIN', 'development sign-in');
     requireValue(env, 'DIPLOMACY_AUTH_SESSION_SECRET');
   }
-  if (lunaTransport === 'mock' && (mode !== 'local' || production)) fail('DIPLOMACY_LUNA_TRANSPORT', 'mock is only available in the local development profile');
+  // The staging check's stand-in: the production image playing sponsored attempts against the local mock,
+  // with paid AI on so the funding ledger and the Operator switch are exercised. Only on reserved .test
+  // origins (RFC 6761), where no real visitor can sign in, so it can never be mistaken for the real opponent.
+  const testOrigins = [callbackOrigin, returnOrigin, ...corsOrigins].every(item => /\.test$/.test(new URL(item).hostname));
+  const stagingStandIn = lunaTransport === 'mock' && !development && testOrigins && llm.paidEnabled;
+  if (lunaTransport === 'mock' && !development && !stagingStandIn) fail('DIPLOMACY_LUNA_TRANSPORT', 'mock is only available in the local development profile, or for the staging check on .test origins with paid AI on');
+  // Paid AI plays sponsored attempts with the preset's own provider, which needs its own key.
+  if (llm.paidEnabled && lunaTransport === 'none') requireValue(env, sponsoredPreset === 'haiku' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
   const idleWarnMinutes = number(env, 'DIPLOMACY_IDLE_WARN_MINUTES', 25, 1, 1440, true);
   const idleExpireMinutes = number(env, 'DIPLOMACY_IDLE_EXPIRE_MINUTES', 30, 2, 1440, true);
   if (idleWarnMinutes >= idleExpireMinutes) fail('DIPLOMACY_IDLE_WARN_MINUTES', 'must be less than DIPLOMACY_IDLE_EXPIRE_MINUTES');
@@ -268,7 +275,7 @@ function readRuntimeConfig(env = process.env, options = {}) {
     discord: { enabled: discordEnabled, voiceEnabled,
       voiceDebug: bool(env, 'DISCORD_VOICE_DEBUG', false), autoListen: bool(env, 'DISCORD_VOICE_AUTO_LISTEN', true) },
     engine: readEngineConfig(env),
-    notifyMode, admins, trustedProxy, lunaTransport, sponsoredPreset, playtestOpponents, devLogin, playtestChat, chatMessageLimit, idleWarnMinutes, idleExpireMinutes, maxActiveAttempts, maxActivePerAccount,
+    notifyMode, admins, trustedProxy, lunaTransport, stagingStandIn, sponsoredPreset, playtestOpponents, devLogin, playtestChat, chatMessageLimit, idleWarnMinutes, idleExpireMinutes, maxActiveAttempts, maxActivePerAccount,
     showcaseGames, maxRooms, maxRoomsPerAccount,
     // Recorded AI games the owner chose to publish (`npm run records -- publish`), served read-only. Empty: none.
     publishedGamesDir: value(env, 'DIPLOMACY_PUBLISHED_GAMES_DIR', ''),
@@ -289,9 +296,4 @@ function readEngineConfig(env = process.env) {
   };
 }
 
-function assertRuntimeReady(config) {
-  // The ledger exists (docs/funding.md). Removed only when the provider adapter dispatches exclusively through it.
-  if (config.llm.paidEnabled) fail('DIPLOMACY_PAID_AI_ENABLED', 'paid startup awaits the funded provider adapter (DIC-60); use false for offline development');
-}
-
-module.exports = { SUPPORTED_ENV_NAMES, PROVIDERS, ROLES, readLlmConfig, readRuntimeConfig, assertRuntimeReady, readEngineConfig };
+module.exports = { SUPPORTED_ENV_NAMES, PROVIDERS, ROLES, readLlmConfig, readRuntimeConfig, readEngineConfig };

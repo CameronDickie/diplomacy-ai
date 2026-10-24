@@ -169,3 +169,22 @@ test('watching the reference replay during an active attempt leaves the attempt,
   assert.equal(owned.reports.length,1);assert.ok(!owned.reports[0].id.startsWith('reference-'));
   assert.equal((await f.request(`/attempts/${attempt.id}/reports`)).status,401);
 });
+
+test('with paid AI available, players get AI opponents only after the owner turns the switch on, and it stays where the owner left it',async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'diplomacy-paid-switch-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+  const path=join(dir,'game.sqlite'),now=()=>Date.parse('2027-01-01T12:00:00Z');
+  const config=readRuntimeConfig({DIPLOMACY_PROFILE:'showcase',DIPLOMACY_PAID_AI_ENABLED:'true',LLM_TOTAL_BUDGET_USD:'2',OPENAI_API_KEY:'synthetic',
+    DIPLOMACY_AUTH_SESSION_SECRET:'s'.repeat(32),DIPLOMACY_ADMIN_GITHUB_USER_IDS:'1234',DIPLOMACY_GITHUB_CLIENT_ID:'x',DIPLOMACY_GITHUB_CLIENT_SECRET:'x',DIPLOMACY_GOOGLE_CLIENT_ID:'x',DIPLOMACY_GOOGLE_CLIENT_SECRET:'x'});
+  // A transport that must never be called: nothing here starts an attempt.
+  const lunaTransport={send:async()=>{throw Error('no provider call in this test');}} as never;
+  const open=async()=>{const store=await Store.open(path),service=await ChallengeService.open(store,config,now,{lunaTransport});return {store,service};};
+  let {store,service}=await open();
+  assert.equal((await store.call('paidState',{})).stopped,true);
+  assert.equal((await store.call('operatorOverview',{})).audit.filter(a=>a.action==='PAID_STARTS_STOPPED').length,1);
+  await store.call('setPaidStopped',{stopped:false,operatorId:'owner',now:now()});
+  await service.close();await store.close();
+  ({store,service}=await open());
+  assert.equal((await store.call('paidState',{})).stopped,false,'a restart keeps the owner\'s choice');
+  assert.equal((await store.call('operatorOverview',{})).audit.filter(a=>a.action==='PAID_STARTS_STOPPED').length,1);
+  await service.close();await store.close();
+});

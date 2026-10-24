@@ -19,8 +19,8 @@ export function SetupView({ game, clock, map, onContinue, onWatchReference, onWa
   const card = game.selected, today = game.cards[0], chosenOther = Boolean(card && today && card.id !== today.id), active = game.attempt?.lifecycle === 'ACTIVE' ? game.attempt : null;
   const canStart = game.auth.authenticated && !game.busy && !!card && !active;
   const start = (mode: ChallengeMode) => { if (card) void game.start(card, mode); };
-  const sponsoredName = game.sponsoredMock ? 'Mock model opponents' : game.sponsoredLive ? 'Live model opponents' : 'Luna opponents';
-  const sponsoredButton = game.sponsoredMock ? 'Play against mock model opponents' : game.sponsoredLive ? 'Play a live playtest (real model calls)' : 'Play against Luna opponents';
+  const sponsoredName = game.sponsoredMock ? 'Mock model opponents' : game.sponsoredLive ? 'Live model opponents' : `${game.sponsoredModel} opponents`;
+  const sponsoredButton = game.sponsoredMock ? 'Play against mock model opponents' : game.sponsoredLive ? 'Play a live playtest (real model calls)' : `Play against ${game.sponsoredModel} opponents`;
   return <main id="dip-content">
     <div className="dip-setup">
       <div>
@@ -44,7 +44,7 @@ export function SetupView({ game, clock, map, onContinue, onWatchReference, onWa
       <p>{active.challenge.title}, {phaseTitle(active.board)}. Finish or end it before starting another.</p>
       <button className="dip-solid" onClick={onContinue}>Continue playing</button></div>}
     {game.capacity === 'FULL' && !active && <p className="dip-notice" role="status">All {game.limits?.maxActiveAttempts} game slots are in use right now. There is no queue: try again in a few minutes, or watch the reference replay meanwhile.</p>}
-    {game.sponsoredPlay === 'PAUSED' && <div className="dip-notice" role="status"><strong>Sponsored play against GPT-6 Luna is paused</strong><p>Practice and the replay still work.</p>
+    {game.sponsoredPlay === 'PAUSED' && <div className="dip-notice" role="status"><strong>Sponsored play against {game.sponsoredModel} is paused</strong><p>Practice and the replay still work.</p>
       {game.auth.authenticated && <button disabled={game.busy || game.creditRequested} onClick={() => void game.requestCredit()}>{game.creditRequested ? 'Request sent to the owner' : 'Ask the owner to resume it'}</button>}</div>}
 
     {game.library && <section className="dip-section" role="region" aria-labelledby="dip-library">
@@ -71,7 +71,7 @@ export function SetupView({ game, clock, map, onContinue, onWatchReference, onWa
           <p>Nothing contests you: learn the order menus, the map and how a turn resolves.</p>
           <button className="dip-solid" disabled={!canStart} onClick={() => start('PRACTICE')}>Start practice</button></li>
         {game.sponsoredPlay === 'OPEN' && <li className="dip-mode"><span>03{game.sponsoredLive ? ' · DEVELOPMENT' : game.sponsoredMock ? ' · STAND-IN' : ''}</span><h3>{sponsoredName}</h3>
-          <p className="dip-mode-facts">{game.sponsoredMock ? 'Random legal orders · no AI model is called' : game.sponsoredLive ? 'An AI model per power · real calls from your local ledger' : 'An AI model per power · GPT-6 Luna, paid for by the site owner'}
+          <p className="dip-mode-facts">{game.sponsoredMock ? 'Random legal orders · no AI model is called' : game.sponsoredLive ? 'An AI model per power · real calls from your local ledger' : `An AI model per power · ${game.sponsoredModel}, paid for by the site owner`}
             {' · '}{game.sponsoredChat ? 'talk to each power privately' : 'no messages'}</p>
           <p>{game.sponsoredMock ? 'Exercises the whole AI-opponent flow without calling a model. The moves say nothing about how a model plays.'
             : 'Opponents that plan for themselves. Play runs on a fixed budget: if it is paused or runs out you are told and your game waits with your orders saved. Model opponents are never silently swapped for practice ones.'}</p>

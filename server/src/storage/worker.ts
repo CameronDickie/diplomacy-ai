@@ -284,6 +284,7 @@ async function handle(request: StoreRequest): Promise<unknown> {
     case 'operatorOverview': return new OperatorRepository(db).overview();
     case 'operatorAttempt': return new OperatorRepository(db).attempt(input);
     case 'setPaidStopped': return transaction(() => new OperatorRepository(db).setPaid(input));
+    case 'initializePaidSwitch': return transaction(() => new OperatorRepository(db).initializePaid(input));
     case 'recordOperatorAction': return transaction(() => new OperatorRepository(db).record(input));
     case 'paidState': return paidState(db);
     case 'requestCredit': return transaction(() => new OperatorRepository(db).requestCredit(input));

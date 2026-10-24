@@ -34,6 +34,8 @@ export interface RuntimeConfig {
   admins: string[];
   trustedProxy: 'none' | 'private';
   lunaTransport: 'none' | 'mock' | 'live';
+  /** The staging check's production image playing sponsored attempts against the mock, on .test origins only. */
+  stagingStandIn: boolean;
   /** Development only: opponent powers assigned to a preset other than the default. */
   playtestOpponents: Partial<Record<import('@diplomacy/shared').Power, 'luna' | 'haiku'>>;
   /** Development only: a sign-in that needs no identity provider. */
@@ -62,6 +64,5 @@ export interface RuntimeConfig {
 export function readLlmConfig(env?: NodeJS.ProcessEnv): LlmConfig;
 export function readRuntimeConfig(env?: NodeJS.ProcessEnv, options?: { production?: boolean }): RuntimeConfig;
 
-export function assertRuntimeReady(config: RuntimeConfig): void;
 
 export function readEngineConfig(env?: NodeJS.ProcessEnv): RuntimeConfig['engine'];

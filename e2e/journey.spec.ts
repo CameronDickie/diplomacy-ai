@@ -137,21 +137,21 @@ test('the operator sees attempts and budget, can pause and resume paid play, and
   await expect(panel.getByRole('heading', { name: 'Capacity' })).toBeVisible();
   await expect(panel.getByRole('heading', { name: 'Budget' })).toBeVisible();
   await expect(panel).toContainText('Settled (all time)');
-  await expect(panel).toContainText('sponsored');
+  await expect(panel).toContainText('AI opponents for players');
   await panel.getByRole('button', { name: 'Watch' }).first().click();
   await expect(panel).toContainText('Watching attempt');
-  await panel.getByRole('button', { name: 'Stop new paid calls' }).click();
-  await panel.getByRole('button', { name: 'Confirm stop' }).click();
-  await expect(panel.getByRole('button', { name: 'Resume paid calls' })).toBeVisible();
+  await panel.getByRole('button', { name: 'Turn off' }).click();
+  await panel.getByRole('button', { name: 'Confirm turning off' }).click();
+  await expect(panel.getByRole('button', { name: 'Turn on for players' })).toBeVisible();
   // A visitor now sees sponsored play as paused, with no second start button.
   const visitor = await browser.newContext(), guest = await visitor.newPage();
   await guest.goto(`${state().origin}/challenge`);
   await expect(guest.locator('#dip-content')).toContainText('Sponsored play against GPT-6 Luna is paused');
   await expect(guest.getByRole('button', { name: /Luna opponents/ })).toHaveCount(0);
   await visitor.close();
-  await panel.getByRole('button', { name: 'Resume paid calls' }).click();
-  await panel.getByRole('button', { name: 'Confirm resume' }).click();
-  await expect(panel.getByRole('button', { name: 'Stop new paid calls' })).toBeVisible();
+  await panel.getByRole('button', { name: 'Turn on for players' }).click();
+  await panel.getByRole('button', { name: 'Confirm turning on' }).click();
+  await expect(panel.getByRole('button', { name: 'Turn off' })).toBeVisible();
   await expect(panel).toContainText('PAID_STOP');
   // A bot exhibition game: started here, played in the background, watchable by anyone.
   await panel.getByRole('button', { name: 'Start one on today’s scenario' }).click();

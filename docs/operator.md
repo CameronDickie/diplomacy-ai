@@ -36,8 +36,10 @@ from the detailed `provider_calls` rows still retained and adds token counts.
 
 Each running→stopped transition of the paid switch opens a new numbered
 **pause**. All changes are written to `operator_audit`. None of these routes can
-raise a limit, add budget or enable paid play: that remains configuration plus
-the startup interlock.
+raise a limit or add budget. The switch can only open paid play where the
+deployment made paid AI available (`DIPLOMACY_PAID_AI_ENABLED=true`); there,
+the first start sets it off (audit action `PAID_STARTS_STOPPED`), and the
+operator turns it on for players.
 
 The ledger flips the same switch when the pool is exhausted or a bill exceeds
 its reservation (audit actions `BUDGET_EXHAUSTED` and `COST_ANOMALY`, operator
@@ -64,9 +66,9 @@ nothing leaves the process and messages are read in the dashboard. With
 an unknown outcome cannot produce a second email. Message text contains attempt,
 challenge and pseudonymous account IDs only.
 
-`POST /api/credit-request` currently answers `409` because sponsored play is
-not offered while paid startup is interlocked; the store operation and its
-per-pause deduplication are in place for when it is.
+`POST /api/credit-request` records a player's request while sponsored play is
+offered but switched off, once per account per pause; it answers `409` where
+sponsored play is not offered at all.
 
 ## Public availability
 

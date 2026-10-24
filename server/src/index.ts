@@ -1,5 +1,5 @@
 import express, { type ErrorRequestHandler } from 'express';
-import { readRuntimeConfig, assertRuntimeReady } from '../../config/runtime.cjs';
+import { readRuntimeConfig } from '../../config/runtime.cjs';
 import { shutdownGodip } from './adjudication/GodipAdjudicator.js';
 import { Store } from './storage/Store.js';
 import { existsSync } from 'fs';
@@ -28,7 +28,6 @@ if (existsSync(rootEnvFile)) loadEnvFile(rootEnvFile);
 let config;
 try {
   config = readRuntimeConfig();
-  assertRuntimeReady(config);
 } catch (error) {
   console.error(`Invalid runtime configuration: ${error instanceof Error ? error.message : 'validation failed'}`);
   process.exit(1);

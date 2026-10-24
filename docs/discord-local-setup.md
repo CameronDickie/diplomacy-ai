@@ -57,8 +57,8 @@ DISCORD_VOICE_ENABLED=false
 ```
 
 Voice additionally requires all seven power-bot tokens, `OPENAI_API_KEY`, and
-explicit paid-provider enablement. Paid startup remains interlocked until the
-budget/admission implementation is integrated. Keep voice disabled for MVP
+explicit paid-provider enablement. Voice calls do not go through the
+funding ledger yet. Keep voice disabled for MVP
 verification: the retained implementation and flow below are for future private
 use; voice repair and paid voice testing are outside the showcase MVP.
 

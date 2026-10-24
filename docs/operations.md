@@ -47,36 +47,45 @@ calls** if the pool had run out. `LLM_TOTAL_BUDGET_USD` only narrows what grants
 allow. Paid play itself is still switched off in code until the provider adapter
 is integrated and the owner authorizes spend.
 
-## Turning on live Luna opponents (not done; owner decision)
+## AI opponents for players
 
-Today a deployment offers practice only. Everything below is deliberate work
-that has **not** been done, in the order it should happen:
+Paid AI is a site setting with two layers, so it can be switched on and off
+without a release:
 
-1. **Live evaluation.** A first live attempt of the sequential preset was run on
-   October 7, 2026 and missed two of the three targets
-   ([evaluation.md](evaluation.md)). The concurrent preset that followed has not
-   been measured live. On the machine that holds the ledger database, run a
-   small live batch under a new run ID against the same funded ledger; record a
-   further grant only if the owner authorizes more spend. Read the report
-   against the three targets.
-2. **Decide.** If the targets are missed, stop here. Do not relax them quietly.
-3. **Remove the two code interlocks in one reviewed change**: the refusal in
-   `assertRuntimeReady` (`config/runtime.cjs`) and the matching check at the top
-   of `ChallengeService`'s constructor, and in that same change construct
-   `httpLunaTransport` from `OPENAI_API_KEY` when `DIPLOMACY_PAID_AI_ENABLED` is
-   true. Nothing else selects the real transport. Update `RuntimeConfig.test.ts`,
-   `scripts/staging-check.sh` (it asserts the refusal) and `AccessMatrix.test.ts`
-   if a route changes.
-4. **Configure** `DIPLOMACY_PAID_AI_ENABLED=true`, `LLM_ALLOWED_PROVIDERS=OPENAI`,
-   `OPENAI_API_KEY`, `LLM_TOTAL_BUDGET_USD` (a brake, not a source of funds) and
-   `LLM_MAX_GAME_COST_USD` (the per-attempt cap), plus the operator ID and both
-   sign-in providers, which paid showcase mode requires.
-5. **Grant** funds in the production database and check `storage funding`.
-6. **Watch** the operator view during the first attempts; **Stop new paid
-   calls** is immediate.
+- **Available** (deployment): `DIPLOMACY_PAID_AI_ENABLED=true` with the preset's
+  key (`OPENAI_API_KEY` for `luna`, `ANTHROPIC_API_KEY` for
+  `DIPLOMACY_SPONSORED_PRESET=haiku`), `LLM_TOTAL_BUDGET_USD` (a brake, not a
+  source of funds), `LLM_MAX_GAME_COST_USD` (the per-game cap, at most USD 15),
+  the operator ID and both sign-in providers.
+- **On for players** (Operator view, **AI opponents for players**): the first
+  start with paid AI available sets it **off**. Turning it on or off takes
+  effect at once and survives restarts. Running out of funds, or a bill larger
+  than its reservation, turns it off by itself.
 
-Until step 3 the server refuses to start with paid AI enabled, whatever the
-environment says.
+Only the daily challenge's sponsored attempts use it. Games with friends and
+against practice bots never call a paid model; AI seats in hosted games stay
+operator-only and are not on the funding ledger.
+
+To open it:
+
+1. Choose the preset. Haiku met all three targets in its live baseline
+   ([haiku-preset.md](haiku-preset.md)); the concurrent Luna preset has no live
+   report yet ([evaluation.md](evaluation.md)).
+2. Set a spending limit at the provider itself (or prepaid credit without
+   automatic top-up): the backstop that holds whatever this code does.
+3. Deploy with the settings above (`scripts/staging-check.sh`, run by the
+   deploy, exercises this whole path with a stand-in provider and a test grant).
+4. Grant funds on the host, then check them:
+
+   ```bash
+   docker exec "$(docker ps -q --filter label=com.docker.compose.service=app)" \
+     node server/dist/storage/cli.js grant /data/diplomacy.sqlite <USD> <authorization-reference>
+   docker exec "$(docker ps -q --filter label=com.docker.compose.service=app)" \
+     node server/dist/storage/cli.js funding /data/diplomacy.sqlite
+   ```
+
+5. Turn **AI opponents for players** on in the Operator view and watch the first
+   games' spend there. Turning it off is immediate.
 
 ## Stop an attempt or ban an account
 

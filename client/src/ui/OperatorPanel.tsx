@@ -35,7 +35,7 @@ export function OperatorPanel(){
   const held=useMemo(()=>detail&&shown?heldTerritories(detail.reports.slice(0,step===null?detail.reports.length:step+1),shown.units):{},[detail,step,shown]);
   const mapState=useMemo(()=>shown?{units:shown.units,territories:Object.fromEntries(TERRITORIES.map(t=>[t.id,{id:t.id,isSupplyCenter:t.isSupplyCenter,owner:shown.territoryOwners[t.id]}]))}:null,[shown]);
   if(!overview)return <section className="operator-panel"><p role="status">{error||'Loading operator view…'}</p></section>;
-  const o=overview,paidLabel=!o.paidConfigured?`Not enabled in this deployment${o.paid.stopped?' · switch is set to stopped':''}`:o.paid.stopped?`Stopped (pause #${o.paid.episode})`:'Running';
+  const o=overview,paidLabel=!o.paidConfigured?'Not available: paid AI is off in this deployment\'s settings':o.paid.stopped?`Off (pause #${o.paid.episode})`:'On';
   const actions=(a:OperatorAttemptRow)=><>
     <button onClick={()=>void watch(a.id)}>Watch</button>
     {a.lifecycle==='ACTIVE'&&<button disabled={busy} onClick={()=>void act(`stop:${a.id}`,`/operator/attempts/${a.id}/stop`,{})}>{confirm===`stop:${a.id}`?'Confirm stop':'Stop'}</button>}
@@ -44,9 +44,9 @@ export function OperatorPanel(){
     {error&&<div className="challenge-alert" role="alert">{error}<button onClick={()=>setError('')}>Dismiss</button></div>}
     <div className="operator-tiles">
       <div><h2>Capacity</h2><strong>{o.activeAttempts} / {o.maxActiveAttempts}</strong><span>active attempts</span></div>
-      <div><h2>Sponsored play</h2><strong>{paidLabel}</strong>
-        <button disabled={busy} onClick={()=>void act('paid','/operator/paid',{stopped:!o.paid.stopped})}>{confirm==='paid'?(o.paid.stopped?'Confirm resume':'Confirm stop'):(o.paid.stopped?'Resume paid calls':'Stop new paid calls')}</button>
-        <span>Stopping blocks every new provider call, including queued and recovered work. It never changes a budget.</span></div>
+      <div><h2>AI opponents for players</h2><strong>{paidLabel}</strong>
+        {o.paidConfigured&&<button disabled={busy} onClick={()=>void act('paid','/operator/paid',{stopped:!o.paid.stopped})}>{confirm==='paid'?(o.paid.stopped?'Confirm turning on':'Confirm turning off'):(o.paid.stopped?'Turn on for players':'Turn off')}</button>}
+        <span>{o.paidConfigured?'Takes effect at once and survives restarts. Off blocks every new provider call, including queued and recovered work; on spends only what has been granted, and running out turns it off by itself. It never changes a budget.':'Players play practice games only. Paid AI becomes available when the deployment sets DIPLOMACY_PAID_AI_ENABLED=true; it then starts off here.'}</span></div>
       <div><h2>Budget</h2><dl>
         <dt>Available</dt><dd>{usd(o.funding.availableNanousd)} of {usd(o.funding.ceilingNanousd)}</dd>
         <dt>Settled (all time)</dt><dd>{usd(o.funding.settledNanousd)}</dd>

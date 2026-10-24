@@ -106,7 +106,7 @@ export function useChallenge(){
     const list=await challengeRequest<ChallengeHistoryPage>('/attempts');
     if(identityRef.current===owner){setHistory(list.attempts);setOlder(list.next);}
   }
-  return {auth,older,exhibitions,legalError,retryLegal:()=>setLegalRetry(value=>value+1),loadExhibition:(id:string)=>challengeRequest<ExhibitionReplay>(`/exhibitions/${id}`),cards:catalog?.challenges??[],limits:catalog?.limits??null,rotation:catalog?.rotation??null,sponsoredPlay:catalog?.sponsoredPlay??null,sponsoredMock:catalog?.sponsoredMock??false,sponsoredLive:catalog?.sponsoredLive??false,sponsoredChat:catalog?.sponsoredChat??false,playtest,chat,
+  return {auth,older,exhibitions,legalError,retryLegal:()=>setLegalRetry(value=>value+1),loadExhibition:(id:string)=>challengeRequest<ExhibitionReplay>(`/exhibitions/${id}`),cards:catalog?.challenges??[],limits:catalog?.limits??null,rotation:catalog?.rotation??null,sponsoredPlay:catalog?.sponsoredPlay??null,sponsoredMock:catalog?.sponsoredMock??false,sponsoredModel:catalog?.sponsoredModel??'GPT-6 Luna',sponsoredLive:catalog?.sponsoredLive??false,sponsoredChat:catalog?.sponsoredChat??false,playtest,chat,
     library,choose:setChosenId,
     // The challenge Setup is showing: the one picked from the library, otherwise the day's.
     selected:library?.challenges.find(c=>c.id===chosenId)??catalog?.challenges[0],

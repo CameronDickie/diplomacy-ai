@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
-import { readRuntimeConfig, readLlmConfig, assertRuntimeReady, PROVIDERS, ROLES, SUPPORTED_ENV_NAMES } from '../../../config/runtime.cjs';
+import { readRuntimeConfig, readLlmConfig, PROVIDERS, ROLES, SUPPORTED_ENV_NAMES } from '../../../config/runtime.cjs';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const { renderProductionEnv } = createRequire(import.meta.url)('../../../scripts/render-production-env.cjs') as {
@@ -35,15 +35,27 @@ test('offline profiles fail closed without loading optional credentials', () => 
   assert.deepEqual(readLlmConfig({ DIPLOMACY_PROFILE: 'showcase' }).allowedModels.OPENAI, ['gpt-6-luna']);
 });
 
-test('valid paid configuration still requires the durable admission implementation', () => {
-  const config = readRuntimeConfig({
+test('paid AI can be made available by configuration; each preset needs its own key, and only .test origins get the stand-in', () => {
+  const paid = {
     ...showcase, DIPLOMACY_PAID_AI_ENABLED: 'true', LLM_TOTAL_BUDGET_USD: '2',
     DIPLOMACY_GITHUB_CLIENT_ID: 'synthetic', DIPLOMACY_GITHUB_CLIENT_SECRET: 'synthetic',
     DIPLOMACY_GOOGLE_CLIENT_ID: 'synthetic', DIPLOMACY_GOOGLE_CLIENT_SECRET: 'synthetic',
     DIPLOMACY_AUTH_SESSION_SECRET: 's'.repeat(32), DIPLOMACY_ADMIN_GITHUB_USER_IDS: '1234',
     OPENAI_API_KEY: 'synthetic',
-  });
-  assert.throws(() => assertRuntimeReady(config), /funded provider adapter/);
+  };
+  const config = readRuntimeConfig(paid);
+  assert.equal(config.llm.paidEnabled, true);
+  assert.equal(config.stagingStandIn, false);
+  assert.throws(() => readRuntimeConfig({ ...paid, DIPLOMACY_SPONSORED_PRESET: 'haiku' }), /ANTHROPIC_API_KEY/);
+  assert.equal(readRuntimeConfig({ ...paid, DIPLOMACY_SPONSORED_PRESET: 'haiku', ANTHROPIC_API_KEY: 'synthetic' }).sponsoredPreset, 'haiku');
+  // The staging check's stand-in: only on reserved .test origins, and only with paid AI on.
+  const test = { DIPLOMACY_AUTH_CALLBACK_ORIGIN: 'https://staging.diplomacy.test', DIPLOMACY_AUTH_RETURN_ORIGIN: 'https://staging.diplomacy.test', CORS_ORIGINS: 'https://staging.diplomacy.test' };
+  assert.equal(readRuntimeConfig({ ...paid, ...test, DIPLOMACY_LUNA_TRANSPORT: 'mock' }, { production: true }).stagingStandIn, true);
+  const real = { DIPLOMACY_AUTH_CALLBACK_ORIGIN: 'https://diplomacy.example.com', DIPLOMACY_AUTH_RETURN_ORIGIN: 'https://diplomacy.example.com', CORS_ORIGINS: 'https://diplomacy.example.com' };
+  assert.throws(() => readRuntimeConfig({ ...paid, ...real, DIPLOMACY_LUNA_TRANSPORT: 'mock' }, { production: true }), /DIPLOMACY_LUNA_TRANSPORT/);
+  assert.equal(readRuntimeConfig({ ...paid, ...real }, { production: true }).llm.paidEnabled, true);
+  assert.throws(() => readRuntimeConfig({ ...paid, ...test, DIPLOMACY_PAID_AI_ENABLED: 'false', DIPLOMACY_LUNA_TRANSPORT: 'mock' }, { production: true }), /DIPLOMACY_LUNA_TRANSPORT/);
+  assert.throws(() => readRuntimeConfig({ ...paid, ...test, DIPLOMACY_LUNA_TRANSPORT: 'live' }, { production: true }), /DIPLOMACY_LUNA_TRANSPORT/);
   assert.throws(() => readRuntimeConfig({ DIPLOMACY_PROFILE: 'private', DIPLOMACY_AUTH_ENABLED: 'false' }), /cannot disable/);
 });
 

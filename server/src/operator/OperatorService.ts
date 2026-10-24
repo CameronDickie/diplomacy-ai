@@ -39,7 +39,8 @@ export class OperatorService {
     router.get('/overview',run(async (_req,res) => {
       const stored = await this.store.call('operatorOverview',{});
       const overview: OperatorOverview = { ...stored, reservedNanousd:stored.funding.reservedNanousd, maxActiveAttempts:this.config.maxActiveAttempts,
-        paidConfigured:this.config.llm.paidEnabled, notifyMode:this.config.notifyMode };
+        // Sponsored play exists: paid AI, or a development stand-in (mock or live) that runs through the same switch.
+        paidConfigured:this.config.llm.paidEnabled||this.config.lunaTransport!=='none', notifyMode:this.config.notifyMode };
       res.json(overview);
     }));
     router.get('/attempts/:id',run(async (req,res) => {

@@ -52,8 +52,9 @@ reconciliation; it must not interpret an ERROR as evidence of zero spending.
 The durable ledger and decision provider now bind each request hash to an atomic
 reservation and check stop/ban/current phase and global/attempt funding before
 model dispatch. Unknown model outcomes stay held through recovery; known usage
-is settled before parsing or validating the answer. Sponsored startup remains
-interlocked; the evaluation CLI is the only real HTTP consumer.
+is settled before parsing or validating the answer. With paid AI available the
+challenge uses the same transport, behind the funding ledger and the Operator
+switch.
 
 The byte cap is a memory/prompt-size limit, not token verification. The HTTP
 transport requires preflight through

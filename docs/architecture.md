@@ -43,8 +43,10 @@ Rules that shape the code:
   attempt's pinned mode routes it: legal holds (practice), the deterministic
   practice bot, or a sponsored model through the funding ledger. Sponsored
   model specifics (exact request, worst-case price, answer parsing) sit behind
-  `OpponentContract`, implemented for `gpt-6-luna` and `claude-haiku-5-5`. The
-  sponsored path runs against a mock transport only; paid startup is refused.
+  `OpponentContract`, implemented for `gpt-6-luna` and `claude-haiku-5-5`. With
+  `DIPLOMACY_PAID_AI_ENABLED=true` the real transport plays sponsored attempts,
+  each call reserved in the funding ledger first; players reach it only while
+  the Operator view's switch is on.
 - **Provider calls are recorded before they are interpreted**, and every
   `prepare`/`dispatch` re-checks that the attempt is active, the player is not
   banned, the fence is current and the paid switch is not stopped.
@@ -54,7 +56,7 @@ Rules that shape the code:
 
 | Path | Responsibility |
 | -- | -- |
-| `config/runtime.cjs` | validated settings, profiles, paid-startup interlock |
+| `config/runtime.cjs` | validated settings and profiles; whether paid AI is available |
 | `server/src/index.ts` | process wiring, HTTP and socket servers, shutdown |
 | `server/src/auth.ts`, `auth/` | OAuth flows, sessions, origin checks, operator role, socket policy |
 | `server/src/challenge/ChallengeService.ts` | public catalog and replay, attempt routes, account deletion, idle and retention sweeps |

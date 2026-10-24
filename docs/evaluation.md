@@ -136,9 +136,10 @@ reached. Start with a few attempts, read the report, and add attempts to the
 same run ID only if more evidence is needed. Keep the JSON report privately; it
 contains no prompts, answers or keys, but it does contain cost figures.
 
-The game server itself still refuses to start with paid AI enabled. A go/no-go
-for offering sponsored play publicly should cite a live report against the three
-targets above.
+The game server can now make paid AI available (`DIPLOMACY_PAID_AI_ENABLED`),
+with players reaching it only through the Operator view's switch. Before turning
+that switch on publicly, cite a live report against the three targets above: the
+Haiku preset has one (haiku-preset.md); the concurrent Luna preset does not.
 
 ## Exact input verification
 

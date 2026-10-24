@@ -139,7 +139,8 @@ scripts/staging-check.sh
 ```
 
 It builds the image and, using values generated for the run, checks: offline
-showcase configuration validates and a paid configuration is refused; the
+showcase and paid configurations validate, and the stand-in provider is refused
+on a real origin; the
 container runs as uid 10001 with a private data directory and database; notices
 and corresponding source are packaged; the client, credits and license pages
 load; the catalog and reference replay answer without an account; guests,
@@ -148,7 +149,11 @@ starts the featured scenario, submits orders and gets a resolved phase; the
 operator overview reports capacity, known cost and unresolved liability; an
 online backup is taken while serving; a restart preserves every durable row; and
 a restore into an empty volume serves identical rows, the same attempt and the
-same spend figures. It needs Docker, makes no paid call, sends no email and
+same spend figures; and the paid path with a stand-in provider and a dedicated
+test grant: AI opponents start off for players, a sponsored game cannot start
+until the operator turns them on, a turn's calls are charged to the grant and
+stay within it, turning them off closes sponsored play, and the switch survives
+a restart. It needs Docker, makes no paid call, sends no email and
 removes its containers and volumes on exit. `SKIP_BUILD=1` reuses the image.
 
 The seeded sessions are created directly in the staging database. The script
@@ -201,8 +206,8 @@ them. Each needs an explicit owner decision recorded in Linear (DIC-72):
 
 - running `terraform apply`, `deploy_lightsail.sh`, or changing DNS;
 - rendering a production environment file with real credentials;
-- granting funds and enabling paid AI (also blocked in code until the provider
-  adapter is integrated);
+- granting funds, making paid AI available and turning **AI opponents for
+  players** on ([operations.md](operations.md#ai-opponents-for-players));
 - sending live notification email (`DIPLOMACY_NOTIFY_MODE=resend`);
 - approving a public scenario catalog and calling the game "daily";
 - making the repository public, after a human review of its history;

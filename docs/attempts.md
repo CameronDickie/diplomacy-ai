@@ -11,8 +11,9 @@ jobs against its configured SQLite database. Showcase renders the challenge UI;
 local/private deployments can open `/challenge` while retaining their legacy
 lobby at `/`. Legacy room sockets remain disabled in showcase. This intermediate
 flow is explicitly **offline practice**, not a funded or publicly released daily
-challenge. Paid dispatch remains interlocked; phase jobs are not financial
-reservations.
+challenge. Paid dispatch happens only with paid AI available and the Operator view's switch on, and every call
+reserves its worst case in the funding ledger first; phase jobs themselves are
+not financial reservations.
 
 ## Owned practice flow
 

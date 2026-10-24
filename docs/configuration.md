@@ -19,9 +19,11 @@ explicit profile and rejects `local`.
   available; legacy free-form room commands are disabled in this profile.
 
 `DIPLOMACY_PAID_AI_ENABLED` defaults to `false` in every profile. Existing keys
-never enable paid calls. A temporary startup interlock rejects `true` until
-the provider adapter dispatches only through the funding ledger (DIC-60; the
-ledger itself is described in `funding.md`). Settings can
+never enable paid calls. `true` makes paid AI *available*: sponsored attempts
+use the preset's real provider (its key is required), every call reserved in
+the funding ledger first (`funding.md`). Players get it only while the Operator
+view's switch is on; the first start with paid AI available sets that switch
+off. Settings can
 be validated/rendered before that integration, but neither deployment preflight
 nor the server will start paid operation. Configuration is not spend approval.
 
@@ -60,7 +62,7 @@ silently ignored. Comma-separated lists are trimmed and deduplicated.
 | `DIPLOMACY_ENGINE_MAX_OUTPUT_BYTES` | 4194304; integer 1024–16777216 |
 | `DIPLOMACY_TRUSTED_PROXY` | `none`; or `private` to take the client address from the right-most `X-Forwarded-For` entry when the direct peer is a private-network proxy |
 | `DIPLOMACY_SPONSORED_PRESET` | `luna`; or `haiku`. The pinned contract new sponsored attempts use; existing attempts keep theirs ([haiku-preset.md](haiku-preset.md)) |
-| `DIPLOMACY_LUNA_TRANSPORT` | `none`; `mock` (local non-production profile only) offers sponsored attempts against a deterministic stand-in that makes no provider call; `live` (local non-production profile on a loopback host only) calls the real providers for a development playtest ([playtest.md](playtest.md)) |
+| `DIPLOMACY_LUNA_TRANSPORT` | `none`; `mock` (local non-production profile, or the staging check: paid AI on and every origin a reserved `.test` name) offers sponsored attempts against a deterministic stand-in that makes no provider call; `live` (local non-production profile on a loopback host only) calls the real providers for a development playtest ([playtest.md](playtest.md)) |
 | `DIPLOMACY_PLAYTEST_OPPONENTS` | empty; development only: `POWER=luna\|haiku` pairs assigning opponents to a model other than the default |
 | `DIPLOMACY_PLAYTEST_CHAT` | `false`; development only: private chat with opponents, each message answered by a paid model call ([playtest.md](playtest.md)) |
 | `DIPLOMACY_CHAT_MESSAGE_LIMIT` | 30; integer 1–200; messages a player may send per attempt |
@@ -119,7 +121,7 @@ role settings support OPENAI and GEMINI. Every active default must be allowliste
 
 | Setting | Default / constraint |
 | --- | --- |
-| `DIPLOMACY_PAID_AI_ENABLED` | false; explicit true is necessary but not sufficient for live operation |
+| `DIPLOMACY_PAID_AI_ENABLED` | false; true makes paid AI available, needs the preset's key, a positive `LLM_TOTAL_BUDGET_USD`, an operator ID and both sign-in providers in showcase, and still reaches players only through the Operator switch and granted funds |
 | `LLM_TOTAL_BUDGET_USD` | 0; explicit positive total required for paid policy |
 | `LLM_MAX_GAME_COST_USD` | 1; positive, at most 15 in showcase, no greater than funded total when paid |
 | `LLM_MAX_RETRIES` | 1; integer 0–3 |
@@ -143,8 +145,8 @@ before dynamic SDK imports, credential reads, construction, connections and
 handler registration. Browser integration hooks additionally require a current
 operator session; room hosts do not inherit that authority. The session response
 reports `providerSettings`, `discord` and `voice` capabilities so unavailable
-controls and automatic Discord status requests are omitted. Voice remains
-interlocked with paid startup while its private subsystem is deferred.
+controls and automatic Discord status requests are omitted. Voice requires
+paid AI and stays disabled in showcase while its private subsystem is deferred.
 
 `DIPLOMACY_NOTIFY_MODE=outbox` is the safe default. `resend` requires
 `RESEND_API_KEY`, `DIPLOMACY_NOTIFY_FROM`, and `DIPLOMACY_NOTIFY_TO`; those values

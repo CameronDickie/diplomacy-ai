@@ -4,8 +4,11 @@
 # Builds the production image and exercises it on this machine only: non-root
 # runtime, showcase profile, health, public pages, notices and packaged source,
 # an authenticated attempt, operator view, online backup, restart persistence
-# and restore into a fresh volume. It makes no paid call, sends no email and
-# contacts no service except the registry used to pull base images.
+# and restore into a fresh volume; then the paid path end to end with a stand-in
+# provider and a dedicated test grant: the switch starts off, the owner turns it
+# on, a sponsored game spends from the grant, and turning it off closes it again.
+# It makes no paid call, sends no email and contacts no service except the
+# registry used to pull base images.
 #
 # Every credential-like value is generated for the run and never printed.
 # Containers and volumes use a unique diplomacy-staging-* name and are removed
@@ -17,15 +20,16 @@ DOCKER="${DOCKER:-docker}"
 IMAGE="${STAGING_IMAGE:-diplomacy-staging:local}"
 PORT="${STAGING_PORT:-3901}"
 RUN_ID="diplomacy-staging-$$"
-APP="$RUN_ID-app"; RESTORED="$RUN_ID-restored"
-VOLUME="$RUN_ID-data"; RESTORE_VOLUME="$RUN_ID-restore"
+APP="$RUN_ID-app"; RESTORED="$RUN_ID-restored"; PAID="$RUN_ID-paid"
+VOLUME="$RUN_ID-data"; RESTORE_VOLUME="$RUN_ID-restore"; PAID_VOLUME="$RUN_ID-paid-data"
+PAID_PORT="${STAGING_PAID_PORT:-3902}"
 ORIGIN="https://staging.diplomacy.test"
 SECRET="$(openssl rand -hex 32)"
 PASSED=0
 
 cleanup() {
-  "$DOCKER" rm -f "$APP" "$RESTORED" >/dev/null 2>&1 || true
-  "$DOCKER" volume rm "$VOLUME" "$RESTORE_VOLUME" >/dev/null 2>&1 || true
+  "$DOCKER" rm -f "$APP" "$RESTORED" "$PAID" >/dev/null 2>&1 || true
+  "$DOCKER" volume rm "$VOLUME" "$RESTORE_VOLUME" "$PAID_VOLUME" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 pass() { PASSED=$((PASSED + 1)); printf '  ok  %s\n' "$1"; }
@@ -67,18 +71,24 @@ digest() {
 
 echo "Building $IMAGE"
 [ -n "${SKIP_BUILD:-}" ] || "$DOCKER" build --quiet --tag "$IMAGE" "$ROOT" >/dev/null
-"$DOCKER" volume create "$VOLUME" >/dev/null; "$DOCKER" volume create "$RESTORE_VOLUME" >/dev/null
+"$DOCKER" volume create "$VOLUME" >/dev/null; "$DOCKER" volume create "$RESTORE_VOLUME" >/dev/null; "$DOCKER" volume create "$PAID_VOLUME" >/dev/null
 
 echo "Configuration"
 "$DOCKER" run --rm -e DIPLOMACY_PROFILE=showcase -e DIPLOMACY_AUTH_CALLBACK_ORIGIN="$ORIGIN" -e DIPLOMACY_AUTH_RETURN_ORIGIN="$ORIGIN" -e CORS_ORIGINS="$ORIGIN" \
   "$IMAGE" node scripts/validate-runtime-env.cjs >/dev/null || fail "offline showcase configuration validates"
 pass "offline showcase configuration validates"
-# Paid startup must stay interlocked even with a complete paid configuration.
-REFUSAL=$("$DOCKER" run --rm -e DIPLOMACY_PROFILE=showcase -e DIPLOMACY_PAID_AI_ENABLED=true -e LLM_TOTAL_BUDGET_USD=1 -e LLM_MAX_GAME_COST_USD=1 \
-  -e LLM_ALLOWED_PROVIDERS=OPENAI -e OPENAI_API_KEY=placeholder-not-a-key -e DIPLOMACY_AUTH_SESSION_SECRET="$SECRET" -e DIPLOMACY_ADMIN_GITHUB_USER_IDS=4242 \
-  -e DIPLOMACY_GITHUB_CLIENT_ID=placeholder -e DIPLOMACY_GITHUB_CLIENT_SECRET=placeholder -e DIPLOMACY_GOOGLE_CLIENT_ID=placeholder -e DIPLOMACY_GOOGLE_CLIENT_SECRET=placeholder \
-  -e DIPLOMACY_AUTH_CALLBACK_ORIGIN="$ORIGIN" -e DIPLOMACY_AUTH_RETURN_ORIGIN="$ORIGIN" -e CORS_ORIGINS="$ORIGIN" "$IMAGE" node scripts/validate-runtime-env.cjs 2>&1 || true)
-case "$REFUSAL" in *"DIPLOMACY_PAID_AI_ENABLED: paid startup awaits"*) pass "paid startup is refused by the interlock";; *) fail "paid configuration was not refused by the interlock";; esac
+# Paid AI is a site setting: a complete paid configuration validates (players still need the Operator switch).
+PAID_ENV=(-e DIPLOMACY_PROFILE=showcase -e DIPLOMACY_PAID_AI_ENABLED=true -e LLM_TOTAL_BUDGET_USD=1 -e LLM_MAX_GAME_COST_USD=0.5
+  -e LLM_ALLOWED_PROVIDERS=STUB,OPENAI -e OPENAI_API_KEY=placeholder-not-a-key -e DIPLOMACY_AUTH_SESSION_SECRET="$SECRET" -e DIPLOMACY_ADMIN_GITHUB_USER_IDS=4242
+  -e DIPLOMACY_GITHUB_CLIENT_ID=placeholder -e DIPLOMACY_GITHUB_CLIENT_SECRET=placeholder -e DIPLOMACY_GOOGLE_CLIENT_ID=placeholder -e DIPLOMACY_GOOGLE_CLIENT_SECRET=placeholder
+  -e DIPLOMACY_NOTIFY_MODE=outbox -e DISCORD_ENABLED=false -e DISCORD_VOICE_ENABLED=false)
+"$DOCKER" run --rm "${PAID_ENV[@]}" -e DIPLOMACY_AUTH_CALLBACK_ORIGIN="$ORIGIN" -e DIPLOMACY_AUTH_RETURN_ORIGIN="$ORIGIN" -e CORS_ORIGINS="$ORIGIN" \
+  "$IMAGE" node scripts/validate-runtime-env.cjs >/dev/null 2>&1 || fail "paid configuration validates"
+pass "paid configuration validates"
+# The stand-in provider is for this check only: refused on any origin that is not a reserved .test name.
+REFUSAL=$("$DOCKER" run --rm "${PAID_ENV[@]}" -e DIPLOMACY_LUNA_TRANSPORT=mock -e DIPLOMACY_AUTH_CALLBACK_ORIGIN=https://diplomacy.example.com \
+  -e DIPLOMACY_AUTH_RETURN_ORIGIN=https://diplomacy.example.com -e CORS_ORIGINS=https://diplomacy.example.com "$IMAGE" node scripts/validate-runtime-env.cjs 2>&1 || true)
+case "$REFUSAL" in *"DIPLOMACY_LUNA_TRANSPORT"*) pass "the stand-in provider is refused on a real origin";; *) fail "the stand-in provider was accepted on a real origin";; esac
 
 echo "Runtime"
 start "$APP" "$VOLUME"
@@ -191,5 +201,55 @@ GOT=$(api GET "/attempts/$ATTEMPT_ID" "$PLAYER_COOKIE" | json 'v.board.season+":
 expect "restored attempt is playable state" "$GOT" "FALL:ACCEPTING:$CARD_ID"
 GOT=$(api GET /operator/overview "$OPERATOR_COOKIE" | json 'v.funding.settledNanousd+":"+v.funding.reservedNanousd+":"+v.funding.availableNanousd')
 expect "restored spend and liability unchanged" "$GOT" "4321:100000:895679"
+
+echo "Paid AI (stand-in provider, dedicated test grant)"
+"$DOCKER" rm -f "$RESTORED" >/dev/null
+"$DOCKER" run -d --name "$PAID" -p "127.0.0.1:$PAID_PORT:3001" --mount "type=volume,source=$PAID_VOLUME,target=/data" "${PAID_ENV[@]}" \
+  -e DIPLOMACY_LUNA_TRANSPORT=mock -e DIPLOMACY_AUTH_CALLBACK_ORIGIN="$ORIGIN" -e DIPLOMACY_AUTH_RETURN_ORIGIN="$ORIGIN" -e CORS_ORIGINS="$ORIGIN" "$IMAGE" >/dev/null
+for _ in $(seq 1 60); do GOT=$(status "http://127.0.0.1:$PAID_PORT/healthz" || true); [ "$GOT" = 200 ] && break; sleep 1; done
+expect "paid server starts" "$GOT" 200
+PORT="$PAID_PORT"
+GOT=$(api GET /challenges | json 'v.sponsoredPlay')
+expect "AI opponents start off for players" "$GOT" PAUSED
+"$DOCKER" exec "$PAID" node server/dist/storage/cli.js grant /data/diplomacy.sqlite 0.25 staging-paid-check-grant >/dev/null || fail "dedicated test grant"
+pass "dedicated test grant"
+SEEDED="$("$DOCKER" exec -e SEED_SECRET="$SECRET" "$PAID" node --input-type=module -e '
+  import { createHmac } from "node:crypto";
+  import { Store, newToken } from "/app/server/dist/storage/Store.js";
+  const store = await Store.open("/data/diplomacy.sqlite"), now = Date.now(), out = [];
+  for (const subject of ["staging-paid-player", "4242"]) {
+    const player = await store.call("identity", { provider: "github", subject, displayName: "Staging test", now });
+    const token = newToken();
+    await store.call("createSession", { tokenHash: createHmac("sha256", process.env.SEED_SECRET).update(token).digest("hex"), playerId: player.id, now, expiresAt: now + 3600000 });
+    out.push(token);
+  }
+  await store.close(); console.log(out.join(" "));')"
+read -r PAID_PLAYER PAID_OPERATOR <<<"$SEEDED"
+CATALOG="$(api GET /challenges)"; CARD_ID="$(printf '%s' "$CATALOG" | json 'v.challenges[0].id')"; CARD_VERSION="$(printf '%s' "$CATALOG" | json 'v.challenges[0].version')"
+START="{\"requestId\":\"staging-sponsored\",\"challengeId\":\"$CARD_ID\",\"challengeVersion\":$CARD_VERSION,\"mode\":\"SPONSORED\"}"
+GOT=$(status -X POST "http://127.0.0.1:$PORT/api/attempts" -H "Origin: $ORIGIN" -H 'Content-Type: application/json' -H "Cookie: __Host-diplomacy_session=$PAID_PLAYER" -d "$START")
+[ "$GOT" != 200 ] && pass "a sponsored game cannot start while the switch is off" || fail "a sponsored game started while the switch was off"
+GOT=$(api POST /operator/paid "$PAID_OPERATOR" '{"stopped":false}' | json 'v.stopped')
+expect "the owner turns AI opponents on" "$GOT" false
+GOT=$(api GET /challenges | json 'v.sponsoredPlay')
+expect "players are offered AI opponents" "$GOT" OPEN
+ATTEMPT="$(api POST /attempts "$PAID_PLAYER" "$START")"
+ATTEMPT_ID="$(printf '%s' "$ATTEMPT" | json 'v.id')"; PHASE_ID="$(printf '%s' "$ATTEMPT" | json 'v.phaseId')"
+GOT=$(printf '%s' "$ATTEMPT" | json 'v.lifecycle')
+expect "a sponsored game starts" "$GOT" ACTIVE
+ORDERS="$(api GET "/attempts/$ATTEMPT_ID/legal" "$PAID_PLAYER" | json 'JSON.stringify(v.options.filter(o=>o.order.type==="HOLD").map(o=>o.id))')"
+api POST "/attempts/$ATTEMPT_ID/orders" "$PAID_PLAYER" "{\"revision\":0,\"phaseId\":\"$PHASE_ID\",\"requestId\":\"staging-paid-orders\",\"action\":{\"phase\":\"ORDERS\",\"orderIds\":$ORDERS}}" >/dev/null
+for _ in $(seq 1 60); do GOT=$(api GET "/attempts/$ATTEMPT_ID" "$PAID_PLAYER" | json 'v.board.season+":"+v.execution'); [ "$GOT" = "FALL:ACCEPTING" ] && break; sleep 1; done
+expect "the AI opponents' turn resolves" "$GOT" "FALL:ACCEPTING"
+GOT=$(api GET /operator/overview "$PAID_OPERATOR" | json '(v.spend.calls>0)+":"+(v.funding.settledNanousd>0)+":"+(v.funding.settledNanousd+v.funding.reservedNanousd+v.funding.unknownLiabilityNanousd<=250000000)+":"+v.funding.ceilingNanousd')
+expect "every call was charged to the grant and stayed within it" "$GOT" "true:true:true:250000000"
+GOT=$(api POST /operator/paid "$PAID_OPERATOR" '{"stopped":true}' | json 'v.stopped')
+expect "the owner turns AI opponents off" "$GOT" true
+GOT=$(api GET /challenges | json 'v.sponsoredPlay')
+expect "players are no longer offered AI opponents" "$GOT" PAUSED
+"$DOCKER" restart "$PAID" >/dev/null
+for _ in $(seq 1 60); do GOT=$(status "http://127.0.0.1:$PORT/healthz" || true); [ "$GOT" = 200 ] && break; sleep 1; done
+GOT=$(api GET /challenges | json 'v.sponsoredPlay')
+expect "the switch survives a restart" "$GOT" PAUSED
 
 printf '\n%d checks passed. Local containers and volumes are removed on exit.\n' "$PASSED"

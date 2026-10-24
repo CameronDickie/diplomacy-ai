@@ -5,9 +5,10 @@ provider call may begin. It is a cumulative ledger in SQLite, in integer USD
 billionths (nanodollars), shared by every process, restart and experiment that
 uses the database.
 
-No paid call can happen today: the server still refuses to start with
-`DIPLOMACY_PAID_AI_ENABLED=true`, and no provider transport is wired. The ledger
-is in place so that the adapter has nothing to bypass when it arrives.
+Paid calls happen only when the deployment sets `DIPLOMACY_PAID_AI_ENABLED=true`,
+funds have been granted, and the Operator view's switch is on (it starts off).
+Every sponsored call goes through this ledger; there is no other path to a
+provider for players.
 
 ## The four numbers
 

@@ -75,6 +75,19 @@ export class OperatorRepository {
     this.audit(input.operatorId,input.stopped?'PAID_STOP':'PAID_RESUME',null,input.now);
     return paidState(this.db);
   }
+  /**
+   * A switch that has never been set reads as running, which suited servers that could not pay at all.
+   * Once paid AI is available, the first start writes it stopped, so players get AI opponents only when
+   * the owner turns them on in the Operator view. A switch already set, either way, is left alone.
+   */
+  initializePaid(input: StoreOperations['initializePaidSwitch']['input']): PaidState {
+    time(input.now);
+    if (!this.db.prepare("SELECT 1 FROM operator_state WHERE key='paid'").get()) {
+      this.db.prepare("INSERT INTO operator_state(key,value_json,updated_at) VALUES('paid',?,?)").run(JSON.stringify({ stopped:true, episode:1 }),input.now);
+      this.audit('system','PAID_STARTS_STOPPED',null,input.now);
+    }
+    return paidState(this.db);
+  }
   record(input: StoreOperations['recordOperatorAction']['input']): null {
     if (!['ATTEMPT_STOP','PLAYER_BAN','PLAYER_UNBAN','SPECTATE','EXHIBITION_START','EXHIBITION_PAUSE','EXHIBITION_RESUME','EXHIBITION_CANCEL'].includes(input.action)) invalid();
     id(input.target); time(input.now);
