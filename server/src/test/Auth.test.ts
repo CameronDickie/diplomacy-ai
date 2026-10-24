@@ -269,7 +269,7 @@ test('showcase denies legacy commands even to an operator and ignores client-sup
     assert.deepEqual((await (await f.request('/api/auth/session', cookie)).json()).capabilities, { providerSettings: false, discord: false, voice: false, games: false, practiceBots: false, recordedGames: false });
     let listener: ((payload: unknown) => Promise<void>) | undefined;
     const errors: Array<{ code: string }> = [];
-    const fake = { data: { authenticated: true, operator: true }, on: (_event: string, fn: typeof listener) => { listener = fn; }, emit: (_event: string, error: { code: string }) => errors.push(error) };
+    const fake = { connected: true, data: { authenticated: true, operator: true }, on: (_event: string, fn: typeof listener) => { listener = fn; }, emit: (_event: string, error: { code: string }) => errors.push(error) };
     bindSocketPolicy(fake, { profile: 'showcase', resolve: () => f.auth.resolve(cookie) });
     let invoked = false;
     onClientEvent(fake as never, 'create_game', () => { invoked = true; });
@@ -285,7 +285,7 @@ test('showcase games, once the owner turns them on, admit signed-in players with
   for (const signedIn of [false, true]) {
     let listener: ((payload: unknown) => Promise<void>) | undefined;
     const errors: Array<{ code: string }> = [];
-    const fake = { on: (_event: string, fn: typeof listener) => { listener = fn; }, emit: (_event: string, error: { code: string }) => errors.push(error) };
+    const fake = { connected: true, on: (_event: string, fn: typeof listener) => { listener = fn; }, emit: (_event: string, error: { code: string }) => errors.push(error) };
     bindSocketPolicy(fake, { profile: 'showcase', games: true, resolve: () => f.auth.resolve(signedIn ? cookie : '') });
     let seats: boolean | undefined;
     onClientEvent(fake as never, 'create_game', () => { seats = practiceSeatsAllowed(); });
@@ -302,7 +302,7 @@ test('hosted-game socket events are rate limited per address before sign-in and 
   let handled = 0;
   const socket = (address: string, account: string | null) => {
     let listener: ((payload: unknown) => Promise<void>) | undefined;
-    const fake = { on: (_event: string, fn: typeof listener) => { listener = fn; }, emit: (_event: string, error: { code: string }) => errors.push(error) };
+    const fake = { connected: true, on: (_event: string, fn: typeof listener) => { listener = fn; }, emit: (_event: string, error: { code: string }) => errors.push(error) };
     bindSocketPolicy(fake, { profile: 'local', limits: { limiter, address }, resolve: async () => account ? {
       player: { id: account, provider: 'github', subject: '1', displayName: 'P', bannedAt: null }, operator: false, expiresAt: Date.now() + 60000 } : null });
     onClientEvent(fake as never, 'request_legal_orders', () => { handled++; });

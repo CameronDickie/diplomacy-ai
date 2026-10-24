@@ -9,7 +9,7 @@ import { StubLlmController } from './StubLlmController.js';
 export const PRACTICE_BOT_MODEL = 'practice-bot-v1';
 /** Seat models that make no provider call: they need no AI authorization and cost nothing. */
 export const OFFLINE_SEAT_MODELS: readonly string[] = ['idle', 'auto-hold-v0', PRACTICE_BOT_MODEL];
-export const isOfflineSeatModel = (model: string | undefined): boolean => model === undefined || OFFLINE_SEAT_MODELS.includes(model.trim().toLowerCase());
+export const isOfflineSeatModel = (model: string | undefined): boolean => !model?.trim() || OFFLINE_SEAT_MODELS.includes(model.trim().toLowerCase());
 
 /**
  * A hosted room's power played by the challenge's practice bot: it seeks supply centers, supports its own

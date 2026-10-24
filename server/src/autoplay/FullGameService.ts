@@ -31,7 +31,7 @@ interface Pending { kind: 'TALK' | 'ACT'; operationId: string; phaseId: string; 
  * answer (the request is withdrawn for that moment), and `ordersGiven` the person's orders by request, so
  * orders sent in that gap answer the request the phase is about to make instead of being refused.
  */
-interface Run { controller: AbortController; log: string[]; startedAt: number; settings: StartRequest; pending: Pending | null; lastOrders: Pending | null; ordersGiven: Map<string, PhaseAction> }
+interface Run { controller: AbortController; log: string[]; startedAt: number; settings: StartRequest; pending: Pending | null; lastOrders: Pending | null; ordersGiven: Map<string, Promise<PhaseAction | null>> }
 const LOG_LINES = 300;
 type Kind = 'live' | 'standIn';
 /** A request the service refuses, with a message fit to show. */
@@ -157,7 +157,7 @@ export class FullGameService {
     // ends with the attempt at its phase (a failed model call, say): the recovery that plays the phase again
     // asks afresh, and must not find the old request still standing.
     const ask = async <T>(kind: Pending['kind'], operationId: string, phaseId: string, board: BoardFixture, phase: AbortSignal): Promise<T> => {
-      const given = kind === 'ACT' ? await store.call('humanAction',{ operationId, power: request.seat! }) ?? run.ordersGiven.get(operationId) : null;
+      const given = kind === 'ACT' ? await store.call('humanAction',{ operationId, power: request.seat! }) ?? await run.ordersGiven.get(operationId) : null;
       run.controller.signal.throwIfAborted(); phase.throwIfAborted();
       if (given) return given as T;
       return new Promise<T>((resolve, reject) => {
@@ -229,10 +229,17 @@ export class FullGameService {
     catch { throw new RequestError('Those orders are not legal for this phase. Check each unit and try again.'); }
     if (this.running?.run !== run || run.controller.signal.aborted)
       throw new RequestError('This game is no longer waiting for these orders.');
-    // Known at once, so a request made again while they are saved finds them instead of asking.
-    run.ordersGiven.set(pending.operationId,action);
-    const store = await this.open(run.settings.live ? 'live' : 'standIn');
-    await store.call('saveHumanAction',{ attemptId: `auto-${runId}`, operationId: pending.operationId, phaseId: pending.phaseId, power: seat, action, now: this.now() });
+    const saving = (async () => {
+      const store = await this.open(run.settings.live ? 'live' : 'standIn');
+      await store.call('saveHumanAction',{ attemptId: `auto-${runId}`, operationId: pending.operationId, phaseId: pending.phaseId, power: seat, action, now: this.now() });
+      return action;
+    })();
+    const given = saving.catch(() => {
+      if (run.ordersGiven.get(pending.operationId) === given) run.ordersGiven.delete(pending.operationId);
+      return null;
+    });
+    run.ordersGiven.set(pending.operationId,given);
+    await saving;
     // The phase may have started again while the orders were checked; they answer its new request.
     const current = this.running?.runId === runId ? this.running.run.pending : null;
     if (current && current.kind === 'ACT' && current.phaseId === pending.phaseId && current.operationId === pending.operationId) { this.running!.run.pending = null; current.resolve(action as never); }

@@ -18,6 +18,10 @@ import { attachHandlers } from '../handlers/connectionHandler.js';
 import { bindSocketPolicy } from '../auth/socketPolicy.js';
 import { onClientEvent } from '../handlers/clientEvent.js';
 import { DiplomacyService } from '../diplomacy/DiplomacyService.js';
+import type { Principal } from '../auth.js';
+import { RateLimiter, RATE_POLICY } from '../limits/RateLimiter.js';
+import { isOfflineSeatModel } from '../llm/PracticeBotController.js';
+import { modelRequiresAuthenticatedAi } from '../handlers/authz.js';
 
 type ClientEventName = keyof ClientToServerEvents;
 type ServerEventName = keyof ServerToClientEvents;
@@ -29,6 +33,7 @@ interface EmittedEvent {
 }
 
 class FakeSocket {
+  connected = true;
   readonly handlers = new Map<string, Handler>();
   readonly emitted: EmittedEvent[] = [];
   readonly data: { authenticated?: boolean } = {};
@@ -54,6 +59,109 @@ class FakeSocket {
     // The handler tests do not need room membership side effects.
   }
 }
+
+for (const event of ['create_game', 'join_game', 'resume_game'] as const) {
+  test(`${event} cannot attach a seat after disconnecting during authentication`, async t => {
+    const manager = new GameManager({}, { maxRooms: 2, maxRoomsPerAccount: 1 });
+    t.after(() => manager.dispose());
+    const socket = new FakeSocket('disconnected-socket');
+    const principal: Principal = {
+      player: { id: 'alice', provider: 'github', subject: '123', displayName: 'Alice', bannedAt: null },
+      operator: false, expiresAt: Date.now() + 60000,
+    };
+    let release!: (principal: Principal) => void;
+    bindSocketPolicy(socket, {
+      profile: 'showcase', games: true,
+      resolve: () => new Promise<Principal>(resolve => { release = resolve; }),
+    });
+    attachHandlers(socket as never, fakeIO(), manager, {
+      diplomacy: new DiplomacyService(manager), integrations: null,
+    });
+    let payload: unknown = { playerName: 'Alice' };
+    if (event !== 'create_game') {
+      const room = manager.createGame();
+      const joined = room.addPlayer('old-socket', 'Alice')!;
+      room.markDisconnected('old-socket');
+      payload = event === 'join_game'
+        ? { gameId: room.gameId, playerName: 'Alice' }
+        : { gameId: room.gameId, sessionToken: joined.sessionToken };
+    }
+    const before = structuredClone(manager.getRooms().map(room => room.getState()));
+    const pending = invoke(socket, event, payload);
+    socket.connected = false;
+    await socket.handlers.get('disconnect')!();
+    release(principal);
+    await pending;
+    assert.deepEqual(manager.getRooms().map(room => room.getState()), before);
+    assert.equal(manager.getRoomBySocket(socket.id), undefined);
+    assert.equal(manager.refusal('alice', true), null);
+    assert.deepEqual(socket.emitted, []);
+  });
+}
+
+for (const event of ['create_game', 'join_game', 'resume_game'] as const) {
+  test(`${event} malformed floods consume address permits before validation or authentication`, async () => {
+    let now = 0;
+    const limiter = new RateLimiter('none', () => now);
+    let resolved = 0;
+    let handled = 0;
+    const makeSocket = (id: string) => {
+      const socket = new FakeSocket(id);
+      bindSocketPolicy(socket, {
+        profile: 'local', limits: { limiter, address: '192.0.2.1' },
+        resolve: async () => { resolved++; return null; },
+      });
+      onClientEvent(socket as never, event, () => { handled++; });
+      return socket;
+    };
+    const socket = makeSocket('flood');
+    for (let index = 0; index < 1000; index++) await invoke(socket, event, { playerName: 123 });
+    const errorEvent = event === 'create_game' ? 'error' : event === 'join_game' ? 'join_error' : 'resume_error';
+    const errors = socket.emitted.map(reply => {
+      assert.equal(reply.event, errorEvent);
+      return (reply.payload as ErrorPayload).code;
+    });
+    assert.equal(errors.filter(code => code === 'INVALID_PAYLOAD').length, RATE_POLICY.room.address.limit);
+    assert.equal(errors.filter(code => code === 'RATE_LIMITED').length, 1000 - RATE_POLICY.room.address.limit);
+    assert.equal(resolved, 0);
+    assert.equal(handled, 0);
+    const reconnected = makeSocket('reconnected');
+    const valid = event === 'create_game' ? { playerName: 'Alice' }
+      : event === 'join_game' ? { gameId: 'ROOM', playerName: 'Alice' }
+        : { gameId: 'ROOM', sessionToken: 'token' };
+    await invoke(reconnected, event, valid);
+    assert.equal((reconnected.emitted.at(-1)!.payload as ErrorPayload).code, 'RATE_LIMITED');
+    now += 60000;
+    for (let index = 0; index < RATE_POLICY.room.address.limit; index++) await invoke(reconnected, event, valid);
+    assert.equal(handled, RATE_POLICY.room.address.limit);
+    assert.equal(resolved, handled);
+    await invoke(reconnected, event, valid);
+    assert.equal(handled, RATE_POLICY.room.address.limit);
+    assert.equal((reconnected.emitted.at(-1)!.payload as ErrorPayload).code, 'RATE_LIMITED');
+  });
+}
+
+test('blank planner defaults keep a local room accessible to anonymous guests', async t => {
+  const manager = new GameManager();
+  t.after(() => manager.dispose());
+  const room = manager.createGame();
+  room.addPlayer('host', 'Host', 'FRANCE');
+  const host = socketWithGameHandlers('host', manager, true);
+  for (const model of [undefined, '', ' \t\n ', ' IDLE ', ' AUTO-HOLD-V0 ', ' PRACTICE-BOT-V1 ']) {
+    assert.equal(isOfflineSeatModel(model), true);
+    assert.equal(modelRequiresAuthenticatedAi(model), false);
+  }
+  for (const model of ['', ' \t\n ']) {
+    await invoke(host, 'update_game_settings', { gameId: room.gameId, llmNegotiationPlannerModel: model });
+    assert.equal(room.getState().settings.llmNegotiationPlannerModel, '');
+    assert.equal(room.requiresAuthenticatedAccess(), false);
+    const guest = socketWithGameHandlers(`guest-${model}`, manager);
+    await invoke(guest, 'join_game', { gameId: room.gameId, playerName: 'Guest' });
+    assert.ok(lastEmitted(guest, 'game_joined'));
+  }
+  assert.equal(lastEmitted(host, 'error'), undefined);
+  assert.equal(modelRequiresAuthenticatedAi('gpt-6-luna'), true);
+});
 
 test('non-host players cannot mutate host-only game setup', async () => {
   const manager = new GameManager();

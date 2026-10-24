@@ -118,14 +118,14 @@ export function onClientEvent<E extends Event>(
     const errorEvent = event === 'join_game' ? 'join_error'
       : event === 'resume_game' ? 'resume_error' : 'error';
     try {
-      if (!validators[event](raw)) {
+      await withSocketAccess(socket, event, () => handler(raw as Parameters<ClientToServerEvents[E]>[0]), () => {
+        if (validators[event](raw)) return true;
         socket.emit(errorEvent, {
           code: 'INVALID_PAYLOAD',
           message: `Invalid ${event.replaceAll('_', ' ')} request. Refresh the page and try again.`,
         });
-        return;
-      }
-      await withSocketAccess(socket, event, () => handler(raw as Parameters<ClientToServerEvents[E]>[0]));
+        return false;
+      });
     } catch (error) {
       // Never log raw commands: they may contain private press or session tokens.
       console.error(`Client event ${event} failed:`, error instanceof Error ? error.name : 'Unknown error');

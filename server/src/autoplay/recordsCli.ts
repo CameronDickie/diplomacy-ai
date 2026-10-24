@@ -1,4 +1,4 @@
-import { readFile, readdir, stat, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, readdir, realpath, stat, writeFile, mkdir } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import type { AutoplayGameFile } from '@diplomacy/shared';
 import { indexEntry, mergeGame, publishedGame } from './records.js';
@@ -46,6 +46,12 @@ async function publish(args: string[]) {
   for (let i = 0; i < args.length; i++) { if (args[i] === '--from') from = args[++i] ?? ''; else if (args[i] === '--into') into = args[++i] ?? ''; else runs.push(args[i]); }
   if (!from || !into || !runs.length || runs.some(run => !RUN_ID.test(run))) throw new Error(USAGE);
   const folder = resolve(into);
+  const source = await realpath(from);
+  const destination = await realpath(folder).catch(error => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (source === destination) throw new Error('Publishing needs different source and destination directories.');
   await mkdir(folder, { recursive: true, mode: 0o755 });
   for (const run of runs) {
     const game = JSON.parse(await readFile(resolve(from, `${run}.json`), 'utf8')) as AutoplayGameFile;

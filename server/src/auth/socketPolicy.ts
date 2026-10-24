@@ -20,7 +20,7 @@ const integrations = new Set<keyof ClientToServerEvents>([
   'create_discord_guild_bind_code', 'create_discord_player_link_code', 'request_discord_link_status',
   'start_voice_session', 'begin_voice_input', 'commit_voice_input', 'interrupt_voice_response', 'end_voice_session',
 ]);
-export async function withSocketAccess(socket: AppSocket, event: keyof ClientToServerEvents, work: () => Promise<void> | void): Promise<void> {
+export async function withSocketAccess(socket: AppSocket, event: keyof ClientToServerEvents, work: () => Promise<void> | void, validate?: () => boolean): Promise<void> {
   const policy = policies.get(socket);
   if (!policy) throw new Error('Socket policy is not bound');
   const errorEvent = event === 'join_game' ? 'join_error' : event === 'resume_game' ? 'resume_error' : 'error';
@@ -30,7 +30,9 @@ export async function withSocketAccess(socket: AppSocket, event: keyof ClientToS
   const limited = (wait: number) => { socket.emit(errorEvent, { code: 'RATE_LIMITED', message: `Too many requests. Try again in ${wait} seconds.` }); };
   const byAddress = policy.limits?.limiter.take(`socket:${category}:a:${policy.limits.address}`, RATE_POLICY[category].address) ?? 0;
   if (byAddress) { limited(byAddress); return; }
+  if (validate && !validate()) return;
   const principal = await policy.resolve(); // never trust handshake auth fields or a cached boolean
+  if (!socket.connected) return;
   const byAccount = principal && policy.limits ? policy.limits.limiter.take(`socket:${category}:p:${principal.player.id}`, RATE_POLICY[category].identity) : 0;
   if (byAccount) { limited(byAccount); return; }
   if (policy.profile === 'showcase' && !policy.games) {

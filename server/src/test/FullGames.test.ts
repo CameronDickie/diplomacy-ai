@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { FullGameService, fullGamesEnabled } from '../autoplay/FullGameService.js';
 import { Store } from '../storage/Store.js';
 import { shutdownGodip } from '../adjudication/GodipAdjudicator.js';
+import { LunaDecisionProvider, type HumanSeat } from '../luna/LunaDecisionProvider.js';
 
 test.after(() => shutdownGodip());
 
@@ -120,6 +121,64 @@ test('a same-phase retry during human validation accepts the checked orders inst
   };
   await service.act('validation-retry',{ phase: 'ORDERS', orderIds: ['PAR|HOLD','BRE|HOLD','MAR|HOLD'] },phaseId);
   assert.equal(replaced,true);
+});
+
+for (const fails of [false,true]) test(`human order replay waits for storage ${fails ? 'failure and permits a retry-gap resubmission' : 'success during a retry gap'}`,async t => {
+  const { service } = await setup(t);
+  const original = LunaDecisionProvider.prototype['personAction'];
+  let replay!: (signal: AbortSignal) => ReturnType<HumanSeat['act']>;
+  LunaDecisionProvider.prototype['personAction'] = function(job,human,signal) {
+    replay = nextSignal => human.act({ attemptId: job.attemptId, operationId: job.operationId, phaseId: job.phaseId, board: job.board, signal: nextSignal });
+    return original.call(this,job,human,signal);
+  };
+  t.after(() => { LunaDecisionProvider.prototype['personAction'] = original; });
+  const runId = fails ? 'failed-action-save' : 'pending-action-save';
+  await service.start({ runId, until: 1901, seat: 'FRANCE', messages: 0 });
+  for (let tries = 0; tries < 400 && service['running']?.run.pending?.kind !== 'ACT'; tries++) await new Promise(resolve => setTimeout(resolve,25));
+  const run = service['running']!.run, pending = run.pending!;
+  assert.equal(pending.kind,'ACT');
+  const store = await service['open']('standIn'), call = store.call.bind(store);
+  let release!: () => void, saving!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const entered = new Promise<void>(resolve => { saving = resolve; });
+  store.call = (operation,input) => {
+    if (operation === 'saveHumanAction') {
+      saving();
+      return held.then(() => {
+        if (fails) throw new Error('Injected action save failure.');
+        return call(operation,input);
+      });
+    }
+    return call(operation,input);
+  };
+  t.after(() => { release(); store.call = call; });
+  const action = { phase: 'ORDERS' as const, orderIds: ['BRE|HOLD','MAR|HOLD','PAR|HOLD'] };
+  const submitted = service.act(runId,action,pending.phaseId);
+  const submission = fails ? assert.rejects(submitted,/Injected action save failure/) : submitted;
+  await entered;
+  run.pending = null;
+  const phase = new AbortController();
+  let replayed = false;
+  const retried = replay(phase.signal).then(answer => { replayed = true; return answer; });
+  const replayOutcome = fails ? assert.rejects(retried,/Stopped by you/) : retried;
+  await new Promise(resolve => setTimeout(resolve,25));
+  assert.equal(replayed,false);
+  release();
+  await submission;
+  if (fails) {
+    assert.equal(await call('humanAction',{ operationId: pending.operationId, power: 'FRANCE' }),null);
+    assert.equal(run.ordersGiven.has(pending.operationId),false);
+    assert.equal(replayed,false);
+    phase.abort();
+    await replayOutcome;
+    run.pending = null;
+    store.call = call;
+    await service.act(runId,action,pending.phaseId);
+    assert.deepEqual(await replay(new AbortController().signal),action);
+  } else {
+    assert.deepEqual(await replayOutcome,action);
+  }
+  assert.deepEqual(await call('humanAction',{ operationId: pending.operationId, power: 'FRANCE' }),action);
 });
 
 test('human message acknowledgement waits for durable storage',async t => {

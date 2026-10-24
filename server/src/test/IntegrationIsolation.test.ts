@@ -14,7 +14,7 @@ const events = ['create_discord_guild_bind_code', 'create_discord_player_link_co
 function fakeSocket() {
   const handlers = new Map<string, (payload: unknown) => Promise<void>>();
   const emitted: Array<{ event: string; value: unknown }> = [];
-  return { id: 'seat', handlers, emitted,
+  return { id: 'seat', connected: true, handlers, emitted,
     on(event: string, handler: (payload: unknown) => Promise<void>) { handlers.set(event, handler); },
     emit(event: string, value: unknown) { emitted.push({ event, value }); },
   };
