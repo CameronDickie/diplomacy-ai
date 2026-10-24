@@ -2,11 +2,12 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
 import type { AuthService, Principal } from '../auth.js';
+import { clientAddress, RATE_POLICY, SOCKET_RATE, type RateLimiter } from '../limits/RateLimiter.js';
 
 type AppSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 type Profile = 'local' | 'private' | 'showcase';
 /** `games`: the showcase profile's hosted games are turned on (DIPLOMACY_SHOWCASE_GAMES). */
-interface Policy { profile: Profile; games?: boolean; resolve(): Promise<Principal | null> }
+interface Policy { profile: Profile; games?: boolean; limits?: { limiter: RateLimiter; address: string }; resolve(): Promise<Principal | null> }
 const policies = new WeakMap<object, Policy>();
 const context = new AsyncLocalStorage<{ principal: Principal | null; profile: Profile; practiceSeats: boolean }>();
 export function bindSocketPolicy(socket: object, policy: Policy): void { policies.set(socket, policy); }
@@ -22,8 +23,16 @@ const integrations = new Set<keyof ClientToServerEvents>([
 export async function withSocketAccess(socket: AppSocket, event: keyof ClientToServerEvents, work: () => Promise<void> | void): Promise<void> {
   const policy = policies.get(socket);
   if (!policy) throw new Error('Socket policy is not bound');
-  const principal = await policy.resolve(); // never trust handshake auth fields or a cached boolean
   const errorEvent = event === 'join_game' ? 'join_error' : event === 'resume_game' ? 'resume_error' : 'error';
+  // The address bucket runs before authentication and the account bucket after it, as for HTTP, so
+  // neither a new connection nor a new cookie resets a flood. A refused event does no work at all.
+  const category = SOCKET_RATE[event];
+  const limited = (wait: number) => { socket.emit(errorEvent, { code: 'RATE_LIMITED', message: `Too many requests. Try again in ${wait} seconds.` }); };
+  const byAddress = policy.limits?.limiter.take(`socket:${category}:a:${policy.limits.address}`, RATE_POLICY[category].address) ?? 0;
+  if (byAddress) { limited(byAddress); return; }
+  const principal = await policy.resolve(); // never trust handshake auth fields or a cached boolean
+  const byAccount = principal && policy.limits ? policy.limits.limiter.take(`socket:${category}:p:${principal.player.id}`, RATE_POLICY[category].identity) : 0;
+  if (byAccount) { limited(byAccount); return; }
   if (policy.profile === 'showcase' && !policy.games) {
     // These are legacy free-form room commands. Owned challenge commands have a
     // separate service; even an operator cannot bypass its preset/admission here.
@@ -48,10 +57,11 @@ export async function withSocketAccess(socket: AppSocket, event: keyof ClientToS
   await context.run({ principal, profile: policy.profile, practiceSeats }, work);
 }
 
-export function installSocketPolicy(socket: AppSocket, auth: AuthService): void {
+export function installSocketPolicy(socket: AppSocket, auth: AuthService, limiter?: RateLimiter): void {
   const cookie = socket.handshake.headers.cookie;
   const hash = auth.tokenHash(cookie);
-  bindSocketPolicy(socket, { profile: auth.config.profile, games: auth.config.showcaseGames, resolve: () => auth.resolve(cookie) });
+  const limits = limiter && { limiter, address: clientAddress(socket.request, auth.config.trustedProxy) };
+  bindSocketPolicy(socket, { profile: auth.config.profile, games: auth.config.showcaseGames, limits, resolve: () => auth.resolve(cookie) });
   const remove = auth.onRevoke(revoked => { if (hash === revoked) socket.disconnect(true); });
   let expiry: NodeJS.Timeout | undefined;
   let checking = false;

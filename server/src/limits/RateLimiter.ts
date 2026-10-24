@@ -1,6 +1,7 @@
 import { isIP } from 'node:net';
 import type { RequestHandler, Response } from 'express';
 import type { RuntimeConfig } from '../../../config/runtime.cjs';
+import type { ClientToServerEvents } from '@diplomacy/shared';
 import type { Principal } from '../auth.js';
 
 export interface RateRule { limit: number; windowMs: number }
@@ -18,8 +19,21 @@ export const RATE_POLICY = {
   start: { identity: perMinute(10), address: perMinute(30) },
   account: { identity: perMinute(5), address: perMinute(20) },
   operator: { identity: perMinute(120), address: perMinute(240) },
+  room: { identity: perMinute(20), address: perMinute(60) },
 } satisfies Record<string, { identity?: RateRule; address: RateRule }>;
 export type RateCategory = keyof typeof RATE_POLICY;
+/**
+ * The same buckets for a hosted game's socket events: creating, joining and setting up a game are
+ * `room`; anything that runs the rules engine is `legal`; orders and messages are `command`.
+ */
+export const SOCKET_RATE: Record<keyof ClientToServerEvents, Exclude<RateCategory, 'public'>> = {
+  create_game: 'room', join_game: 'room', resume_game: 'room', add_llm_player: 'room', update_game_settings: 'room', start_game: 'room',
+  request_legal_orders: 'legal',
+  submit_orders: 'command', submit_retreats: 'command', submit_builds: 'command', send_diplomatic_message: 'command',
+  request_diplomacy_history: 'read', request_phase_history: 'read', request_state: 'read', request_discord_link_status: 'read',
+  create_discord_guild_bind_code: 'command', create_discord_player_link_code: 'command', start_voice_session: 'command',
+  begin_voice_input: 'command', commit_voice_input: 'command', interrupt_voice_response: 'command', end_voice_session: 'command',
+};
 
 export function isPrivateAddress(address: string): boolean {
   const ip = address.startsWith('::ffff:') ? address.slice(7) : address;

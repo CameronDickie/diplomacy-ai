@@ -14,6 +14,7 @@ import { OAuthProvider, boundedFetch, type Fetch } from '../auth/provider.js';
 import { Store } from '../storage/Store.js';
 import { installSocketPolicy, bindSocketPolicy, eventPrincipal, practiceSeatsAllowed } from '../auth/socketPolicy.js';
 import { onClientEvent } from '../handlers/clientEvent.js';
+import { RateLimiter } from '../limits/RateLimiter.js';
 import { Server } from 'socket.io';
 import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@diplomacy/shared';
@@ -292,6 +293,31 @@ test('showcase games, once the owner turns them on, admit signed-in players with
     if (signedIn) { assert.equal(seats, true); assert.deepEqual(errors, []); } else { assert.equal(seats, undefined); assert.equal(errors[0].code, 'AUTH_REQUIRED'); }
   }
   assert.throws(() => readRuntimeConfig({ ...env, DIPLOMACY_SHOWCASE_GAMES: 'true' }), /DIPLOMACY_SHOWCASE_GAMES/);
+});
+
+test('hosted-game socket events are rate limited per address before sign-in and per account after it', async () => {
+  let now = 0;
+  const limiter = new RateLimiter('none', () => now);
+  const errors: Array<{ code: string }> = [];
+  let handled = 0;
+  const socket = (address: string, account: string | null) => {
+    let listener: ((payload: unknown) => Promise<void>) | undefined;
+    const fake = { on: (_event: string, fn: typeof listener) => { listener = fn; }, emit: (_event: string, error: { code: string }) => errors.push(error) };
+    bindSocketPolicy(fake, { profile: 'local', limits: { limiter, address }, resolve: async () => account ? {
+      player: { id: account, provider: 'github', subject: '1', displayName: 'P', bannedAt: null }, operator: false, expiresAt: Date.now() + 60000 } : null });
+    onClientEvent(fake as never, 'request_legal_orders', () => { handled++; });
+    return (count: number) => Promise.all(Array.from({ length: count }, () => listener!({ gameId: 'G' })));
+  };
+  // One account on many connections and addresses shares its 30 a minute.
+  for (let i = 0; i < 6; i++) await socket(`10.0.0.${i}`, 'alice')(6);
+  assert.equal(handled, 30); assert.equal(errors.length, 6); assert.ok(errors.every(e => e.code === 'RATE_LIMITED'));
+  // Signed out, one address gets 120 a minute however many connections it opens.
+  handled = 0; errors.length = 0;
+  for (let i = 0; i < 3; i++) await socket('192.0.2.1', null)(50);
+  assert.equal(handled, 120); assert.equal(errors.length, 30);
+  now += 60_000; handled = 0;
+  await socket('10.0.0.9', 'alice')(1);
+  assert.equal(handled, 1, 'the window resets after a minute');
 });
 
 test('cookie parsing and login rate limits reject malformed and excessive requests', async t => {

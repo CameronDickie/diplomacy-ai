@@ -36,6 +36,14 @@ bucket and an unauthenticated flood is bounded too.
 | `account` | credit request, account deletion | 5 | 20 |
 | `operator` | every `/api/operator` route | 120 | 240 |
 
+| `room` | hosted game: create, join, resume, seat, settings, start | 20 | 60 |
+
+A hosted game's socket events use the same buckets (`SOCKET_RATE`): setting up
+a game is `room`, its legal orders are `legal`, orders and messages are
+`command`, history and state are `read`. The address bucket runs before the
+session is resolved and the account bucket after, shared by every connection,
+and a refused event gets `RATE_LIMITED` and does no work.
+
 A refused request gets `429` with `Retry-After` and
 `{"code":"RATE_LIMITED","retryAfterSeconds":n}`; it does no storage, engine or
 provider work. The table holds at most 20,000 live keys and refuses new keys

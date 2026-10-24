@@ -14,6 +14,7 @@ import { ChallengeService } from './challenge/ChallengeService.js';
 import { OperatorService } from './operator/OperatorService.js';
 import { ExhibitionService } from './exhibition/ExhibitionService.js';
 import { installSocketPolicy } from './auth/socketPolicy.js';
+import { RateLimiter } from './limits/RateLimiter.js';
 import { GameManager } from './GameManager.js';
 import { attachHandlers } from './handlers/connectionHandler.js';
 import { DiplomacyService } from './diplomacy/DiplomacyService.js';
@@ -116,8 +117,10 @@ if (existsSync(clientDirectory)) {
   });
 }
 
+// One set of buckets for every connection, so reconnecting does not reset them.
+const socketLimits = new RateLimiter(config.trustedProxy);
 io.on('connection', socket => {
-  installSocketPolicy(socket, auth);
+  installSocketPolicy(socket, auth, socketLimits);
   attachHandlers(socket, io, gameManager, {
     diplomacy,
     integrations,
