@@ -168,9 +168,30 @@ turn can be linked to directly.
 
 The records are private game data. The Vite development server serves
 `game-records/` at `/game-records/` through a plugin that exists only while
-serving; builds and the production server never include or serve it. Games in
-the database come from `/api/full-games`, which only a local-profile server has. A later
-public version would need its own decision about which games and messages to
-publish, plus authenticated game ownership and operator-only paid controls.
-This development workflow does not enable public AI games or paid calls in
-production.
+serving; builds never include it, and `.dockerignore` keeps both record folders
+out of the image. Games in the database come from `/api/full-games`, which only
+a local-profile server has.
+
+### Publishing chosen games
+
+Nothing is public by default. The owner picks games to show (for the blog, say):
+
+```bash
+npm run records -- publish live-15-sol-vs-sonnet live-12-all-haiku-memory
+```
+
+`publish` copies each named game from `game-records/` into `published-games/`
+(both git-ignored; `--from` and `--into` change them) and rewrites that folder's
+`index.json`. The copy keeps every phase, order, result, message between the
+powers, each power's private notes, every call with its tokens and cost, and
+the failures. It drops the orders instructions (the prompt; its fingerprint
+stays), the commit, and the names of the local files it was combined from. To
+withdraw a game, delete its file and publish any game again (or run `publish`
+with an existing one) to rewrite the index.
+
+The server serves that folder read-only at `/game-records/` only when
+`DIPLOMACY_PUBLISHED_GAMES_DIR` names it, and the session then offers the
+viewer (`capabilities.recordedGames`), so `/viewer` and the Games home's Watch
+card work on the public site. In production, mount the folder into the
+container (for example at `/data/published-games`) rather than building it in.
+Starting or playing games against models stays local only.

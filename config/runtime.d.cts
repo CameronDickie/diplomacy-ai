@@ -52,6 +52,8 @@ export interface RuntimeConfig {
   /** Hosted games held in memory at once, and games one account may host (enforced in showcase). */
   maxRooms: number;
   maxRoomsPerAccount: number;
+  /** The folder of published AI game records served at /game-records/, or empty for none. */
+  publishedGamesDir: string;
   dailyStartLimit: number;
   resultRetentionDays: number;
   diagnosticRetentionDays: number;

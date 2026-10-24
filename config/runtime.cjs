@@ -42,7 +42,7 @@ const SUPPORTED_ENV_NAMES = [
   'DISCORD_VOICE_ENABLED', 'DISCORD_VOICE_DEBUG', 'DISCORD_VOICE_AUTO_LISTEN',
   'DIPLOMACY_NOTIFY_MODE', 'RESEND_API_KEY', 'DIPLOMACY_NOTIFY_FROM', 'DIPLOMACY_NOTIFY_TO',
   'DIPLOMACY_MAX_ACTIVE_ATTEMPTS', 'DIPLOMACY_MAX_ACTIVE_PER_ACCOUNT',
-  'DIPLOMACY_SHOWCASE_GAMES', 'DIPLOMACY_MAX_ROOMS', 'DIPLOMACY_MAX_ROOMS_PER_ACCOUNT',
+  'DIPLOMACY_SHOWCASE_GAMES', 'DIPLOMACY_MAX_ROOMS', 'DIPLOMACY_MAX_ROOMS_PER_ACCOUNT', 'DIPLOMACY_PUBLISHED_GAMES_DIR',
   'DIPLOMACY_DAILY_START_LIMIT', 'DIPLOMACY_IDLE_WARN_MINUTES', 'DIPLOMACY_IDLE_EXPIRE_MINUTES',
   'DIPLOMACY_RESULT_RETENTION_DAYS', 'DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS', 'DIPLOMACY_RECEIPT_RETENTION_DAYS',
   'DIPLOMACY_TRUSTED_PROXY', 'DIPLOMACY_LUNA_TRANSPORT', 'DIPLOMACY_SPONSORED_PRESET',
@@ -270,6 +270,8 @@ function readRuntimeConfig(env = process.env, options = {}) {
     engine: readEngineConfig(env),
     notifyMode, admins, trustedProxy, lunaTransport, sponsoredPreset, playtestOpponents, devLogin, playtestChat, chatMessageLimit, idleWarnMinutes, idleExpireMinutes, maxActiveAttempts, maxActivePerAccount,
     showcaseGames, maxRooms, maxRoomsPerAccount,
+    // Recorded AI games the owner chose to publish (`npm run records -- publish`), served read-only. Empty: none.
+    publishedGamesDir: value(env, 'DIPLOMACY_PUBLISHED_GAMES_DIR', ''),
     dailyStartLimit: number(env, 'DIPLOMACY_DAILY_START_LIMIT', 3, 1, 100, true),
     resultRetentionDays: number(env, 'DIPLOMACY_RESULT_RETENTION_DAYS', 30, 1, 365, true),
     diagnosticRetentionDays: number(env, 'DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS', 7, 1, 365, true),

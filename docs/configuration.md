@@ -69,6 +69,7 @@ silently ignored. Comma-separated lists are trimmed and deduplicated.
 | `DIPLOMACY_MAX_ACTIVE_PER_ACCOUNT` | 1; positive integer no greater than global capacity |
 | `DIPLOMACY_DAILY_START_LIMIT` | 3; integer 1–100 |
 | `DIPLOMACY_SHOWCASE_GAMES` | `false`; showcase profile only (refused elsewhere). `true` opens hosted games on the public site: with friends and against practice bots, for signed-in players, with no paid model ([challenge-ui.md](challenge-ui.md#games)) |
+| `DIPLOMACY_PUBLISHED_GAMES_DIR` | empty; a folder of recorded AI games the owner published (`npm run records -- publish`), served read-only at `/game-records/` with the viewer offered ([game-viewer.md](game-viewer.md#publishing-chosen-games)) |
 | `DIPLOMACY_MAX_ROOMS` | 20; integer 1–500; hosted games held in memory at once |
 | `DIPLOMACY_MAX_ROOMS_PER_ACCOUNT` | 1; integer 1–20, no greater than `DIPLOMACY_MAX_ROOMS`; unfinished games one account may host, enforced in the showcase profile |
 | `DIPLOMACY_IDLE_WARN_MINUTES`, `DIPLOMACY_IDLE_EXPIRE_MINUTES` | 25 / 30; integers 1–1440, warning strictly before expiry |

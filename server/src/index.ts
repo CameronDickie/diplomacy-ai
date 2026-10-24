@@ -97,6 +97,17 @@ const safeHttpError: ErrorRequestHandler = (_error, _request, response, _next) =
 };
 app.use(safeHttpError);
 
+// Recorded AI games the owner published (`npm run records -- publish`), read-only. Nothing is served
+// unless DIPLOMACY_PUBLISHED_GAMES_DIR names the folder; only flat `.json` names are read from it.
+const publishedGames = config.publishedGamesDir ? resolve(currentDirectory, '../..', config.publishedGamesDir) : null;
+app.get('/game-records/:name', (request, response) => {
+  const name = request.params.name, path = publishedGames && resolve(publishedGames, name);
+  if (!path || !/^[a-z0-9][a-z0-9-]{0,60}\.json$/.test(name) || !existsSync(path)) { response.status(404).json({ code: 'NOT_FOUND' }); return; }
+  response.setHeader('Cache-Control', 'public, max-age=300');
+  response.sendFile(path);
+});
+app.use('/game-records', (_request, response) => { response.status(404).json({ code: 'NOT_FOUND' }); });
+
 const clientDirectory = resolve(currentDirectory, '../../client/dist');
 if (existsSync(clientDirectory)) {
   app.use(express.static(clientDirectory));

@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createRequire } from 'node:module';
 import { parseEnv } from 'node:util';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -69,7 +69,7 @@ test('production renderer preserves every supported setting, including aliases, 
     DISCORD_VOICE_ENABLED: 'true', DISCORD_VOICE_DEBUG: 'false', DISCORD_VOICE_AUTO_LISTEN: 'false',
     DIPLOMACY_NOTIFY_MODE: 'resend', RESEND_API_KEY: 'synthetic-key',
     DIPLOMACY_NOTIFY_FROM: 'Game <notifications@example.test>', DIPLOMACY_NOTIFY_TO: 'owner@example.test',
-    DIPLOMACY_MAX_ACTIVE_ATTEMPTS: '4', DIPLOMACY_MAX_ACTIVE_PER_ACCOUNT: '2', DIPLOMACY_SHOWCASE_GAMES: 'false', DIPLOMACY_MAX_ROOMS: '30', DIPLOMACY_MAX_ROOMS_PER_ACCOUNT: '2',
+    DIPLOMACY_MAX_ACTIVE_ATTEMPTS: '4', DIPLOMACY_MAX_ACTIVE_PER_ACCOUNT: '2', DIPLOMACY_SHOWCASE_GAMES: 'false', DIPLOMACY_MAX_ROOMS: '30', DIPLOMACY_MAX_ROOMS_PER_ACCOUNT: '2', DIPLOMACY_PUBLISHED_GAMES_DIR: '/data/published-games',
     DIPLOMACY_DAILY_START_LIMIT: '5', DIPLOMACY_IDLE_WARN_MINUTES: '10', DIPLOMACY_IDLE_EXPIRE_MINUTES: '15',
     DIPLOMACY_RESULT_RETENTION_DAYS: '5', DIPLOMACY_DIAGNOSTIC_RETENTION_DAYS: '2', DIPLOMACY_RECEIPT_RETENTION_DAYS: '180',
     DIPLOMACY_TRUSTED_PROXY: 'private', DIPLOMACY_LUNA_TRANSPORT: 'none', DIPLOMACY_SPONSORED_PRESET: 'haiku', DIPLOMACY_PLAYTEST_OPPONENTS: '', DIPLOMACY_DEV_LOGIN: 'false', DIPLOMACY_PLAYTEST_CHAT: 'false', DIPLOMACY_CHAT_MESSAGE_LIMIT: '40',
@@ -138,6 +138,11 @@ test('production renderer validates before writing, preserves source and replace
 
 test('showcase server starts without Discord or provider secrets and serves health without login', async () => {
   const databaseDirectory = mkdtempSync(resolve(tmpdir(), 'diplomacy-server-start-'));
+  // A published game folder, as `npm run records -- publish` leaves it, beside a file it must not serve.
+  const published = resolve(databaseDirectory, 'published');
+  mkdirSync(published);
+  writeFileSync(resolve(published, 'index.json'), '{"games":[]}');
+  writeFileSync(resolve(databaseDirectory, 'secret.json'), '{}');
   const listener = createServer();
   listener.listen(0, '127.0.0.1');
   await once(listener, 'listening');
@@ -145,7 +150,7 @@ test('showcase server starts without Discord or provider secrets and serves heal
   assert.ok(address && typeof address === 'object');
   await new Promise<void>(resolve => listener.close(() => resolve()));
   const child = spawn(process.execPath, ['--experimental-loader', resolve(root, 'server/dist/test/fixtures/forbidIntegrations.js'), resolve(root, 'server/dist/index.js')], {
-    env: { ...showcase, HOST: '127.0.0.1', PORT: String(address.port), DIPLOMACY_ENV_FILE: '/dev/null', DIPLOMACY_DATABASE_PATH: resolve(databaseDirectory, 'test.sqlite') },
+    env: { ...showcase, HOST: '127.0.0.1', PORT: String(address.port), DIPLOMACY_ENV_FILE: '/dev/null', DIPLOMACY_DATABASE_PATH: resolve(databaseDirectory, 'test.sqlite'), DIPLOMACY_PUBLISHED_GAMES_DIR: published },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const closed = once(child, 'close');
@@ -166,7 +171,12 @@ test('showcase server starts without Discord or provider secrets and serves heal
     assert.match(output, /Discord integration disabled/);
     assert.equal(output.includes('INTEGRATION_MODULE_LOADED'), false);
     const auth = await fetch(`http://127.0.0.1:${address.port}/api/auth/session`);
-    assert.equal((await auth.json() as { authenticated: boolean }).authenticated, false);
+    const session = await auth.json() as { authenticated: boolean; capabilities: { games: boolean; recordedGames: boolean } };
+    assert.equal(session.authenticated, false);
+    // Hosted games stay off until the owner turns them on; the published games are offered and served read-only.
+    assert.deepEqual([session.capabilities.games, session.capabilities.recordedGames], [false, true]);
+    assert.deepEqual(await (await fetch(`http://127.0.0.1:${address.port}/game-records/index.json`)).json(), { games: [] });
+    for (const path of ['secret.json', '..%2Fsecret.json', 'missing.json', 'index.txt']) assert.equal((await fetch(`http://127.0.0.1:${address.port}/game-records/${path}`)).status, 404, path);
   } finally {
     child.kill('SIGTERM');
     const [code, signal] = await closed;

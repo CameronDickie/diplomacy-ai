@@ -40,3 +40,14 @@ export function indexEntry(file: string, bytes: number, game: AutoplayGameFile):
     commits: [...new Set(parts.map(p => p.commit).filter((c): c is string => Boolean(c)))], parts: parts.length,
     failures: game.record.failures.length, exportedAt: game.record.exportedAt };
 }
+
+/**
+ * A combined game as it may be shown on the public site: what was played and said, without how it was
+ * built. The orders instructions (the prompt) are dropped, keeping their fingerprint; so are the commit
+ * and the names of the local files it came from. Orders, messages, notes, calls and costs stay.
+ */
+export function publishedGame(game: AutoplayGameFile): AutoplayGameFile {
+  const harness = game.run.harness && { ...game.run.harness, commit: null, modified: false, ordersInstructions: '' };
+  return { ...game, run: { ...game.run, ...(harness ? { harness } : {}) },
+    ...(game.parts ? { parts: game.parts.map((p, i) => ({ ...p, file: `run-${i + 1}`, commit: null })) } : {}) };
+}

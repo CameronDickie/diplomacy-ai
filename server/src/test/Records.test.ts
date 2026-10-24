@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { AutoplayGameFile } from '@diplomacy/shared';
-import { indexEntry, mergeGame } from '../autoplay/records.js';
+import { indexEntry, mergeGame, publishedGame } from '../autoplay/records.js';
 
 /** A game file reduced to what combining reads: the run, the reported phases and the failures. */
 function file(phases: string[], failures: Array<{ at: string; reason: string }>, exportedAt: string, extra: Partial<AutoplayGameFile['run']> = {}): AutoplayGameFile {
@@ -32,4 +32,17 @@ test('one game\'s files combine into the furthest one, with every run\'s failure
   // A record from before the stamp existed is listed without one.
   const old = file(['p1'],[],'2026-10-12T10:00:00Z'); delete old.run.harness;
   assert.deepEqual(indexEntry('old.json',1,old).instructionsHashes,[]);
+});
+
+test('a published game keeps what was played and said, and drops the prompt, the commit and the local file names', () => {
+  const game = file(['p1'], [{ at: '2026-10-13T10:00:00Z', reason: 'retry' }], '2026-10-13T10:05:00Z');
+  game.run.harness!.ordersInstructions = 'SECRET prompt';
+  const merged = mergeGame([{ file: 'autoplay-live-9.json', game }]);
+  const published = publishedGame(merged);
+  assert.equal(published.run.harness!.ordersInstructions, '');
+  assert.equal(published.run.harness!.commit, null);
+  assert.equal(published.run.harness!.instructionsHash, 'abc');
+  assert.deepEqual(published.parts!.map(p => [p.file, p.commit, p.failures]), [['run-1', null, 1]]);
+  assert.deepEqual(published.record, merged.record);
+  assert.equal(JSON.stringify(published).includes('SECRET') || JSON.stringify(published).includes('autoplay-live-9'), false);
 });

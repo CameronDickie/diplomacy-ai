@@ -1,5 +1,8 @@
-/** `games`: hosted games exist here. `practiceBots`: any host may fill empty seats with the free offline bots. */
-export interface PlayerCapabilities { providerSettings: boolean; discord: boolean; voice: boolean; games: boolean; practiceBots: boolean }
+/**
+ * `games`: hosted games exist here. `practiceBots`: any host may fill empty seats with the free offline bots.
+ * `recordedGames`: the AI games viewer is offered (local development, or games the owner published).
+ */
+export interface PlayerCapabilities { providerSettings: boolean; discord: boolean; voice: boolean; games: boolean; practiceBots: boolean; recordedGames: boolean }
 export interface PlayerSession {
   authenticated: boolean;
   enabled: boolean;

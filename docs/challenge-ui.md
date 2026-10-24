@@ -139,7 +139,8 @@ Off by default. With `DIPLOMACY_SHOWCASE_GAMES=true` in the showcase profile:
   `DIPLOMACY_MAX_ROOMS`. Finished games and games nobody is connected to are
   given up first when a cap is reached (`GameManager.refusal`);
 - games live in the server's memory, so a restart or deploy ends them;
-- AI games (against models, or watched) are not offered there.
+- games against AI models are not offered there; recorded AI games are shown
+  once the owner publishes some ([game-viewer.md](game-viewer.md#publishing-chosen-games)).
 
 ## Style
 
