@@ -51,3 +51,10 @@ export function publishedGame(game: AutoplayGameFile): AutoplayGameFile {
   return { ...game, run: { ...game.run, ...(harness ? { harness } : {}) },
     ...(game.parts ? { parts: game.parts.map((p, i) => ({ ...p, file: `run-${i + 1}`, commit: null })) } : {}) };
 }
+
+/** Whether a game is in the published form: no prompt, no commit, no local file names. */
+export function isPublished(game: AutoplayGameFile): boolean {
+  const harness = game.run?.harness;
+  return (!harness || (harness.ordersInstructions === '' && harness.commit === null))
+    && (game.parts ?? []).every((p, i) => p.file === `run-${i + 1}` && p.commit === null);
+}

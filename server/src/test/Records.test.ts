@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AutoplayGameFile } from '@diplomacy/shared';
-import { indexEntry, mergeGame, publishedGame } from '../autoplay/records.js';
+import { indexEntry, isPublished, mergeGame, publishedGame } from '../autoplay/records.js';
 
 /** A game file reduced to what combining reads: the run, the reported phases and the failures. */
 function file(phases: string[], failures: Array<{ at: string; reason: string }>, exportedAt: string, extra: Partial<AutoplayGameFile['run']> = {}): AutoplayGameFile {
@@ -50,6 +50,8 @@ test('a published game keeps what was played and said, and drops the prompt, the
   assert.deepEqual(published.parts!.map(p => [p.file, p.commit, p.failures]), [['run-1', null, 1]]);
   assert.deepEqual(published.record, merged.record);
   assert.equal(JSON.stringify(published).includes('SECRET') || JSON.stringify(published).includes('autoplay-live-9'), false);
+  assert.equal(isPublished(merged), false);
+  assert.equal(isPublished(published), true);
 });
 
 test('publish rejects identical and symlink-aliased directories without changing private files', async t => {

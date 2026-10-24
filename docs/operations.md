@@ -133,10 +133,14 @@ Messages contain attempt, scenario and anonymous account identifiers only.
 
 ## Backup, restore and rollback
 
-Take backups with the storage command, never by copying the live file:
+Take backups with the storage command, never by copying the live file, and
+keep them under `/data/backups` (the only mounted volume, so they survive the
+container). `deploy_lightsail.sh` takes one before every deploy. By hand, on the
+host:
 
 ```bash
-npm run storage -- backup /data/diplomacy.sqlite /backups/diplomacy-$(date -u +%Y%m%dT%H%M%SZ).sqlite
+docker exec "$(docker ps -q --filter label=com.docker.compose.service=app)" \
+  node server/dist/storage/cli.js backup /data/diplomacy.sqlite /data/backups/diplomacy-$(date -u +%Y%m%dT%H%M%SZ).sqlite
 ```
 
 Restore into a **new** path with the server stopped, then point

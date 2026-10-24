@@ -1,7 +1,8 @@
 import { readFile, readdir, realpath, stat, writeFile, mkdir } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import type { AutoplayGameFile } from '@diplomacy/shared';
-import { indexEntry, mergeGame, publishedGame } from './records.js';
+import { indexEntry, isPublished, mergeGame, publishedGame } from './records.js';
+import { rm } from 'node:fs/promises';
 
 const USAGE = `Usage: records collect [--into game-records] FILE...
        Combines the files the autoplay tool wrote for each game (one per run) into one file per game in
@@ -9,12 +10,19 @@ const USAGE = `Usage: records collect [--into game-records] FILE...
        are only read, never changed; a game already in the folder is replaced by the new combination.
        records publish [--from game-records] [--into published-games] RUN_ID...
        Copies the named games, without their prompt, commit or file names, into the folder the server
-       serves when DIPLOMACY_PUBLISHED_GAMES_DIR points at it, and rewrites that folder's index.json.`;
+       serves when DIPLOMACY_PUBLISHED_GAMES_DIR points at it, and rewrites that folder's index.json.
+       records withdraw [--into published-games] RUN_ID...
+       Removes the named games from the published folder and rewrites its index.json.
+       records check [--into published-games]
+       Confirms every game in the folder is in published form and listed in its index.json; the
+       production publish script runs this before uploading anything.`;
 const RUN_ID = /^[a-z0-9][a-z0-9-]{0,55}$/;
 
 async function main() {
   const args = process.argv.slice(2);
   if (args[0] === 'publish') return publish(args.slice(1));
+  if (args[0] === 'withdraw') return withdraw(args.slice(1));
+  if (args[0] === 'check') return check(args.slice(1));
   if (args[0] !== 'collect') throw new Error(USAGE);
   let into = 'game-records';
   const files: string[] = [];
@@ -62,6 +70,39 @@ async function publish(args: string[]) {
   }
   const count = await writeIndex(folder, 0o644);
   console.log(`${into}/index.json lists ${count} game${count === 1 ? '' : 's'}.`);
+}
+
+function publishedFolder(args: string[]): { into: string; runs: string[] } {
+  let into = 'published-games';
+  const runs: string[] = [];
+  for (let i = 0; i < args.length; i++) { if (args[i] === '--into') into = args[++i] ?? ''; else runs.push(args[i]); }
+  if (!into || runs.some(run => !RUN_ID.test(run))) throw new Error(USAGE);
+  return { into, runs };
+}
+
+async function withdraw(args: string[]) {
+  const { into, runs } = publishedFolder(args);
+  if (!runs.length) throw new Error(USAGE);
+  for (const run of runs) { await rm(resolve(into, `${run}.json`)); console.log(`${run} withdrawn from ${into}`); }
+  const count = await writeIndex(resolve(into), 0o644);
+  console.log(`${into}/index.json lists ${count} game${count === 1 ? '' : 's'}.`);
+}
+
+/** Refuses a folder holding anything but published games, or whose index is out of date. */
+async function check(args: string[]) {
+  const { into, runs } = publishedFolder(args);
+  if (runs.length) throw new Error(USAGE);
+  const folder = resolve(into), names = (await readdir(folder)).filter(n => n !== 'index.json');
+  const strays = names.filter(n => !/^[a-z0-9][a-z0-9-]{0,55}\.json$/.test(n));
+  if (strays.length) throw new Error(`${into} holds files the server would not serve: ${strays.join(', ')}`);
+  for (const name of names) {
+    if (!isPublished(JSON.parse(await readFile(resolve(folder, name), 'utf8')) as AutoplayGameFile)) {
+      throw new Error(`${into}/${name} is not in published form (it still has its prompt, commit or file names). Publish it with records publish.`);
+    }
+  }
+  const listed = (JSON.parse(await readFile(resolve(folder, 'index.json'), 'utf8')) as { games: Array<{ file: string }> }).games.map(g => g.file).sort();
+  if (JSON.stringify(listed) !== JSON.stringify([...names].sort())) throw new Error(`${into}/index.json does not list exactly the games in the folder; run records publish or withdraw to rewrite it.`);
+  console.log(`${into}: ${names.length} published game${names.length === 1 ? '' : 's'}, all in published form.`);
 }
 
 /** Lists every game in the folder in its index.json, for the game viewer. */

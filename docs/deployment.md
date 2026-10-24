@@ -13,9 +13,9 @@ Remote files live under `/srv/diplomacy` by default:
 /srv/diplomacy/
   Caddyfile
   docker-compose.lightsail.yml
-  data/
-  backups/
+  data/                  the database, backups/ and published-games/
   env/app.env
+  previous-deploy.txt    the image and backup from before the latest deploy
   caddy/
 ```
 
@@ -26,8 +26,10 @@ profile. See [storage and backup](storage.md); use a durable private volume.
 
 ## Environment
 
-Production environment values are rendered from a local ignored env file into
-the remote `env/app.env`. The renderer copies only the approved allowlist.
+Production environment values are rendered from a local, git-ignored
+`.env.production` (or `LIGHTSAIL_ENV_FILE`) into the remote `env/app.env`. The
+renderer copies only the approved allowlist. The deploy refuses the root `.env`,
+which is the development file.
 
 Example offline showcase preparation (supply real credentials privately):
 
@@ -45,6 +47,13 @@ DIPLOMACY_GOOGLE_CLIENT_SECRET=...
 DIPLOMACY_ADMIN_GITHUB_USER_IDS=...
 DISCORD_ENABLED=false
 DISCORD_VOICE_ENABLED=false
+DIPLOMACY_TRUSTED_PROXY=private
+# Games with friends and against practice bots, signed-in players only (off if unset).
+DIPLOMACY_SHOWCASE_GAMES=true
+DIPLOMACY_MAX_ROOMS=20
+DIPLOMACY_MAX_ROOMS_PER_ACCOUNT=1
+# Published AI games (scripts/publish-games-production.sh fills the folder).
+DIPLOMACY_PUBLISHED_GAMES_DIR=/data/published-games
 ```
 
 See [OAuth configuration and verification](authentication.md). Shared-password
@@ -59,7 +68,7 @@ same origin.
 Validate env rendering locally:
 
 ```bash
-node scripts/render-production-env.cjs .env /tmp/diplomacy-app.env
+node scripts/render-production-env.cjs .env.production /tmp/diplomacy-app.env
 ```
 
 ## First-Time Infrastructure
@@ -83,7 +92,7 @@ ssh "$(terraform output -raw ssh_target)" 'cloud-init status --wait && docker --
 
 ## Deploy
 
-From the repo root:
+From a clean `master`:
 
 ```bash
 ./deploy_lightsail.sh
@@ -91,26 +100,34 @@ From the repo root:
 
 The script:
 
-1. Refuses dirty deploys unless `ALLOW_DIRTY_DEPLOY=true`.
-2. Validates and uploads the approved production environment variables.
-3. Builds the Docker image locally.
-4. Saves and uploads the image over SSH.
-5. Uploads the Compose file and Caddyfile.
-6. Verifies required container environment variables.
-7. Starts/restarts the app and Caddy.
-8. Verifies `/healthz` and the deployed frontend asset.
+1. Refuses uncommitted changes (`ALLOW_DIRTY_DEPLOY=true`), a branch other than
+   `master` (`ALLOW_NON_MASTER=true`) and the development `.env`.
+2. Validates `.env.production` with the production allowlist.
+3. Runs `scripts/staging-check.sh` (`SKIP_STAGING_CHECK=true` skips it).
+4. Builds the image for `linux/amd64` (`DEPLOY_PLATFORM`), the Lightsail
+   architecture, whatever this machine is, and reads its client asset name
+   without running it.
+5. Uploads the image, the Compose file and the Caddyfile over SSH.
+6. On the host: backs up the database to `data/backups/pre-deploy-*.sqlite`
+   and writes the running image and that backup to `previous-deploy.txt`;
+   installs the environment; validates it inside the new image; recreates the
+   app and Caddy; waits for `/healthz`; keeps only the new and previous images.
+7. Checks the public site serves the new client, then prints what it offers:
+   hosted games, published AI games, and whether players have AI opponents.
 
-Use another env source when needed:
+It never grants funds, opens paid play to players or publishes games; those
+are the Operator view, `npm run storage -- grant` and
+`scripts/publish-games-production.sh`.
 
-```bash
-LIGHTSAIL_ENV_FILE=.env.production ./deploy_lightsail.sh
-```
-
-Preserve an existing remote env file:
+Keep the existing remote environment instead of uploading one:
 
 ```bash
 SYNC_LIGHTSAIL_ENV=false ./deploy_lightsail.sh
 ```
+
+The host comes from the Terraform outputs, or `LIGHTSAIL_HOST`,
+`LIGHTSAIL_USER`, `LIGHTSAIL_APP_DIR` and `SITE_DOMAIN`
+(`scripts/lightsail-target.sh`).
 
 ## Local container staging check
 
@@ -150,14 +167,32 @@ deployed origin.
    notification are shown; an ordinary account has no Operator button.
 5. Repeat steps 1 and 3 at phone width.
 6. Restart the app container and confirm the session and the attempt survive.
+7. With hosted games on: signed out, Games says to sign in; signed in, start a
+   game against practice bots and play a turn; a second account joins a
+   friends' game by its code; hosting a second game while the first is
+   unfinished is refused; Leave this game brings back the Games home.
+8. With games published: `/viewer` lists them signed out and a game opens.
 
 ## Rollback
 
-Take a backup before every upgrade ([operations runbook](operations.md)).
 Migrations only move forward, so rolling back means the previous image **and**
-the backup taken before the upgrade, restored into a new path. An older image
-refuses to start against a newer database with a schema error rather than
-running against it.
+the backup taken just before the deploy, restored into a new path. Both are
+named in `previous-deploy.txt` on the host. An older image refuses to start
+against a newer database with a schema error rather than running against it.
+
+```bash
+cd /srv/diplomacy && cat previous-deploy.txt     # line 1: image, line 2: backup
+export DIPLOMACY_IMAGE=<previous image> SITE_DOMAIN=diplomacy.camerondickie.ca
+docker compose -f docker-compose.lightsail.yml stop app
+docker compose -f docker-compose.lightsail.yml run --rm -T app \
+  node server/dist/storage/cli.js restore <backup> /data/diplomacy-restored.sqlite
+# set DIPLOMACY_DATABASE_PATH=/data/diplomacy-restored.sqlite in env/app.env, then:
+docker compose -f docker-compose.lightsail.yml up -d --force-recreate app
+```
+
+Spend, grants and unresolved liabilities travel with the backup, so nothing is
+refunded or lost by restoring it. Calls made after that backup was taken are
+not in it: check the provider's own usage before resuming paid play.
 
 ## Owner gates
 

@@ -185,13 +185,28 @@ npm run records -- publish live-15-sol-vs-sonnet live-12-all-haiku-memory
 `index.json`. The copy keeps every phase, order, result, message between the
 powers, each power's private notes, every call with its tokens and cost, and
 the failures. It drops the orders instructions (the prompt; its fingerprint
-stays), the commit, and the names of the local files it was combined from. To
-withdraw a game, delete its file and publish any game again (or run `publish`
-with an existing one) to rewrite the index.
+stays), the commit, and the names of the local files it was combined from.
+`npm run records -- withdraw RUN_ID...` takes games out again, and
+`npm run records -- check` confirms every game in the folder is in published
+form and listed in its index.
 
 The server serves that folder read-only at `/game-records/` only when
 `DIPLOMACY_PUBLISHED_GAMES_DIR` names it, and the session then offers the
 viewer (`capabilities.recordedGames`), so `/viewer` and the Games home's Watch
-card work on the public site. In production, mount the folder into the
-container (for example at `/data/published-games`) rather than building it in.
-Starting or playing games against models stays local only.
+card work on the public site. Starting or playing games against models stays
+local only.
+
+To put the folder on the production site (the step just before a blog post goes
+out), with the server deployed with
+`DIPLOMACY_PUBLISHED_GAMES_DIR=/data/published-games`:
+
+```bash
+scripts/publish-games-production.sh --dry-run   # runs records check only
+scripts/publish-games-production.sh
+```
+
+It refuses a folder holding anything not in published form, streams the folder
+into the running container (so the files belong to the app's user), swaps it in
+at once, and confirms the live `/game-records/index.json` lists the same games.
+The folder is the whole truth: a withdrawn game disappears from the site on the
+next run. Nothing is built into the image.
