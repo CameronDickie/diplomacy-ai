@@ -107,7 +107,9 @@ export function Shell({ nav, current, onNavigate, section, children }: { nav: Na
         </nav>
         <div className="dip-account" aria-label="Player account">
           {auth.status === 'CHECKING' ? <span className="dip-muted">Checking session…</span> : auth.authenticated ? <>
-            <span className="dip-account-name">{auth.user?.displayName}{auth.operator ? ' · Operator' : ''}</span>
+            <span className="dip-account-name">{auth.user?.displayName}</span>
+            {/* The Operator view lives in the challenge frame; from Games it is otherwise out of reach. */}
+            {auth.operator && <a className="dip-link" href="/challenge#/operator">Operator</a>}
             <button type="button" className="dip-link" onClick={() => void auth.logout()} disabled={auth.submitting}>{auth.submitting ? 'Signing out…' : 'Sign out'}</button>
           </> : <>
             {(auth.providers.length > 0 || auth.devSignIn === true) && <SignInMenu>

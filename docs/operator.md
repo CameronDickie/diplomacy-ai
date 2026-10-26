@@ -1,7 +1,8 @@
 # Operator controls and notifications
 
 Owner-only controls live under `/api/operator` and behind the "Operator" button
-in the challenge UI. The operator is a signed-in **GitHub** identity whose
+in the challenge UI (`/challenge#/operator`; an **Operator** link beside the
+account name reaches it from anywhere on the site). The operator is a signed-in **GitHub** identity whose
 immutable numeric ID is listed in `DIPLOMACY_ADMIN_GITHUB_USER_IDS`. Every
 request re-resolves the session and the allowlist from storage, so revoking the
 session or removing the ID takes effect on the next request. A Google identity,
