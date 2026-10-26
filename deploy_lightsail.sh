@@ -102,20 +102,38 @@ docker load < diplomacy-image.tar.gz
 rm -f diplomacy-image.tar.gz
 
 # Migrations only move forward, so a rollback needs the database as it was before this deploy.
+# The backup is taken by the running app (its own code and schema), as its own user.
 deployment_stage="pre-deploy backup"
 running="$(docker ps -q --filter label=com.docker.compose.service=app --filter label=com.docker.compose.project.working_dir="$LIGHTSAIL_APP_DIR")"
 if [ -n "$running" ]; then
   previous_image="$(docker inspect --format '{{.Config.Image}}' "$running")"
-  backup="/data/backups/pre-deploy-$(date -u +%Y%m%dT%H%M%SZ)-${previous_image#diplomacy:}.sqlite"
-  docker exec "$running" sh -c "mkdir -p /data/backups && node server/dist/storage/cli.js backup /data/diplomacy.sqlite '$backup'" >/dev/null
+  backup=none
+  if docker exec "$running" test -f /data/diplomacy.sqlite; then
+    backup="/data/backups/pre-deploy-$(date -u +%Y%m%dT%H%M%SZ)-${previous_image#diplomacy:}.sqlite"
+    docker exec "$running" sh -c "mkdir -p /data/backups && node server/dist/storage/cli.js backup /data/diplomacy.sqlite '$backup'" >/dev/null
+    echo "Backed up the database to data/backups/${backup#/data/backups/} (previous image $previous_image)"
+  else
+    echo "The running app ($previous_image) has no database yet: nothing to back up"
+  fi
   printf '%s\n%s\n' "$previous_image" "$backup" > previous-deploy.txt
-  echo "Backed up the database to data/backups/${backup#/data/backups/} (previous image $previous_image)"
 else
   echo "No running app container: first deploy, nothing to back up"
 fi
 
+# The data folder is bind-mounted over the image's own /data, so it must belong to the user the new
+# image runs as (an older image, or a folder made by the SSH user, leaves it unwritable).
+deployment_stage="data folder ownership"
+app_owner="$(docker run --rm --entrypoint sh "$DIPLOMACY_IMAGE" -c 'echo "$(id -u):$(id -g)"' </dev/null)"
+if [ "$(stat -c '%u:%g' data)" != "$app_owner" ]; then
+  sudo -n chown -R "$app_owner" data
+  sudo -n chmod 700 data
+  echo "Gave data/ to the app's user ($app_owner)"
+fi
+
 if [ "$SYNC_LIGHTSAIL_ENV" = "true" ]; then
   deployment_stage="environment installation"
+  # Kept for a rollback to the previous image, which may need its own settings.
+  if [ -f env/app.env ]; then install -m 600 env/app.env env/app.env.previous; fi
   install -m 600 app.env.next env/app.env
   rm -f app.env.next
   echo "Installed env/app.env from the validated local environment file"

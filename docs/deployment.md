@@ -109,9 +109,12 @@ The script:
    without running it.
 5. Uploads the image, the Compose file and the Caddyfile over SSH.
 6. On the host: backs up the database to `data/backups/pre-deploy-*.sqlite`
-   and writes the running image and that backup to `previous-deploy.txt`;
-   installs the environment; validates it inside the new image; recreates the
-   app and Caddy; waits for `/healthz`; keeps only the new and previous images.
+   (when the running app has one) and writes the running image and that backup
+   (or `none`) to `previous-deploy.txt`; gives `data/` to the new image's user
+   (uid 10001) if it belongs to anyone else; keeps the old environment as
+   `env/app.env.previous` and installs the new one; validates it inside the new
+   image; recreates the app and Caddy; waits for `/healthz`; keeps only the new
+   and previous images.
 7. Checks the public site serves the new client, then prints what it offers:
    hosted games, published AI games, and whether players have AI opponents.
 
@@ -186,7 +189,7 @@ named in `previous-deploy.txt` on the host. An older image refuses to start
 against a newer database with a schema error rather than running against it.
 
 ```bash
-cd /srv/diplomacy && cat previous-deploy.txt     # line 1: image, line 2: backup
+cd /srv/diplomacy && cat previous-deploy.txt     # line 1: image, line 2: backup (or none)
 export DIPLOMACY_IMAGE=<previous image> SITE_DOMAIN=diplomacy.camerondickie.ca
 docker compose -f docker-compose.lightsail.yml stop app
 docker compose -f docker-compose.lightsail.yml run --rm -T app \
@@ -194,6 +197,10 @@ docker compose -f docker-compose.lightsail.yml run --rm -T app \
 # set DIPLOMACY_DATABASE_PATH=/data/diplomacy-restored.sqlite in env/app.env, then:
 docker compose -f docker-compose.lightsail.yml up -d --force-recreate app
 ```
+
+If line 2 is `none`, the previous app had no database: restore nothing, put
+`env/app.env.previous` back as `env/app.env`, and give `data/` to the user that
+image runs as before starting it.
 
 Spend, grants and unresolved liabilities travel with the backup, so nothing is
 refunded or lost by restoring it. Calls made after that backup was taken are
