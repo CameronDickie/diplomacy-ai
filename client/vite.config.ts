@@ -25,13 +25,28 @@ function gameRecords(): Plugin {
   };
 }
 
-export default defineConfig({
+/**
+ * `vite build --mode static`: the game viewer alone, as files any web server can serve under `VIEWER_BASE`
+ * (default /diplomacy/), into `dist-static`. The page loads the static entry in place of the full app;
+ * `npm run viewer:static` adds the games and copies it out.
+ */
+function staticEntry(): Plugin {
+  return {
+    name: 'static-viewer-entry',
+    transformIndexHtml: { order: 'pre', handler: html => html.replace('/src/main.tsx', '/src/static.tsx').replace('<title>Diplomacy</title>', '<title>Diplomacy: AI games</title>') },
+  };
+}
+
+const alias = { '@diplomacy/shared': resolve(__dirname, '../shared/src/index.ts') };
+
+export default defineConfig(({ mode }) => mode === 'static' ? {
+  base: process.env.VIEWER_BASE ?? '/diplomacy/',
+  plugins: [react(), staticEntry()],
+  resolve: { alias },
+  build: { outDir: 'dist-static', emptyOutDir: true },
+} : {
   plugins: [react(), gameRecords()],
-  resolve: {
-    alias: {
-      '@diplomacy/shared': resolve(__dirname, '../shared/src/index.ts'),
-    },
-  },
+  resolve: { alias },
   server: {
     port: 5173,
     // DIPLOMACY_API_PORT lets a second development server run beside the usual one on 3001.

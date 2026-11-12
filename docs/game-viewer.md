@@ -210,3 +210,31 @@ into the running container (so the files belong to the app's user), swaps it in
 at once, and confirms the live `/game-records/index.json` lists the same games.
 The folder is the whole truth: a withdrawn game disappears from the site on the
 next run. Nothing is built into the image.
+
+### A static copy, for hosting without the server
+
+The viewer also builds on its own, as plain files any web server can serve:
+the archive of the games on camerondickie.ca once the app itself is retired.
+
+```bash
+npm run viewer:static -- ../personal-site/client/public/diplomacy
+npm run viewer:static -- OUT_DIR live-14-all-luna-medium live-15-sol-vs-sonnet
+```
+
+It builds the viewer for the path `/diplomacy/` (`VIEWER_BASE` changes it),
+publishes the games into its `game-records/` exactly as `records publish` does,
+and copies the result to the folder, replacing an earlier export there. With no
+games named it takes every game in `game-records/`. It refuses a folder that is
+neither empty nor an earlier export.
+
+The copy shows saved games only: no game database, no Play the AI, no sign-in,
+and no link to the (private) source repository. Addresses work as in the app
+(`/diplomacy/#/live-14-all-luna-medium/22` opens that turn), so a post can link
+to a moment in a game.
+
+The games are published with `--compact`: a record stores every board twice
+(each phase's starting board is the previous phase's result), and the compact
+form keeps only the first, which takes the 16 games from 63 MB to 46 MB (about
+5.5 MB compressed). The tool reads each compact game back and refuses to write
+one that does not match the original; the viewer restores the boards as it
+loads a game.

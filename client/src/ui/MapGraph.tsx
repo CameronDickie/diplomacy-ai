@@ -74,7 +74,7 @@ export function MapGraph({
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch('/standard-map.svg', { signal: controller.signal })
+    fetch(`${import.meta.env.BASE_URL}standard-map.svg`, { signal: controller.signal })
       .then(response => {
         if (!response.ok) throw new Error(`Map request failed (${response.status})`);
         return response.text();

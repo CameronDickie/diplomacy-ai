@@ -1,6 +1,7 @@
 import { readFile, readdir, realpath, stat, writeFile, mkdir } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
-import type { AutoplayGameFile } from '@diplomacy/shared';
+import { isDeepStrictEqual } from 'node:util';
+import { compactGame, expandGame, type AutoplayGameFile } from '@diplomacy/shared';
 import { indexEntry, isPublished, mergeGame, publishedGame } from './records.js';
 import { rm } from 'node:fs/promises';
 
@@ -8,9 +9,10 @@ const USAGE = `Usage: records collect [--into game-records] FILE...
        Combines the files the autoplay tool wrote for each game (one per run) into one file per game in
        the folder, and lists the folder's games in its index.json for the game viewer. The files given
        are only read, never changed; a game already in the folder is replaced by the new combination.
-       records publish [--from game-records] [--into published-games] RUN_ID...
+       records publish [--from game-records] [--into published-games] [--compact] RUN_ID...
        Copies the named games, without their prompt, commit or file names, into the folder the server
        serves when DIPLOMACY_PUBLISHED_GAMES_DIR points at it, and rewrites that folder's index.json.
+       --compact stores each board once instead of twice (about half the size), for the static viewer.
        records withdraw [--into published-games] RUN_ID...
        Removes the named games from the published folder and rewrites its index.json.
        records check [--into published-games]
@@ -49,9 +51,11 @@ async function main() {
 
 /** Only the games named, each chosen by the owner: nothing is published by default. */
 async function publish(args: string[]) {
-  let from = 'game-records', into = 'published-games';
+  let from = 'game-records', into = 'published-games', compact = false;
   const runs: string[] = [];
-  for (let i = 0; i < args.length; i++) { if (args[i] === '--from') from = args[++i] ?? ''; else if (args[i] === '--into') into = args[++i] ?? ''; else runs.push(args[i]); }
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--from') from = args[++i] ?? ''; else if (args[i] === '--into') into = args[++i] ?? ''; else if (args[i] === '--compact') compact = true; else runs.push(args[i]);
+  }
   if (!from || !into || !runs.length || runs.some(run => !RUN_ID.test(run))) throw new Error(USAGE);
   const folder = resolve(into);
   const source = await realpath(from);
@@ -64,8 +68,11 @@ async function publish(args: string[]) {
   for (const run of runs) {
     const game = JSON.parse(await readFile(resolve(from, `${run}.json`), 'utf8')) as AutoplayGameFile;
     if (game.run?.runId !== run || !Array.isArray(game.record?.phases)) throw new Error(`${from}/${run}.json is not a combined game record.`);
+    const published = publishedGame(game), written = compact ? compactGame(published) : published;
+    // The viewer must read back exactly what was published.
+    if (compact && !isDeepStrictEqual(expandGame(written), published)) throw new Error(`${run} does not read back unchanged in compact form.`);
     // Meant to be read by the web server, so readable rather than owner-only.
-    await writeFile(resolve(folder, `${run}.json`), `${JSON.stringify(publishedGame(game))}\n`, { mode: 0o644 });
+    await writeFile(resolve(folder, `${run}.json`), `${JSON.stringify(written)}\n`, { mode: 0o644 });
     console.log(`${run} → ${into}/${run}.json`);
   }
   const count = await writeIndex(folder, 0o644);

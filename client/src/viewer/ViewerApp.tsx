@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ALL_POWERS, TERRITORIES, type AutoplayGameFile, type AutoplayIndexEntry, type Power } from '@diplomacy/shared';
+import { ALL_POWERS, TERRITORIES, expandGame, type AutoplayGameFile, type AutoplayIndexEntry, type Power } from '@diplomacy/shared';
 import { Shell, type NavItem } from '../challenge/Shell.js';
 import { phaseTitle, title } from '../challenge/text.js';
 import { heldTerritories } from '../lib/game.js';
@@ -24,6 +24,8 @@ const fromHash = () => {
 const ignore = () => undefined;
 const ENDED: Record<string, string> = { SOLO_WIN: 'a solo win', LAST_YEAR: 'reaching its last year', STALEMATE: 'stalemate' };
 const POLL_MS = 3000;
+/** Beside the page, so a static copy served under a path (see `npm run viewer:static`) finds its own records. */
+const RECORDS = `${import.meta.env.BASE_URL}game-records/`;
 
 function modelsLine(assignment: Record<Power, string>) {
   const by = new Map<ModelKey, Power[]>();
@@ -34,9 +36,10 @@ function modelsLine(assignment: Record<Power, string>) {
 /**
  * AI games, part of Games: full games played by models, and games a person plays against them. Saved records
  * come from `game-records/`. Games in the autoplay database come from the full-games service, which also
- * starts, stops and continues them, so a game can be watched, or played, as it happens.
+ * starts, stops and continues them, so a game can be watched, or played, as it happens. `server={false}` is
+ * the static copy: saved records only, with no full-games service and no sign-in.
  */
-export function ViewerApp() {
+export function ViewerApp({ server = true }: { server?: boolean }) {
   const [route, setRoute] = useState(fromHash);
   const [index, setIndex] = useState<AutoplayIndexEntry[] | null>(null);
   const [list, setList] = useState<FullGamesList | null>(null);
@@ -46,9 +49,9 @@ export function ViewerApp() {
   useEffect(() => { const on = () => setRoute(fromHash()); window.addEventListener('hashchange', on); return () => window.removeEventListener('hashchange', on); }, []);
   const refreshList = () => fullGamesApi.list().then(setList).catch(() => setList(null)).finally(() => setLoaded(l => ({ ...l, db: true })));
   useEffect(() => {
-    fetch('/game-records/index.json').then(r => r.ok ? r.json() : Promise.reject(new Error(String(r.status))))
+    fetch(`${RECORDS}index.json`).then(r => r.ok ? r.json() : Promise.reject(new Error(String(r.status))))
       .then((body: { games: AutoplayIndexEntry[] }) => setIndex(body.games)).catch(() => setIndex([])).finally(() => setLoaded(l => ({ ...l, records: true })));
-    void refreshList();
+    if (server) void refreshList(); else setLoaded(l => ({ ...l, db: true }));
   }, []);
   // The list follows a game being played.
   useEffect(() => { if (!list?.running) return; const timer = window.setInterval(() => void refreshList(), POLL_MS * 2); return () => window.clearInterval(timer); }, [list?.running]);
@@ -57,14 +60,14 @@ export function ViewerApp() {
     setGame(null);
     if (!entry) return;
     let live = true;
-    fetch(`/game-records/${encodeURIComponent(entry.file)}`).then(r => r.ok ? r.json() : Promise.reject(new Error(String(r.status))))
-      .then((body: AutoplayGameFile) => { if (live) setGame(body); }).catch(() => { if (live) setError(`Could not read ${entry.file}.`); });
+    fetch(`${RECORDS}${encodeURIComponent(entry.file)}`).then(r => r.ok ? r.json() : Promise.reject(new Error(String(r.status))))
+      .then((body: AutoplayGameFile) => { if (live) setGame(expandGame(body)); }).catch(() => { if (live) setError(`Could not read ${entry.file}.`); });
     return () => { live = false; };
   }, [entry?.file]);
 
   const ready = loaded.records && loaded.db, current = route.kind === 'new' ? 'new' : route.run ? 'game' : 'library';
   const nav: NavItem[] = [{ id: 'library', label: 'AI games' }, ...(list ? [{ id: 'new', label: 'Play the AI' }] : []), ...(route.run ? [{ id: 'game', label: route.run }] : [])];
-  return <Shell section="games" nav={nav} current={current} onNavigate={id => { window.location.hash = id === 'library' ? '' : id === 'new' ? '/new' : window.location.hash; }}>
+  return <Shell section="games" server={server} nav={nav} current={current} onNavigate={id => { window.location.hash = id === 'library' ? '' : id === 'new' ? '/new' : window.location.hash; }}>
     {error && <p className="dip-notice is-error" role="alert" style={{ marginTop: 16 }}>{error}</p>}
     {!ready && <p style={{ padding: '40px 0' }} role="status">Loading the games…</p>}
     {ready && route.kind === 'new' && (list ? <NewGameForm list={list} onStarted={runId => { void refreshList(); window.location.hash = `/db/${runId}`; }} />
@@ -216,7 +219,7 @@ function GameView({ game, at, follow = false, prefix, controls, player }: { game
           replayStandoffs={result && turn.report.phase === 'ORDERS' ? turn.report.standoffTerritories : []}
           unitAnimationFrom={result ? turn.report.before.units : undefined} unitAnimationKey={result ? `${turn.report.id}-${animation}` : null}
           onSelectTerritory={ignore} onClearSelection={ignore} />
-        <a className="dip-map-credit" href="/legal.html">Map: Godip contributors · GPL-3.0</a>
+        <a className="dip-map-credit" href={`${import.meta.env.BASE_URL}legal.html`}>Map: Godip contributors · GPL-3.0</a>
       </section>
       <TurnPanel game={game} turn={turn} tab={player ? 'orders' : tab} onTab={setTab} player={player} />
     </div>

@@ -15,6 +15,7 @@
     "evaluate": "node server/dist/evaluation/cli.js",
     "autoplay": "node server/dist/autoplay/cli.js",
     "records": "node server/dist/autoplay/recordsCli.js",
+    "viewer:static": "bash scripts/export-static-viewer.sh",
     "ollama:smoke": "node server/dist/llm/ollamaSmoke.js",
     "dev": "npm run build:engine && npm run build -w shared && npm run build -w server && concurrently \"npm run dev -w shared\" \"npm run dev -w server\" \"npm run dev -w client\"",
     "build:engine": "mkdir -p engine/bin engine/.cache/go-build && GOCACHE=$PWD/engine/.cache/go-build go -C engine build -buildvcs=false -o bin/diplomacy-engine ./cmd/diplomacy-engine",

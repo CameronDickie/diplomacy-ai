@@ -17,3 +17,4 @@ export * from './types/challenge.js';
 export * from './types/operator.js';
 export * from './types/exhibition.js';
 export * from './types/autoplay.js';
+export { compactGame, expandGame } from './records.js';

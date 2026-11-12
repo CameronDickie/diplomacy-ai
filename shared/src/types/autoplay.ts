@@ -23,6 +23,8 @@ export interface AutoplayGameFile {
     peakInputTokens: { orders: number; ask: number; reply: number } };
   record: GameRecord;
   parts?: AutoplayPart[];
+  /** Every phase but the first leaves out its report's `before` board (see compactGame); expandGame restores it. */
+  compact?: true;
 }
 /** One line of the viewer's list of games. */
 export interface AutoplayIndexEntry {

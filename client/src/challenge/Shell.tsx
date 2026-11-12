@@ -85,10 +85,46 @@ function SignInMenu({ children }: { children: ReactNode }) {
   return <details ref={ref} className="dip-signin"><summary>Sign in</summary>{children}</details>;
 }
 
-export function Shell({ nav, current, onNavigate, section, children }: { nav: NavItem[]; current: string; onNavigate: (id: string) => void; section: 'challenge' | 'games' | 'viewer'; children: ReactNode }) {
+/** The way between the daily challenge and Games, where the server offers both. */
+function PlaySwitch({ section }: { section: 'challenge' | 'games' | 'viewer' }) {
   const auth = useAuth();
-  const authMessage = useReveal<HTMLParagraphElement>(auth.message);
-  const both = auth.status !== 'CHECKING' && auth.status !== 'ERROR' && auth.capabilities.games;
+  if (auth.status === 'CHECKING' || auth.status === 'ERROR' || !auth.capabilities.games) return null;
+  return <nav className="dip-switch" aria-label="Ways to play">
+    <a href="/challenge" aria-current={section === 'challenge' ? 'page' : undefined}>Daily challenge</a>
+    <a href="/" aria-current={section === 'games' || section === 'viewer' ? 'page' : undefined}>Games</a>
+  </nav>;
+}
+
+function Account() {
+  const auth = useAuth();
+  return auth.status === 'CHECKING' ? <span className="dip-muted">Checking session…</span> : auth.authenticated ? <>
+    <span className="dip-account-name">{auth.user?.displayName}</span>
+    {/* The Operator view lives in the challenge frame; from Games it is otherwise out of reach. */}
+    {auth.operator && <a className="dip-link" href="/challenge#/operator">Operator</a>}
+    <button type="button" className="dip-link" onClick={() => void auth.logout()} disabled={auth.submitting}>{auth.submitting ? 'Signing out…' : 'Sign out'}</button>
+  </> : <>
+    {(auth.providers.length > 0 || auth.devSignIn === true) && <SignInMenu>
+      <div className="dip-signin-menu">
+        {auth.providers.map(provider => <a key={provider} href={auth.loginUrl(provider)}>Sign in with {provider === 'github' ? 'GitHub' : 'Google'}</a>)}
+        {auth.devSignIn === true && <button type="button" className="dip-link" onClick={() => void auth.devLogin()} disabled={auth.submitting}>Continue as local developer (development only)</button>}
+      </div>
+    </SignInMenu>}
+    {auth.providers.length === 0 && !auth.devSignIn && auth.status !== 'ERROR' && <span className="dip-muted">Sign-in is not configured on this server.</span>}
+    {auth.status === 'ERROR' && <button type="button" className="dip-link" onClick={() => void auth.refresh()}>Retry sign-in check</button>}
+  </>;
+}
+
+function AuthMessage() {
+  const auth = useAuth();
+  const ref = useReveal<HTMLParagraphElement>(auth.message);
+  return auth.message ? <p role="alert" ref={ref} tabIndex={-1} className="dip-notice is-error" style={{ marginTop: 16 }}>{auth.message}</p> : null;
+}
+
+/**
+ * `server={false}`: the static copy of the game viewer, with no game server behind it, so no sign-in and
+ * no way to the daily challenge. It links only to what it contains (the source repository is private).
+ */
+export function Shell({ nav, current, onNavigate, section, server = true, children }: { nav: NavItem[]; current: string; onNavigate: (id: string) => void; section: 'challenge' | 'games' | 'viewer'; server?: boolean; children: ReactNode }) {
   return <div className="dip">
     <div className="dip-wrap">
       <header className="dip-header">
@@ -97,37 +133,21 @@ export function Shell({ nav, current, onNavigate, section, children }: { nav: Na
             <svg viewBox="0 0 100 100" fill="none" aria-hidden="true"><path className="dip-mark-start" d="M44 12H12V44" stroke="currentColor" strokeWidth="12" /><path className="dip-mark-end" d="M56 88H88V56" stroke="currentColor" strokeWidth="12" /></svg></a>
           <span className="dip-wordmark">Diplomacy</span>
         </span>
-        {both && <nav className="dip-switch" aria-label="Ways to play">
-          <a href="/challenge" aria-current={section === 'challenge' ? 'page' : undefined}>Daily challenge</a>
-          <a href="/" aria-current={section === 'games' || section === 'viewer' ? 'page' : undefined}>Games</a>
-        </nav>}
+        {server && <PlaySwitch section={section} />}
         <nav className="dip-nav" aria-label="Game sections">
           {nav.map(item => <button key={item.id} type="button" aria-current={current === item.id ? 'page' : undefined} onClick={() => onNavigate(item.id)}>
             {item.label}{item.count ? <span className="dip-nav-count">{item.count}</span> : null}</button>)}
         </nav>
-        <div className="dip-account" aria-label="Player account">
-          {auth.status === 'CHECKING' ? <span className="dip-muted">Checking session…</span> : auth.authenticated ? <>
-            <span className="dip-account-name">{auth.user?.displayName}</span>
-            {/* The Operator view lives in the challenge frame; from Games it is otherwise out of reach. */}
-            {auth.operator && <a className="dip-link" href="/challenge#/operator">Operator</a>}
-            <button type="button" className="dip-link" onClick={() => void auth.logout()} disabled={auth.submitting}>{auth.submitting ? 'Signing out…' : 'Sign out'}</button>
-          </> : <>
-            {(auth.providers.length > 0 || auth.devSignIn === true) && <SignInMenu>
-              <div className="dip-signin-menu">
-                {auth.providers.map(provider => <a key={provider} href={auth.loginUrl(provider)}>Sign in with {provider === 'github' ? 'GitHub' : 'Google'}</a>)}
-                {auth.devSignIn === true && <button type="button" className="dip-link" onClick={() => void auth.devLogin()} disabled={auth.submitting}>Continue as local developer (development only)</button>}
-              </div>
-            </SignInMenu>}
-            {auth.providers.length === 0 && !auth.devSignIn && auth.status !== 'ERROR' && <span className="dip-muted">Sign-in is not configured on this server.</span>}
-            {auth.status === 'ERROR' && <button type="button" className="dip-link" onClick={() => void auth.refresh()}>Retry sign-in check</button>}
-          </>}
+        <div className="dip-account" aria-label={server ? 'Player account' : 'Display'}>
+          {server && <Account />}
           <ThemePicker />
         </div>
       </header>
-      {auth.message && <p role="alert" ref={authMessage} tabIndex={-1} className="dip-notice is-error" style={{ marginTop: 16 }}>{auth.message}</p>}
+      {server && <AuthMessage />}
       {children}
       <footer className="dip-footer">
-        <span><a href="https://camerondickie.ca">Cameron Dickie</a> · <a href="/legal.html">Credits &amp; licenses</a> · <a href="https://github.com/CameronDickie/diplomacy-ai" target="_blank" rel="noreferrer">Source code</a></span>
+        <span><a href="https://camerondickie.ca">Cameron Dickie</a> · <a href={`${import.meta.env.BASE_URL}legal.html`}>Credits &amp; licenses</a>
+          {server && <> · <a href="https://github.com/CameronDickie/diplomacy-ai" target="_blank" rel="noreferrer">Source code</a></>}</span>
         <span>Map: Godip contributors · GPL-3.0</span>
       </footer>
     </div>

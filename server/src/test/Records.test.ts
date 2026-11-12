@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AutoplayGameFile } from '@diplomacy/shared';
+import { compactGame, expandGame, type AutoplayGameFile } from '@diplomacy/shared';
 import { indexEntry, isPublished, mergeGame, publishedGame } from '../autoplay/records.js';
 
 /** A game file reduced to what combining reads: the run, the reported phases and the failures. */
@@ -52,6 +52,26 @@ test('a published game keeps what was played and said, and drops the prompt, the
   assert.equal(JSON.stringify(published).includes('SECRET') || JSON.stringify(published).includes('autoplay-live-9'), false);
   assert.equal(isPublished(merged), false);
   assert.equal(isPublished(published), true);
+});
+
+test('a compact record stores each board once and reads back unchanged', () => {
+  const board = (owner: string) => ({ territoryOwners: { VIE: owner }, units: [] });
+  const game = file([], [], '2026-10-13T10:05:00Z');
+  game.record.phases = [
+    { phaseId: 'p1', report: { before: board('AUSTRIA'), after: board('RUSSIA') } as never, calls: [] },
+    { phaseId: 'p2', report: { before: board('RUSSIA'), after: board('TURKEY') } as never, calls: [] },
+    { phaseId: 'waiting', report: null, calls: [] },
+  ];
+  const compact = compactGame(game);
+  assert.equal(compact.compact, true);
+  assert.ok('before' in compact.record.phases[0].report!);
+  assert.equal('before' in compact.record.phases[1].report!, false);
+  assert.deepEqual(expandGame(compact), game);
+  // A full record is read as it is.
+  assert.equal(expandGame(game), game);
+  // A phase that does not start from the previous board cannot be compacted.
+  game.record.phases[1].report!.before = board('ITALY') as never;
+  assert.throws(() => compactGame(game), /does not start from the previous phase/);
 });
 
 test('publish rejects identical and symlink-aliased directories without changing private files', async t => {
