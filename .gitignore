@@ -33,5 +33,7 @@ autoplay-*.json
 
 # Local backups of game records and the autoplay ledger, and merged records for the viewer
 backups/
-game-records/
 published-games/
+
+# Output of the analysis scripts (analysis/README.md)
+analysis/out/

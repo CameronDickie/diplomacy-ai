@@ -139,7 +139,7 @@ time order and a list of the files under `parts`) and rewrites
 Files from different games, or that disagree about turns they share, are
 refused. Run it again whenever a game has new files; a game already in the
 folder is replaced. The combined files are written without indentation, about
-half the size of the originals. `game-records/` is git-ignored.
+half the size of the originals. `game-records/` holds the sixteen games from the write-up and is tracked.
 
 ## What it shows
 
@@ -181,7 +181,7 @@ npm run records -- publish live-15-sol-vs-sonnet live-12-all-haiku-memory
 ```
 
 `publish` copies each named game from `game-records/` into `published-games/`
-(both git-ignored; `--from` and `--into` change them) and rewrites that folder's
+(`published-games/` is git-ignored; `--from` and `--into` change them) and rewrites that folder's
 `index.json`. The copy keeps every phase, order, result, message between the
 powers, each power's private notes, every call with its tokens and cost, and
 the failures. It drops the orders instructions (the prompt; its fingerprint

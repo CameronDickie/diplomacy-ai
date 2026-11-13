@@ -21,6 +21,7 @@ infra/terraform/**/.terraform
 infra/terraform/**/*.tfstate
 infra/terraform/**/*.tfstate.*
 infra/terraform/**/*.tfplan
-# Game records are private until published, and published ones are mounted, never baked in.
+# Game records are mounted when served, never baked into the image, and the analysis runs outside it.
 game-records
+analysis/out
 published-games

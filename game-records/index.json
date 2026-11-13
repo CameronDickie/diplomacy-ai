@@ -1,0 +1,652 @@
+{
+  "games": [
+    {
+      "runId": "live-1",
+      "file": "live-1.json",
+      "bytes": 2331173,
+      "transport": "live",
+      "assignment": {
+        "AUSTRIA": "gpt-6-luna",
+        "ENGLAND": "claude-haiku-5-5",
+        "FRANCE": "gpt-6-luna",
+        "GERMANY": "claude-haiku-5-5",
+        "ITALY": "gpt-6-luna",
+        "RUSSIA": "claude-haiku-5-5",
+        "TURKEY": "gpt-6-luna"
+      },
+      "lastYear": 1925,
+      "status": "FINISHED",
+      "endedBy": "LAST_YEAR",
+      "reached": "WINTER 1925",
+      "phases": 95,
+      "centers": {
+        "AUSTRIA": 1,
+        "ENGLAND": 8,
+        "FRANCE": 15,
+        "GERMANY": 0,
+        "ITALY": 0,
+        "RUSSIA": 0,
+        "TURKEY": 10
+      },
+      "winner": null,
+      "settledNanousd": 560630385,
+      "heldNanousd": 10240000,
+      "instructionsHashes": [],
+      "commits": [],
+      "parts": 1,
+      "failures": 0,
+      "exportedAt": "2026-10-12T19:20:39.435Z"
+    },
+    {
+      "runId": "live-2",
+      "file": "live-2.json",
+      "bytes": 2947695,
+      "transport": "live",
+      "assignment": {
+        "AUSTRIA": "gpt-6-luna",
+        "ENGLAND": "claude-haiku-5-5",
+        "FRANCE": "gpt-6-luna",
+        "GERMANY": "claude-haiku-5-5",
+        "ITALY": "gpt-6-luna",
+        "RUSSIA": "claude-haiku-5-5",
+        "TURKEY": "gpt-6-luna"
+      },
+      "lastYear": 1999,
+      "status": "FINISHED",
+      "endedBy": "SOLO_WIN",
+      "reached": "FALL 1934",
+      "phases": 114,
+      "centers": {
+        "AUSTRIA": 0,
+        "ENGLAND": 11,
+        "FRANCE": 0,
+        "GERMANY": 0,
+        "ITALY": 18,
+        "RUSSIA": 5,
+        "TURKEY": 0
+      },
+      "winner": "ITALY",
+      "settledNanousd": 767658490,
+      "heldNanousd": 0,
+      "instructionsHashes": [],
+      "commits": [],
+      "parts": 1,
+      "failures": 25,
+      "exportedAt": "2026-10-12T20:33:59.671Z"
+    },
+    {
+      "runId": "live-3-swapped",
+      "file": "live-3-swapped.json",
+      "bytes": 4095609,
+      "transport": "live",
+      "assignment": {
+        "AUSTRIA": "claude-haiku-5-5",
+        "ENGLAND": "gpt-6-luna",
+        "FRANCE": "claude-haiku-5-5",
+        "GERMANY": "gpt-6-luna",
+        "ITALY": "claude-haiku-5-5",
+        "RUSSIA": "gpt-6-luna",
+        "TURKEY": "claude-haiku-5-5"
+      },
+      "lastYear": 1999,
+      "status": "FINISHED",
+      "endedBy": "SOLO_WIN",
+      "reached": "FALL 1945",
+      "phases": 166,
+      "centers": {
+        "AUSTRIA": 9,
+        "ENGLAND": 18,
+        "FRANCE": 0,
+        "GERMANY": 0,
+        "ITALY": 2,
+        "RUSSIA": 0,
+        "TURKEY": 5
+      },
+      "winner": "ENGLAND",
+      "settledNanousd": 1036919055,
+      "heldNanousd": 23961600,
+      "instructionsHashes": [],
+      "commits": [],
+      "parts": 1,
+      "failures": 10,
+      "exportedAt": "2026-10-13T14:45:26.175Z"
+    },
+    {
+      "runId": "live-4-holdrule",
+      "file": "live-4-holdrule.json",
+      "bytes": 8912757,
+      "transport": "live",
+      "assignment": {
+        "AUSTRIA": "gpt-6-luna",
+        "ENGLAND": "claude-haiku-5-5",
+        "FRANCE": "gpt-6-luna",
+        "GERMANY": "claude-haiku-5-5",
+        "ITALY": "gpt-6-luna",
+        "RUSSIA": "claude-haiku-5-5",
+        "TURKEY": "gpt-6-luna"
+      },
+      "lastYear": 1999,
+      "status": "FINISHED",
+      "endedBy": "LAST_YEAR",
+      "reached": "WINTER 1999",
+      "phases": 377,
+      "centers": {
+        "AUSTRIA": 0,
+        "ENGLAND": 11,
+        "FRANCE": 15,
+        "GERMANY": 0,
+        "ITALY": 0,
+        "RUSSIA": 0,
+        "TURKEY": 8
+      },
+      "winner": null,
+      "settledNanousd": 2133279465,
+      "heldNanousd": 5120000,
+      "instructionsHashes": [
+        "09a9e11232f3ae2c"
+      ],
+      "commits": [
+        "6234db4e6090db5d6988797e4bf1c3fe1ccfecb7",
+        "ccacf5b70f9395f406e612b706f0c44243d704ad",
+        "e32eb3da7ce1187afaaf1a7ac44630c86be9bb8e"
+      ],
+      "parts": 4,
+      "failures": 72,
+      "exportedAt": "2026-10-13T21:14:16.726Z"
+    },
+    {
+      "runId": "live-5-swapped-check",
+      "file": "live-5-swapped-check.json",
+      "bytes": 4673326,
+      "transport": "live",
+      "assignment": {
+        "AUSTRIA": "claude-haiku-5-5",
+        "ENGLAND": "gpt-6-luna",
+        "FRANCE": "claude-haiku-5-5",
+        "GERMANY": "gpt-6-luna",
+        "ITALY": "claude-haiku-5-5",
+        "RUSSIA": "gpt-6-luna",
+        "TURKEY": "claude-haiku-5-5"
+      },
+      "lastYear": 1950,
+      "status": "FINISHED",
+      "endedBy": "LAST_YEAR",
+      "reached": "WINTER 1950",
+      "phases": 184,
+      "centers": {
+        "AUSTRIA": 4,
+        "ENGLAND": 7,
+        "FRANCE": 5,
+        "GERMANY": 7,
+        "ITALY": 4,
+        "RUSSIA": 0,
+        "TURKEY": 7
+      },
+      "winner": null,
+      "settledNanousd": 1310794235,
+      "heldNanousd": 20480000,
+      "instructionsHashes": [
+        "09a9e11232f3ae2c"
+      ],
+      "commits": [
+        "79c48eac8d788c10bc8c77c5995681dd906c0cd5"
+      ],
+      "parts": 1,
+      "failures": 23,
+      "exportedAt": "2026-10-14T14:16:35.332Z"
+    },
+    {
+      "runId": "live-6-incentive",
+      "file": "live-6-incentive.json",
+      "bytes": 4855086,
+      "transport": "live",
+      "assignment": {
+        "AUSTRIA": "gpt-6-luna",
+        "ENGLAND": "claude-haiku-5-5",
+        "FRANCE": "gpt-6-luna",
+        "GERMANY": "claude-haiku-5-5",
+        "ITALY": "gpt-6-luna",
+        "RUSSIA": "claude-haiku-5-5",
+        "TURKEY": "gpt-6-luna"
+      },
+      "lastYear": 1950,
+      "status": "FINISHED",
+      "endedBy": "LAST_YEAR",
+      "reached": "WINTER 1950",
+      "phases": 197,
+      "centers": {
+        "AUSTRIA": 0,
+        "ENGLAND": 10,
+        "FRANCE": 8,
+        "GERMANY": 0,
+        "ITALY": 1,
+        "RUSSIA": 4,
+        "TURKEY": 11
+      },
+      "winner": null,
+      "settledNanousd": 1231957305,
+      "heldNanousd": 30720000,
+      "instructionsHashes": [
+        "6885cbe55074ee51"
+      ],
+      "commits": [
+        "803b5bbbac5cfcfedc778e04a3d4aa71260991cd"
+      ],
+      "parts": 1,
+      "failures": 56,
+      "exportedAt": "2026-10-14T19:30:10.406Z"
+    },
+    {
+      "runId": "live-7-incentive-swapped",
+      "file": "live-7-incentive-swapped.json",
+      "bytes": 4610687,
+      "transport": "live",
+      "assignment": {
+        "AUSTRIA": "claude-haiku-5-5",
+        "ENGLAND": "gpt-6-luna",
+        "FRANCE": "claude-haiku-5-5",
+        "GERMANY": "gpt-6-luna",
+        "ITALY": "claude-haiku-5-5",
+        "RUSSIA": "gpt-6-luna",
+        "TURKEY": "claude-haiku-5-5"
+      },
+      "lastYear": 1950,
+      "status": "FINISHED",
+      "endedBy": "LAST_YEAR",
+      "reached": "WINTER 1950",
+      "phases": 188,
+      "centers": {
+        "AUSTRIA": 12,
+        "ENGLAND": 13,
+        "FRANCE": 3,
+        "GERMANY": 0,
+        "ITALY": 3,
+        "RUSSIA": 0,
+        "TURKEY": 3
+      },
+      "winner": null,
+      "settledNanousd": 1235005200,
+      "heldNanousd": 0,
+      "instructionsHashes": [
+        "6885cbe55074ee51"
+      ],
+      "commits": [
+        "803b5bbbac5cfcfedc778e04a3d4aa71260991cd"
+      ],
+      "parts": 1,
+      "failures": 48,
+      "exportedAt": "2026-10-14T20:54:24.877Z"
+    },
+    {
+      "runId": "live-8-all-haiku",
+      "file": "live-8-all-haiku.json",
+      "bytes": 4339772,
+      "transport": "live",
+      "assignment": {
+        "AUSTRIA": "claude-haiku-5-5",
+        "ENGLAND": "claude-haiku-5-5",
+        "FRANCE": "claude-haiku-5-5",
+        "GERMANY": "claude-haiku-5-5",
+        "ITALY": "claude-haiku-5-5",
+        "RUSSIA": "claude-haiku-5-5",
+        "TURKEY": "claude-haiku-5-5"
+      },
+      "lastYear": 1950,
+      "status": "FINISHED",
+      "endedBy": "LAST_YEAR",
+      "reached": "SPRING 1951",
+      "phases": 173,
+      "centers": {
+        "AUSTRIA": 5,
+        "ENGLAND": 5,
+        "FRANCE": 6,
+        "GERMANY": 9,
+        "ITALY": 3,
+        "RUSSIA": 0,
+        "TURKEY": 6
+      },
+      "winner": null,
+      "settledNanousd": 1340086700,
+      "heldNanousd": 0,
+      "instructionsHashes": [
+        "6885cbe55074ee51"
+      ],
+      "commits": [
+        "26708d6fe13d07109c2b69a597f21305b7ec2351"
+      ],
+      "parts": 1,
+      "failures": 16,
+      "exportedAt": "2026-10-14T23:41:20.438Z"
+    },
+    {
+      "runId": "live-9-all-luna",
+      "file": "live-9-all-luna.json",
+      "bytes": 4579298,
+      "transport": "live",
+      "assignment": {
+        "AUSTRIA": "gpt-6-luna",
+        "ENGLAND": "gpt-6-luna",
+        "FRANCE": "gpt-6-luna",
+        "GERMANY": "gpt-6-luna",
+        "ITALY": "gpt-6-luna",
+        "RUSSIA": "gpt-6-luna",
+        "TURKEY": "gpt-6-luna"
+      },
+      "lastYear": 1950,
+      "status": "FINISHED",
+      "endedBy": "LAST_YEAR",
+      "reached": "WINTER 1950",
+      "phases": 176,
+      "centers": {
+        "AUSTRIA": 0,
+        "ENGLAND": 6,
+        "FRANCE": 8,
+        "GERMANY": 0,
+        "ITALY": 0,
+        "RUSSIA": 5,
+        "TURKEY": 15
+      },
+      "winner": null,
+      "settledNanousd": 1184293450,
+      "heldNanousd": 0,
+      "instructionsHashes": [
+        "6885cbe55074ee51"
+      ],
+      "commits": [
+        "26708d6fe13d07109c2b69a597f21305b7ec2351"
+      ],
+      "parts": 1,
+      "failures": 97,
+      "exportedAt": "2026-10-15T00:52:14.128Z"
+    },
+    {
+      "runId": "live-10-all-luna-v6",
+      "file": "live-10-all-luna-v6.json",
+      "bytes": 5036854,
+      "transport": "live",
+      "assignment": {
+        "AUSTRIA": "gpt-6-luna",
+        "ENGLAND": "gpt-6-luna",
+        "FRANCE": "gpt-6-luna",
+        "GERMANY": "gpt-6-luna",
+        "ITALY": "gpt-6-luna",
+        "RUSSIA": "gpt-6-luna",
+        "TURKEY": "gpt-6-luna"
+      },
+      "lastYear": 1950,
+      "status": "FINISHED",
+      "endedBy": "LAST_YEAR",
+      "reached": "WINTER 1950",
+      "phases": 209,
+      "centers": {
+        "AUSTRIA": 15,
+        "ENGLAND": 10,
+        "FRANCE": 0,
+        "GERMANY": 0,
+        "ITALY": 7,
+        "RUSSIA": 0,
+        "TURKEY": 2
+      },
+      "winner": null,
+      "settledNanousd": 1203417900,
+      "heldNanousd": 0,
+      "instructionsHashes": [
+        "eea263560b16613d"
+      ],
+      "commits": [
+        "cbcd8488c79895498f8c2a3738b94fe4d43f6cf8"
+      ],
+      "parts": 1,
+      "failures": 99,
+      "exportedAt": "2026-10-15T03:09:07.616Z"
+    },
+    {
+      "runId": "live-11-all-luna-memory",
+      "file": "live-11-all-luna-memory.json",
+      "bytes": 4098503,
+      "transport": "live",
+      "assignment": {
+        "AUSTRIA": "gpt-6-luna",
+        "ENGLAND": "gpt-6-luna",
+        "FRANCE": "gpt-6-luna",
+        "GERMANY": "gpt-6-luna",
+        "ITALY": "gpt-6-luna",
+        "RUSSIA": "gpt-6-luna",
+        "TURKEY": "gpt-6-luna"
+      },
+      "lastYear": 1950,
+      "status": "FINISHED",
+      "endedBy": "SOLO_WIN",
+      "reached": "FALL 1941",
+      "phases": 162,
+      "centers": {
+        "AUSTRIA": 18,
+        "ENGLAND": 8,
+        "FRANCE": 6,
+        "GERMANY": 0,
+        "ITALY": 2,
+        "RUSSIA": 0,
+        "TURKEY": 0
+      },
+      "winner": "AUSTRIA",
+      "settledNanousd": 1185253620,
+      "heldNanousd": 0,
+      "instructionsHashes": [
+        "8434bf6012a2b346"
+      ],
+      "commits": [
+        "3ca5535127008e529df66dcd3bab8b8a80353f77",
+        "bcedd7dabbe8aec07e0315cbbb2836d24849c424"
+      ],
+      "parts": 2,
+      "failures": 64,
+      "exportedAt": "2026-10-16T01:54:14.843Z"
+    },
+    {
+      "runId": "live-12-all-haiku-memory",
+      "file": "live-12-all-haiku-memory.json",
+      "bytes": 4507060,
+      "transport": "live",
+      "assignment": {
+        "AUSTRIA": "claude-haiku-5-5",
+        "ENGLAND": "claude-haiku-5-5",
+        "FRANCE": "claude-haiku-5-5",
+        "GERMANY": "claude-haiku-5-5",
+        "ITALY": "claude-haiku-5-5",
+        "RUSSIA": "claude-haiku-5-5",
+        "TURKEY": "claude-haiku-5-5"
+      },
+      "lastYear": 1950,
+      "status": "FINISHED",
+      "endedBy": "LAST_YEAR",
+      "reached": "SPRING 1951",
+      "phases": 152,
+      "centers": {
+        "AUSTRIA": 2,
+        "ENGLAND": 3,
+        "FRANCE": 5,
+        "GERMANY": 6,
+        "ITALY": 5,
+        "RUSSIA": 5,
+        "TURKEY": 8
+      },
+      "winner": null,
+      "settledNanousd": 1973543600,
+      "heldNanousd": 0,
+      "instructionsHashes": [
+        "8434bf6012a2b346"
+      ],
+      "commits": [
+        "d8ccf2d68969627aeb9d4314d7c9e14edf89978a"
+      ],
+      "parts": 1,
+      "failures": 4,
+      "exportedAt": "2026-10-16T02:40:07.689Z"
+    },
+    {
+      "runId": "live-13-all-haiku-medium",
+      "file": "live-13-all-haiku-medium.json",
+      "bytes": 4644925,
+      "transport": "live",
+      "assignment": {
+        "AUSTRIA": "claude-haiku-5-5",
+        "ENGLAND": "claude-haiku-5-5",
+        "FRANCE": "claude-haiku-5-5",
+        "GERMANY": "claude-haiku-5-5",
+        "ITALY": "claude-haiku-5-5",
+        "RUSSIA": "claude-haiku-5-5",
+        "TURKEY": "claude-haiku-5-5"
+      },
+      "lastYear": 1950,
+      "status": "FINISHED",
+      "endedBy": "LAST_YEAR",
+      "reached": "WINTER 1950",
+      "phases": 151,
+      "centers": {
+        "AUSTRIA": 4,
+        "ENGLAND": 7,
+        "FRANCE": 5,
+        "GERMANY": 4,
+        "ITALY": 8,
+        "RUSSIA": 5,
+        "TURKEY": 1
+      },
+      "winner": null,
+      "settledNanousd": 2451787000,
+      "heldNanousd": 0,
+      "instructionsHashes": [
+        "8434bf6012a2b346"
+      ],
+      "commits": [
+        "63ce11b20cf86693e623be924fd42a079791e9f2"
+      ],
+      "parts": 1,
+      "failures": 3,
+      "exportedAt": "2026-10-16T04:25:40.569Z"
+    },
+    {
+      "runId": "live-14-all-luna-medium",
+      "file": "live-14-all-luna-medium.json",
+      "bytes": 2312656,
+      "transport": "live",
+      "assignment": {
+        "AUSTRIA": "gpt-6-luna",
+        "ENGLAND": "gpt-6-luna",
+        "FRANCE": "gpt-6-luna",
+        "GERMANY": "gpt-6-luna",
+        "ITALY": "gpt-6-luna",
+        "RUSSIA": "gpt-6-luna",
+        "TURKEY": "gpt-6-luna"
+      },
+      "lastYear": 1950,
+      "status": "FINISHED",
+      "endedBy": "SOLO_WIN",
+      "reached": "FALL 1921",
+      "phases": 92,
+      "centers": {
+        "AUSTRIA": 1,
+        "ENGLAND": 0,
+        "FRANCE": 10,
+        "GERMANY": 2,
+        "ITALY": 3,
+        "RUSSIA": 18,
+        "TURKEY": 0
+      },
+      "winner": "RUSSIA",
+      "settledNanousd": 1190702690,
+      "heldNanousd": 212992000,
+      "instructionsHashes": [
+        "8434bf6012a2b346"
+      ],
+      "commits": [
+        "63ce11b20cf86693e623be924fd42a079791e9f2",
+        "c6f0883628d4cf913cc74834bc7acdf98c7b5e53"
+      ],
+      "parts": 2,
+      "failures": 64,
+      "exportedAt": "2026-10-16T19:16:13.287Z"
+    },
+    {
+      "runId": "live-15-sol-vs-sonnet",
+      "file": "live-15-sol-vs-sonnet.json",
+      "bytes": 1091171,
+      "transport": "live",
+      "assignment": {
+        "AUSTRIA": "gpt-6.1-sol",
+        "ENGLAND": "claude-sonnet-5-5",
+        "FRANCE": "gpt-6.1-sol",
+        "GERMANY": "claude-sonnet-5-5",
+        "ITALY": "gpt-6.1-sol",
+        "RUSSIA": "claude-sonnet-5-5",
+        "TURKEY": "gpt-6.1-sol"
+      },
+      "lastYear": 1999,
+      "status": "FINISHED",
+      "endedBy": "SOLO_WIN",
+      "reached": "FALL 1910",
+      "phases": 39,
+      "centers": {
+        "AUSTRIA": 18,
+        "ENGLAND": 6,
+        "FRANCE": 5,
+        "GERMANY": 3,
+        "ITALY": 1,
+        "RUSSIA": 1,
+        "TURKEY": 0
+      },
+      "winner": "AUSTRIA",
+      "settledNanousd": 6037637600,
+      "heldNanousd": 204800000,
+      "instructionsHashes": [
+        "8434bf6012a2b346"
+      ],
+      "commits": [
+        "9e0af89867214267d9d6092b4e4af3e456eee24f"
+      ],
+      "parts": 1,
+      "failures": 6,
+      "exportedAt": "2026-10-17T03:29:25.334Z"
+    },
+    {
+      "runId": "live-16-sol-vs-sonnet-medium",
+      "file": "live-16-sol-vs-sonnet-medium.json",
+      "bytes": 2545483,
+      "transport": "live",
+      "assignment": {
+        "AUSTRIA": "gpt-6.1-sol",
+        "ENGLAND": "claude-sonnet-5-5",
+        "FRANCE": "gpt-6.1-sol",
+        "GERMANY": "claude-sonnet-5-5",
+        "ITALY": "gpt-6.1-sol",
+        "RUSSIA": "claude-sonnet-5-5",
+        "TURKEY": "gpt-6.1-sol"
+      },
+      "lastYear": 1999,
+      "status": "WAITING",
+      "endedBy": null,
+      "reached": "FALL 1925",
+      "phases": 99,
+      "centers": {
+        "AUSTRIA": 0,
+        "ENGLAND": 0,
+        "FRANCE": 14,
+        "GERMANY": 0,
+        "ITALY": 14,
+        "RUSSIA": 1,
+        "TURKEY": 5
+      },
+      "winner": null,
+      "settledNanousd": 14837731000,
+      "heldNanousd": 0,
+      "instructionsHashes": [
+        "8434bf6012a2b346"
+      ],
+      "commits": [
+        "e7b4162f1edfb19475b56c857df2599588fb3c5f"
+      ],
+      "parts": 1,
+      "failures": 16,
+      "exportedAt": "2026-10-17T05:07:36.748Z"
+    }
+  ]
+}
